@@ -1,13 +1,39 @@
 import logging
 from datetime import date
+from enum import Enum
 
 import pandas as pd
 from degiro_connector.trading.models.transaction import HistoryRequest
 
 import file_utils as fu
-from connection import get_connection
+from degiro_connection import get_connection
 
 logging.basicConfig(level=logging.DEBUG)
+
+
+class TxHistoryDataFields(str, Enum):
+	date = 'date'
+	auto_fx_fee_in_base_currency = 'auto_fx_fee_in_base_currency'
+	buysell = 'buysell'
+	counter_party = 'counter_party'
+	executing_entity_id = 'executing_entity_id'
+	fee_in_base_currency = 'fee_in_base_currency'
+	fx_rate = 'fx_rate'
+	gross_fx_rate = 'gross_fx_rate'
+	id = 'id'
+	nett_fx_rate = 'nett_fx_rate'
+	order_type_id = 'order_type_id'
+	price = 'price'
+	product_id = 'product_id'
+	quantity = 'quantity'
+	total = 'total'
+	total_fees_in_base_currency = 'total_fees_in_base_currency'
+	total_in_base_currency = 'total_in_base_currency'
+	total_plus_all_fees_in_base_currency = 'total_plus_all_fees_in_base_currency'
+	total_plus_fee_in_base_currency = 'total_plus_fee_in_base_currency'
+	transfered = 'transfered'
+	trading_venue = 'trading_venue'
+	transaction_type_id = 'transaction_type_id'
 
 
 def fetch_tx_history() -> pd.DataFrame:

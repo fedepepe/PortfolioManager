@@ -1,2 +1,4 @@
 /config/config.json
-/data/~$tx_history.xlsx
+/data
+/.idea
+/venv

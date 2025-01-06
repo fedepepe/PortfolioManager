@@ -35,7 +35,10 @@ class Portfolio:
 
     def rebalance(self, tx_history_df: pd.Series):
         for n in range(len(tx_history_df)):
-            idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistoryDataFields.symbol])
+            if tx_history_df.iloc[n, :][TxHistoryDataFields.symbol] is np.nan:
+                idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistoryDataFields.product_id])
+            else:
+                idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistoryDataFields.symbol])
             self.current_units = self.previous_units.copy()
             # check that units reflect price directly
             quantity = tx_history_df.iloc[n, :][TxHistoryDataFields.quantity]

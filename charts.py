@@ -62,7 +62,10 @@ def fetch_charts(product_ids: int | List[int] = 11853206,
         if rename_columns_to == 'ids':
             df = df.rename(columns={chart_type.value: product_id})
         elif rename_columns_to == 'symbols':
-            df = df.rename(columns={chart_type.value: symbol})
+            if symbol is not None:
+                df = df.rename(columns={chart_type.value: symbol})
+            else:
+                df = df.rename(columns={chart_type.value: product_id})
         else:
             raise NotImplementedError
         df = df.set_index('timestamp')
@@ -85,7 +88,7 @@ def save_charts(chart_df: pd.DataFrame,
 
 def fetch_portfolio_charts():
     products_df = load_portfolio_products()
-    chart_df = fetch_charts(product_ids=list(set(products_df['id'].to_list())))
+    chart_df = fetch_charts(product_ids=list(set(products_df['id'].astype(int).to_list())))
     save_charts(chart_df=chart_df)
 
 

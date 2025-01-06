@@ -152,7 +152,7 @@ def compute_portfolio_nav() -> HistPortfolioData:
 	fx_rates_df[f'{BASE_CURRENCY}/{BASE_CURRENCY}'] = 1.0
 
 	product_ids = list(set(tx_history_df['product_id'].to_list()))
-	product_symbols = products_df.loc[product_ids, 'symbol'].to_list()
+	product_symbols = products_df.loc[product_ids, 'symbol'].fillna(products_df.loc[product_ids, 'id']).to_list()
 	product_curr = products_df.loc[product_ids, 'currency'].to_list()
 
 	# compute initial cash balance
@@ -204,5 +204,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-	unit_test = UnitTests.COMPUTE_NAV
+	unit_test = UnitTests.UPDATE_DATA
 	run_unit_test(unit_test=unit_test)

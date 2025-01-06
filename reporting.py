@@ -84,7 +84,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
         print(f'Switching to default sampling frequency: {freq}')
 
     total_return_all_samples = nav.iloc[-1] / initial_cash_pos - 1
-    prices_eoy = nav.resample('YE').last()
+    prices_eoy = nav.resample('Y').last()
     if nav.index[0] not in prices_eoy.index:
         prices_eoy = pd.concat([nav.iloc[[0]], prices_eoy])
     returns_yearly = prices_eoy.pct_change().dropna().rename('return')
@@ -92,7 +92,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
     returns_yearly.index.name = 'Year'
     returns_yearly['Total'] = total_return_all_samples
     returns_yearly = returns_yearly.reindex(index=returns_yearly.index[::-1])
-    returns_monthly = nav.resample('ME').last().pct_change().dropna().rename('return')
+    returns_monthly = nav.resample('M').last().pct_change().dropna().rename('return')
     return_1y = nav.resample(freq).last().ffill().pct_change(ANN_FACTOR_DICT[freq]).iloc[-1]
     return_3y_ann = (1. + nav.resample(freq).last().ffill().pct_change(3 * ANN_FACTOR_DICT[freq]).iloc[-1]) ** (1. / 3) - 1
     return_5y_ann = (1. + nav.resample(freq).last().ffill().pct_change(5 * ANN_FACTOR_DICT[freq]).iloc[-1]) ** (1. / 5) - 1

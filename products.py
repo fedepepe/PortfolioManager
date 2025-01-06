@@ -6,6 +6,7 @@ import pandas as pd
 import file_utils as fu
 from definitions import DATA_DIR
 from degiro_connection import TRADING_API
+from product_definitions import ProductTypes
 from sql import insert_product, get_products, get_max_product_id
 from transactions import load_tx_history
 
@@ -23,7 +24,12 @@ def fetch_full_product_catalog():
 		                .get_products_info(product_list=[i for i in range(n, n + 1000)], raw=False, ))
 		if hasattr(product_info, 'data'):
 			for prod_id in product_info.data:
-				if product_info.data[prod_id].product_type in ['STOCK', 'ETF', 'BOND', 'CURRENCY']:
+				if (product_info.data[prod_id].product_type in [ProductTypes.STOCK,
+				                                                ProductTypes.ETF,
+				                                                ProductTypes.BOND,
+				                                                ProductTypes.CURRENCY] and
+						product_info.data[prod_id].active is True and
+						product_info.data[prod_id].isin is not None):
 					insert_product(product_info.data[prod_id])
 		if n > n_start + 10e6:
 			break
@@ -69,7 +75,7 @@ def save_product_info(product_info_df: pd.DataFrame):
 
 def fetch_portfolio_products():
 	tx_history_df = load_tx_history()
-	product_ids = list(set(tx_history_df['product_id'].to_list()))
+	product_ids = list(set(tx_history_df['product_id'].astype(int).to_list()))
 	product_df = fetch_product_info(product_ids=product_ids)
 	save_product_info(product_df)
 
@@ -82,5 +88,5 @@ def load_portfolio_products() -> pd.DataFrame:
 if __name__ == '__main__':
 	# print(read_product_catalog(product_type='CURRENCY'))
 	fetch_full_product_catalog()
-	# fetch_single_product(product_id=24739339)
-	# print(read_product_catalog(product_id=24739339))
+# fetch_single_product(product_id=24739339)
+# print(read_product_catalog(product_id=24739339))

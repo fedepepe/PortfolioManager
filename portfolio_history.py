@@ -131,8 +131,9 @@ def compute_portfolio_nav() -> HistPortfolioData:
 	account_mvmts_df = load_account_movements()
 	dividends_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Dividendo', 'Cedola']), :]
 	# deposits/withdrawals
-	deposits_df = account_mvmts_df.loc[((account_mvmts_df['description'].str.startswith('Deposito', na=False)) |
-	                                    (account_mvmts_df['description'].str.startswith('Prelievo', na=False))), :]
+	deposits_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Deposito', 'Prelievo',
+	                                                                         'Deposito flatex',
+	                                                                         'Prelievo flatex']), :]
 	# forex rates
 	products_df = load_portfolio_products()
 	curr_foreign = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))

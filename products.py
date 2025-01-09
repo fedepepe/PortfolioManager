@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 def fetch_full_product_catalog():
 	# FETCH PRODUCT INFO
-	n_start = get_max_product_id()
+	n_start = 0  # get_max_product_id()
 	if n_start is None:
 		n_start = 0
 	n = n_start
@@ -24,14 +24,17 @@ def fetch_full_product_catalog():
 		                .get_products_info(product_list=[i for i in range(n, n + 1000)], raw=False, ))
 		if hasattr(product_info, 'data'):
 			for prod_id in product_info.data:
-				if (product_info.data[prod_id].product_type in [ProductTypes.STOCK,
-				                                                ProductTypes.ETF,
-				                                                ProductTypes.BOND,
-				                                                ProductTypes.CURRENCY] and
-						product_info.data[prod_id].active is True and
-						product_info.data[prod_id].isin is not None):
+				if (product_info.data[prod_id].product_type in [
+					# ProductTypes.STOCK,
+					# ProductTypes.ETF,
+					# ProductTypes.BOND,
+					ProductTypes.CURRENCY
+				] and
+						product_info.data[prod_id].active is True
+						# product_info.data[prod_id].isin is not None
+				):
 					insert_product(product_info.data[prod_id])
-		if n > n_start + 10e6:
+		if n > n_start + 40e6:
 			break
 		n += 1000
 	return product_info
@@ -64,13 +67,7 @@ def fetch_product_info(product_ids: int | List[int] = 11853206):
 
 
 def save_product_info(product_info_df: pd.DataFrame):
-	try:
-		df_old = fu.load_df_from_excel(file_name='products_info', folder=DATA_DIR)
-	except FileNotFoundError:
-		df_old = pd.DataFrame()
-	df = pd.concat([df_old, product_info_df], axis=1)
-	df = df.loc[:, ~df.columns[::-1].duplicated()[::-1]]
-	fu.save_df_to_excel(df=df, file_name='products_info', folder=DATA_DIR)
+	fu.save_df_to_excel(df=product_info_df, file_name='products_info', folder=DATA_DIR)
 
 
 def fetch_portfolio_products():
@@ -87,6 +84,7 @@ def load_portfolio_products() -> pd.DataFrame:
 
 if __name__ == '__main__':
 	# print(read_product_catalog(product_type='CURRENCY'))
+	# print(get_max_product_id())
 	fetch_full_product_catalog()
 # fetch_single_product(product_id=24739339)
 # print(read_product_catalog(product_id=24739339))

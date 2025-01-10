@@ -5,7 +5,7 @@ from definitions import CONFIG_DIR
 
 
 credentials = build_credentials(
-	location=f"{CONFIG_DIR}/config_2.json",
+	location=f"{CONFIG_DIR}/config.json",
 )
 TRADING_API = TradingAPI(credentials=credentials)
 TRADING_API.connect()

@@ -24,6 +24,7 @@ def fetch_charts(product_ids: int | List[int] = 11853206,
     if isinstance(product_ids, int):
         product_ids = [product_ids]
     # GET PRODUCT INFO
+    # TODO: get product info from local database
     product_info_df = fetch_product_info(product_ids)
     # ESTABLISH CONNECTION
     client_details_table = TRADING_API.get_client_details()
@@ -91,6 +92,8 @@ def fetch_portfolio_charts():
     chart_df = fetch_charts(product_ids=list(set(products_df['id'].astype(int).to_list())))
     save_charts(chart_df=chart_df)
 
+
+# TODO: implement function to fetch data for ETF products
 
 def load_portfolio_charts(chart_name: str = PRODUCTS_CHART_FILE_NAME,
                           chart_type: ChartType = ChartType.PRICE) -> pd.DataFrame:

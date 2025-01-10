@@ -16,7 +16,7 @@ PRODUCTS_CHART_FILE_NAME = 'products'
 FX_RATES_CHART_FILE_NAME = 'fx_rates'
 
 # portfolio
-BASE_CURRENCY = Currencies.EUR
+BASE_CURRENCY = Currencies.CHF
 PORTFOLIO_NAME = f'Portfolio {BASE_CURRENCY}'
 
 # financial math constants

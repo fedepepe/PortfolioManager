@@ -14,7 +14,7 @@ from definitions import DATA_DIR
 logging.basicConfig(level=logging.DEBUG)
 
 
-class TxHistoryDataFields(str, Enum):
+class TxHistDataFields(str, Enum):
     date = 'date'
     auto_fx_fee_in_base_currency = 'auto_fx_fee_in_base_currency'
     buysell = 'buysell'

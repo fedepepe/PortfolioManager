@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, Date, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, Float, Date, UniqueConstraint, Sequence
 
 from db_conn import Base, engine
 
@@ -41,6 +41,14 @@ class Product(Base):
 	vwd_module_id = Column(Integer)
 	vwd_module_id_secondary = Column(Integer)
 	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
+
+
+class Close(Base):
+	__tablename__ = 'close'
+	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
+	product_id = Column(Integer)
+	date = Column(Date)
+	close = Column(Float)
 
 
 # Create the table in the database

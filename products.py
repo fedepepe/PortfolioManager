@@ -8,7 +8,7 @@ import file_utils as fu
 from definitions import DATA_DIR
 from degiro_connection import TRADING_API
 from product_definitions import ProductTypes
-from sql import insert_product, get_products
+from sql import insert_product, query_products
 from transactions import load_tx_history
 
 logging.basicConfig(level=logging.DEBUG)
@@ -25,15 +25,11 @@ def fetch_full_product_catalog():
                         .get_products_info(product_list=[i for i in range(n, n + 1000)], raw=False, ))
         if hasattr(product_info, 'data'):
             for prod_id in product_info.data:
-                if (product_info.data[prod_id].product_type in [
-                    # ProductTypes.STOCK,
-                    # ProductTypes.ETF,
-                    # ProductTypes.BOND,
-                    ProductTypes.CURRENCY
-                ] and
-                        product_info.data[prod_id].active is True
-                        # product_info.data[prod_id].isin is not None
-                ):
+                if (product_info.data[prod_id].product_type in [ProductTypes.CURRENCY,
+                                                                ProductTypes.STOCK,
+                                                                ProductTypes.ETF,
+                                                                ProductTypes.BOND] and
+                        product_info.data[prod_id].active is True):
                     insert_product(product_info.data[prod_id])
         if n > n_start + 40e6:
             break
@@ -45,13 +41,6 @@ def fetch_single_product(product_id: int):
     product_info = TRADING_API.get_products_info(product_list=[product_id], raw=False)
     if hasattr(product_info, 'data'):
         insert_product(product_info.data[product_id])
-
-
-def read_product_catalog(product_name: Optional[str] = None,
-                         product_id: Optional[int] = None,
-                         product_type: Optional[str] = None,
-                         ) -> pd.DataFrame:
-    return get_products(product_name=product_name, product_id=product_id, product_type=product_type)
 
 
 def fetch_product_info(product_ids: int | List[int] = 11853206):
@@ -83,9 +72,21 @@ def load_portfolio_products() -> pd.DataFrame:
     return product_df
 
 
+class UnitTests(Enum):
+    FETCH_FULL_PRODUCT_CATALOG = 1
+    LOAD_ETF_CATALOG = 2
+
+
+def run_unit_test(unit_test: UnitTests):
+    if unit_test == UnitTests.FETCH_FULL_PRODUCT_CATALOG:
+        fetch_full_product_catalog()
+    elif unit_test == UnitTests.LOAD_ETF_CATALOG:
+        results_df = query_products(product_type=ProductTypes.ETF, tradable=True)
+        print(results_df)
+    else:
+        raise NotImplementedError
+
+
 if __name__ == '__main__':
-    # print(read_product_catalog(product_type='CURRENCY'))
-    # print(get_max_product_id())
-    fetch_full_product_catalog()
-# fetch_single_product(product_id=24739339)
-# print(read_product_catalog(product_id=24739339))
+    unit_test = UnitTests.FETCH_FULL_PRODUCT_CATALOG
+    run_unit_test(unit_test=unit_test)

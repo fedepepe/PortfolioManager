@@ -74,7 +74,6 @@ def fetch_tx_history() -> pd.DataFrame:
         ),
         raw=False,
     )
-
     tx_history_df = field_list_to_df(data=transactions_history.data)
     fu.save_df_to_excel(df=tx_history_df, file_name='tx_history', folder=DATA_DIR)
     return tx_history_df

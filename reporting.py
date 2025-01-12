@@ -257,6 +257,4 @@ class OutDataTabs:
     SIGNALS_ALLOC = 'signals_allocation'
     PRICES = 'prices'
     CUM_PNL = 'cum_pnl'
-    FUNDING_AMOUNT = 'funding_amount'
-    SIGNALS_RAW = 'signals_raw'
     CORRELATION = 'correlation'

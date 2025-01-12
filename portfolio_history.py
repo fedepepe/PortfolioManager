@@ -11,18 +11,19 @@ from definitions import DATA_DIR, PORTFOLIO_NAME, BASE_CURRENCY, FX_RATES_CHART_
 from portfolio import Portfolio
 from products import fetch_portfolio_products, load_portfolio_products
 from transactions import fetch_account_movements, load_account_movements
-from transactions import fetch_tx_history, load_tx_history, TxHistDataFields
+from transactions import fetch_tx_history, load_tx_history, TxHistFields
 
 
 class HistPortfolioData(NamedTuple):
 	nav: pd.Series
+	cum_pnl: pd.DataFrame
 	units: pd.DataFrame
 	target_weights: Optional[pd.DataFrame]
 	effective_weights: pd.DataFrame
 	transaction_costs: pd.Series
 	transaction_value: pd.Series
 	prices: Optional[pd.DataFrame] = None
-	dividends: Optional[pd.Series] = None
+	dividends: Optional[pd.DataFrame] = None
 	fx_rates: Optional[pd.DataFrame] = None
 	deposits: Optional[pd.Series] = None
 	nav_eff: Optional[pd.Series] = None
@@ -30,11 +31,11 @@ class HistPortfolioData(NamedTuple):
 
 
 def compute_hist_nav(prices_df: pd.DataFrame,
-                     tx_history_df: pd.DataFrame,
+                     tx_hist_df: pd.DataFrame,
                      initial_cash_balance: float = 1e4,
-                     dividends_df: Optional[pd.DataFrame] = None,
+                     div_hist_df: Optional[pd.DataFrame] = None,
                      fx_rates_df: Optional[pd.DataFrame] = None,
-                     deposits_df: Optional[pd.DataFrame] = None,
+                     dep_hist_df: Optional[pd.DataFrame] = None,
                      ) -> HistPortfolioData:
 	# initialize
 	units = np.zeros_like(prices_df)
@@ -43,7 +44,7 @@ def compute_hist_nav(prices_df: pd.DataFrame,
 	cash_balance = np.zeros(len(prices_df))
 	transaction_value = np.zeros(len(prices_df))
 	transaction_costs = np.zeros(len(prices_df))
-	dividends = np.zeros(len(prices_df))
+	dividends = np.zeros_like(prices_df)
 	deposits = np.zeros(len(prices_df))
 
 	# build initial portfolio
@@ -54,22 +55,26 @@ def compute_hist_nav(prices_df: pd.DataFrame,
 		current_prices = prices_df.iloc[t, :]
 
 		# rebalance
-		if prices_df.index[t] in tx_history_df['Date'].to_list():
-			portfolio.rebalance(tx_history_df=tx_history_df.loc[tx_history_df['Date'] == prices_df.index[t]])
+		if prices_df.index[t] in tx_hist_df['Date'].to_list():
+			portfolio.rebalance(tx_history_df=tx_hist_df.loc[tx_hist_df['Date'] == prices_df.index[t]])
 			transaction_value[t] = portfolio.transaction_value
 			transaction_costs[t] = portfolio.transaction_costs
 
 		# add dividends
-		if prices_df.index[t] in dividends_df['Date'].to_list():
-			dividend = dividends_df.loc[dividends_df['Date'] == prices_df.index[t], 'amount_base_currency'].sum()
-			portfolio.add_cash(dividend)
-			dividends[t] = dividend
+		if div_hist_df is not None:
+			if prices_df.index[t] in div_hist_df['Date'].to_list():
+				div_hist_t = div_hist_df.loc[div_hist_df['Date'] == prices_df.index[t], :]
+				portfolio.add_cash(div_hist_t['amount_base_currency'].sum())
+				for n in range(len(div_hist_t)):
+					idx = prices_df.columns.to_list().index(div_hist_t.iloc[n, :][TxHistFields.symbol])
+					dividends[t, idx] = div_hist_t.iloc[n, :]['amount_base_currency']
 
 		# add deposits and subtract withdrawals
-		if prices_df.index[t] in deposits_df['Date'].to_list():
-			deposit = deposits_df.loc[deposits_df['Date'] == prices_df.index[t], 'change'].sum()
-			portfolio.add_cash(deposit)
-			deposits[t] = deposit
+		if dep_hist_df is not None:
+			if prices_df.index[t] in dep_hist_df['Date'].to_list():
+				deposit = dep_hist_df.loc[dep_hist_df['Date'] == prices_df.index[t], 'change'].sum()
+				portfolio.add_cash(deposit)
+				deposits[t] = deposit
 
 		# store
 		units[t, :] = portfolio.current_units
@@ -79,17 +84,19 @@ def compute_hist_nav(prices_df: pd.DataFrame,
 
 	units_df = pd.DataFrame(units, columns=prices_df.columns, index=prices_df.index)
 	effective_weights_df = pd.DataFrame(effective_weights, columns=prices_df.columns, index=prices_df.index)
-	units_df['Cash'] = cash_balance
 	effective_weights_df['Cash'] = cash_balance / nav
 	nav = pd.Series(nav, name='NAV', index=prices_df.index)
 	transaction_value = pd.Series(transaction_value, name='Tx value', index=prices_df.index)
 	transaction_costs = pd.Series(transaction_costs, name='Tx costs', index=prices_df.index)
-	dividends = pd.Series(dividends, name='Dividends', index=prices_df.index)
+	dividends = pd.DataFrame(dividends, columns=prices_df.columns, index=prices_df.index)
 	deposits = pd.Series(deposits, name='Deposits', index=prices_df.index)
 	returns = (nav - deposits).div(nav.shift(1)).sub(1.).fillna(0.)
 	nav_eff = 100. * returns.add(1.).cumprod().rename('NAV Effective')
+	cum_pnl = prices_df.diff().mul(units_df.shift(1)).add(dividends).cumsum()
+	units_df['Cash'] = cash_balance
 
 	hist_portfolio_data = HistPortfolioData(nav=nav,
+	                                        cum_pnl=cum_pnl,
 	                                        units=units_df,
 	                                        target_weights=None,
 	                                        effective_weights=effective_weights_df,
@@ -152,7 +159,7 @@ def compute_portfolio_nav() -> HistPortfolioData:
 		fx_rates_df = fx_rates_df.reindex(index=prices_df.index)
 	fx_rates_df[f'{BASE_CURRENCY}/{BASE_CURRENCY}'] = 1.0
 
-	product_ids = list(set(tx_hist_df[TxHistDataFields.product_id].to_list()))
+	product_ids = list(set(tx_hist_df[TxHistFields.product_id].to_list()))
 	product_symbols = products_df.loc[product_ids, 'symbol'].fillna(products_df.loc[product_ids, 'id']).to_list()
 	product_curr = products_df.loc[product_ids, 'currency'].to_list()
 
@@ -160,8 +167,11 @@ def compute_portfolio_nav() -> HistPortfolioData:
 	initial_cash_balance = deposits_df.loc[deposits_df.index <= tx_hist_df.index[0], 'change'].sum()
 
 	# reset datetime and restrict to a suitable timeframe
-	tx_hist_df[TxHistDataFields.symbol] = products_df.loc[tx_hist_df[TxHistDataFields.product_id], 'symbol'].to_list()
+	tx_hist_df[TxHistFields.symbol] = products_df.loc[tx_hist_df[TxHistFields.product_id], 'symbol'].to_list()
+	tx_hist_df[TxHistFields.symbol] = tx_hist_df[TxHistFields.symbol].fillna(tx_hist_df.product_id)
 	tx_hist_df.loc[:, 'Date'] = [reset_time(ts) for ts in tx_hist_df.index]
+	dividends_df[TxHistFields.symbol] = products_df.loc[dividends_df[TxHistFields.product_id], 'symbol'].to_list()
+	dividends_df[TxHistFields.symbol] = dividends_df[TxHistFields.symbol].fillna(dividends_df.product_id)
 	dividends_df.loc[:, 'Date'] = [reset_time(ts) for ts in dividends_df['value_date']]
 	deposits_df.loc[:, 'Date'] = [reset_time(ts) for ts in deposits_df['value_date']]
 	ts_start = tx_hist_df['Date'].iloc[0]
@@ -183,11 +193,11 @@ def compute_portfolio_nav() -> HistPortfolioData:
 
 	# compute historical portfolio data
 	hist_portfolio_data = compute_hist_nav(prices_df=prices_df,
-	                                       tx_history_df=tx_hist_df,
+	                                       tx_hist_df=tx_hist_df,
 	                                       initial_cash_balance=initial_cash_balance,
-	                                       dividends_df=dividends_df,
+	                                       div_hist_df=dividends_df,
 	                                       fx_rates_df=fx_rates_df,
-	                                       deposits_df=deposits_df)
+	                                       dep_hist_df=deposits_df)
 	save_hist_portfolio_data(hist_portfolio_data)
 	return hist_portfolio_data
 
@@ -205,5 +215,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-	unit_test = UnitTests.UPDATE_DATA
+	unit_test = UnitTests.COMPUTE_NAV
 	run_unit_test(unit_test=unit_test)

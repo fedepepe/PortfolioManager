@@ -3,7 +3,7 @@ import pandas as pd
 
 from definitions import BASE_CURRENCY, PORTFOLIO_NAME
 from product_definitions import Currencies
-from transactions import TxHistDataFields
+from transactions import TxHistFields
 
 
 class Portfolio:
@@ -35,20 +35,20 @@ class Portfolio:
 
     def rebalance(self, tx_history_df: pd.Series):
         for n in range(len(tx_history_df)):
-            if tx_history_df.iloc[n, :][TxHistDataFields.symbol] is np.nan:
-                idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistDataFields.product_id])
+            if tx_history_df.iloc[n, :][TxHistFields.symbol] is np.nan:
+                idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistFields.product_id])
             else:
-                idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistDataFields.symbol])
+                idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistFields.symbol])
             self.current_units = self.previous_units.copy()
             # check that units reflect price directly
-            quantity = tx_history_df.iloc[n, :][TxHistDataFields.quantity]
-            price = tx_history_df.iloc[n, :][TxHistDataFields.price]
-            total = tx_history_df.iloc[n, :][TxHistDataFields.total]
+            quantity = tx_history_df.iloc[n, :][TxHistFields.quantity]
+            price = tx_history_df.iloc[n, :][TxHistFields.price]
+            total = tx_history_df.iloc[n, :][TxHistFields.total]
             if quantity * price == - total:
                 self.current_units[idx] += quantity
             else:
                 self.current_units[idx] += - total / price
-            self.transaction_value = tx_history_df.iloc[n, :][TxHistDataFields.total_in_base_currency]
-            self.transaction_costs = tx_history_df.iloc[n, :][TxHistDataFields.total_fees_in_base_currency]
+            self.transaction_value = tx_history_df.iloc[n, :][TxHistFields.total_in_base_currency]
+            self.transaction_costs = tx_history_df.iloc[n, :][TxHistFields.total_fees_in_base_currency]
             self.current_cash_balance = self.current_cash_balance + self.transaction_value + self.transaction_costs
             self.previous_units = self.current_units.copy()

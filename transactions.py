@@ -14,7 +14,7 @@ from definitions import DATA_DIR
 logging.basicConfig(level=logging.DEBUG)
 
 
-class TxHistDataFields(str, Enum):
+class TxHistFields(str, Enum):
     date = 'date'
     auto_fx_fee_in_base_currency = 'auto_fx_fee_in_base_currency'
     buysell = 'buysell'
@@ -81,6 +81,7 @@ def fetch_tx_history() -> pd.DataFrame:
 
 def load_tx_history() -> pd.DataFrame:
     tx_history_df = fu.load_df_from_excel(file_name='tx_history', folder=DATA_DIR)
+    tx_history_df = tx_history_df.astype({"product_id": int})
     return tx_history_df
 
 

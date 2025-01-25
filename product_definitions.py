@@ -17,3 +17,11 @@ class ProductTypes:
     FUND = 'FUND'
     LEVERAGED = 'LEVERAGED'
     CASH = 'CASH'
+
+
+class Exchanges:
+    XET = 194
+    TDG = 196
+    EAM = 200
+    LSE = 570
+    SWX = 947

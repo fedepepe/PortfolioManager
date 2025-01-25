@@ -6,8 +6,8 @@ import pandas as pd
 
 import file_utils as fu
 from date_utils import reset_time
-from charts import fetch_portfolio_charts, load_portfolio_charts, fetch_fx_charts
-from definitions import DATA_DIR, PORTFOLIO_NAME, BASE_CURRENCY, FX_RATES_CHART_FILE_NAME
+from charts import fetch_portfolio_charts, load_portfolio_charts, fetch_fx_charts, load_fx_rates
+from definitions import DATA_DIR, PORTFOLIO_NAME, BASE_CURRENCY
 from portfolio import Portfolio
 from products import fetch_portfolio_products, load_portfolio_products
 from transactions import fetch_account_movements, load_account_movements
@@ -17,6 +17,7 @@ from transactions import fetch_tx_history, load_tx_history, TxHistFields
 class HistPortfolioData(NamedTuple):
 	nav: pd.Series
 	cum_pnl: pd.DataFrame
+	div_yield: pd.DataFrame
 	units: pd.DataFrame
 	target_weights: Optional[pd.DataFrame]
 	effective_weights: pd.DataFrame
@@ -89,6 +90,7 @@ def compute_hist_nav(prices_df: pd.DataFrame,
 	transaction_value = pd.Series(transaction_value, name='Tx value', index=prices_df.index)
 	transaction_costs = pd.Series(transaction_costs, name='Tx costs', index=prices_df.index)
 	dividends = pd.DataFrame(dividends, columns=prices_df.columns, index=prices_df.index)
+	div_yield = dividends.div(units * prices_df).resample('Y').sum()
 	deposits = pd.Series(deposits, name='Deposits', index=prices_df.index)
 	returns = (nav - deposits).div(nav.shift(1)).sub(1.).fillna(0.)
 	nav_eff = 100. * returns.add(1.).cumprod().rename('NAV Effective')
@@ -97,6 +99,7 @@ def compute_hist_nav(prices_df: pd.DataFrame,
 
 	hist_portfolio_data = HistPortfolioData(nav=nav,
 	                                        cum_pnl=cum_pnl,
+	                                        div_yield=div_yield,
 	                                        units=units_df,
 	                                        target_weights=None,
 	                                        effective_weights=effective_weights_df,
@@ -143,21 +146,9 @@ def compute_portfolio_nav() -> HistPortfolioData:
 	                                                                         'Prelievo flatex']), :]
 	# forex rates
 	products_df = load_portfolio_products()
-	curr_foreign = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
-	curr_foreign = [c for c in curr_foreign if c != BASE_CURRENCY]
-	fx_rates_df_tmp = load_portfolio_charts(chart_name=FX_RATES_CHART_FILE_NAME)
-	fx_rates_df = pd.DataFrame()
-	for cur in curr_foreign:
-		if f'{cur}/{BASE_CURRENCY}' in fx_rates_df_tmp:
-			fx_rates_df = pd.concat([fx_rates_df, fx_rates_df_tmp[f'{cur}/{BASE_CURRENCY}']], axis=1)
-		elif f'{BASE_CURRENCY}/{cur}' in fx_rates_df_tmp:
-			ser = (1. / fx_rates_df_tmp[f'{BASE_CURRENCY}/{cur}']).rename(f'{cur}/{BASE_CURRENCY}')
-			fx_rates_df = pd.concat([fx_rates_df, ser], axis=1)
-		else:
-			raise Exception(f'Missing forex data for {cur}/{BASE_CURRENCY}!')
-	if fx_rates_df.empty:
-		fx_rates_df = fx_rates_df.reindex(index=prices_df.index)
-	fx_rates_df[f'{BASE_CURRENCY}/{BASE_CURRENCY}'] = 1.0
+	curr_foreign_lst = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
+	curr_foreign_lst = [c for c in curr_foreign_lst if c != BASE_CURRENCY]
+	fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, index=prices_df.index)
 
 	product_ids = list(set(tx_hist_df[TxHistFields.product_id].to_list()))
 	product_symbols = products_df.loc[product_ids, 'symbol'].fillna(products_df.loc[product_ids, 'id']).to_list()
@@ -215,5 +206,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-	unit_test = UnitTests.COMPUTE_NAV
+	unit_test = UnitTests.UPDATE_DATA
 	run_unit_test(unit_test=unit_test)

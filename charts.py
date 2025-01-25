@@ -6,7 +6,7 @@ from degiro_connector.quotecast.models.chart import ChartRequest, Interval
 from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher, SeriesFormatter
 
 import file_utils as fu
-from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
+from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME, BASE_CURRENCY
 from degiro_connection import TRADING_API
 from products import fetch_product_info, load_portfolio_products, query_products
 from sql import insert_close
@@ -31,7 +31,7 @@ def fetch_charts(product_ids: Optional[int | List[int]] = None,
         # GET PRODUCT INFO
         product_info_df = fetch_product_info(product_ids)
     else:
-        product_ids = product_info_df['id'].to_list()
+        product_ids = product_info_df['id'].astype(int).to_list()
     if len(product_ids) > 100:
         rename_columns_to = 'ids'
     # ESTABLISH CONNECTION
@@ -50,6 +50,9 @@ def fetch_charts(product_ids: Optional[int | List[int]] = None,
                     'vwd_id'])
                 if not vwd_id_found.empty:
                     product_info_df.loc[prod_id, 'vwd_id'] = int(vwd_id_found.iloc[0])
+    # restrict product_info_df to entries with a valid vwd_id
+    product_info_df = product_info_df[product_info_df['vwd_id'].notna()]
+    product_ids = product_info_df['id'].astype(int).to_list()
     vwd_ids = [product_info_df.loc[prod_id, 'vwd_id'] for prod_id in product_ids]
     symbols = [product_info_df.loc[prod_id, 'symbol'] for prod_id in product_ids]
     for vwd_id, product_id, symbol in zip(vwd_ids, product_ids, symbols):
@@ -58,7 +61,7 @@ def fetch_charts(product_ids: Optional[int | List[int]] = None,
             period=period,
             requestid="1",
             resolution=resolution,
-            series=[f"{chart_type.value}:issueid:{vwd_id}"],
+            series=[f"{chart_type.value}:issueid:{int(vwd_id)}"],
             tz="Europe/Paris",
         )
         data = chart_fetcher.get_chart(
@@ -114,6 +117,26 @@ def fetch_fx_charts():
     results_df = query_products(product_type='CURRENCY')
     chart_df = fetch_charts(product_ids=results_df['id'].to_list())
     save_charts(chart_df=chart_df, chart_name=FX_RATES_CHART_FILE_NAME)
+
+
+def load_fx_rates(curr_foreign_lst: List[str],
+                  index: pd.DatetimeIndex
+                  ) -> pd.DataFrame:
+    fx_rates_df_tmp = load_portfolio_charts(chart_name=FX_RATES_CHART_FILE_NAME)
+    fx_rates_df = pd.DataFrame()
+    for cur in curr_foreign_lst:
+        if f'{cur}/{BASE_CURRENCY}' in fx_rates_df_tmp:
+            fx_rates_df = pd.concat([fx_rates_df, fx_rates_df_tmp[f'{cur}/{BASE_CURRENCY}']], axis=1)
+        elif f'{BASE_CURRENCY}/{cur}' in fx_rates_df_tmp:
+            ser = (1. / fx_rates_df_tmp[f'{BASE_CURRENCY}/{cur}']).rename(f'{cur}/{BASE_CURRENCY}')
+            fx_rates_df = pd.concat([fx_rates_df, ser], axis=1)
+        else:
+            raise Exception(f'Missing forex data for {cur}/{BASE_CURRENCY}!')
+    if fx_rates_df.empty:
+        fx_rates_df = fx_rates_df.reindex(index=index)
+    fx_rates_df[f'{BASE_CURRENCY}/{BASE_CURRENCY}'] = 1.0
+    fx_rates_df.index = pd.to_datetime(fx_rates_df.index)
+    return fx_rates_df
 
 
 if __name__ == '__main__':

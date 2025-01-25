@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from db_conn import engine, conn
 from sql_utils import list_to_str, str_to_date
 from table_definitions import Product, Close
+from product_definitions import Exchanges
 
 
 def insert_product(product: ProductItem):
@@ -79,20 +80,26 @@ def db_commit(message: Optional[str] = None):
 
 def query_products(product_name: Optional[str] = None,
                    product_id: Optional[int] = None,
+                   product_isin: Optional[str] = None,
                    product_type: Optional[str] = None,
                    tradable: Optional[bool] = None,
+                   exchange: Optional[Exchanges] = None,
                    ) -> pd.DataFrame:
 	stmt = select(Product)
 	if product_name is not None:
 		cond = Product.name == product_name
 	elif product_id is not None:
 		cond = Product.id == product_id
+	elif product_isin is not None:
+		cond = Product.isin == product_isin
 	elif product_type is not None:
 		cond = Product.product_type == product_type
 	else:
-		raise Exception('Product name, id or type must be specified.')
+		raise Exception('Product name, id, isin or type must be specified.')
 	if tradable:
 		cond = cond & (Product.tradable == tradable)
+	if exchange is not None:
+		cond = cond & (Product.exchange_id == exchange)
 	stmt = stmt.where(cond)
 	df = pd.read_sql(stmt, engine)
 	df = df.set_index('id', drop=False)

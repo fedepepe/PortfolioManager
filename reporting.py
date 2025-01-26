@@ -66,14 +66,22 @@ def poly_reg(y: pd.Series,
 
 def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
                               hist_portfolio_data: Optional[HistPortfolioData] = None,
-                              strategy_benchmark: Optional[Union[pd.Series]] = None
+                              strategy_benchmark: Optional[Union[pd.Series]] = None,
+                              to_string: bool = False
                               ) -> Dict[str, PD_DATA_TYPES]:
     if hist_portfolio_data is not None:
         nav = hist_portfolio_data.nav_eff
 
+    # remove initial nans from NAV
+    first_idx = nav.first_valid_index()
+    nav = nav.loc[first_idx:]
+
     initial_cash_pos = nav.iloc[0]
     # detect the sampling frequency
-    if hist_portfolio_data.freq is None:
+    if hist_portfolio_data is None:
+        freq = pd.infer_freq(nav.index)
+        print(f'Inferred sampling frequency: {freq}')
+    elif hist_portfolio_data.freq is None:
         freq = pd.infer_freq(nav.index)
         print(f'Inferred sampling frequency: {freq}')
     else:
@@ -177,16 +185,18 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
         Metrics.ALPHA.name: alpha,
         Metrics.BETA.name: beta,
         Metrics.PVAL_ALPHA.name: pval_alpha,
-    }, name='value')
-    risk_metrics_str = pd.Series(name='Parameter', dtype=str)
-    for metric in Metrics:
-        if not np.isnan(risk_metrics[metric.name]):
-            risk_metrics_str[metric.name] = metric.format.format(risk_metrics[metric.name])
-    # risk_metrics.index.name = 'Parameter'
-    print(risk_metrics_str)
+    }, name=nav.name)
+    if to_string:
+        risk_metrics_str = pd.Series(name='Parameter', dtype=str)
+        for metric in Metrics:
+            if not np.isnan(risk_metrics[metric.name]):
+                risk_metrics_str[metric.name] = metric.format.format(risk_metrics[metric.name])
+        # risk_metrics.index.name = 'Parameter'
+        print(risk_metrics_str)
+        risk_metrics = risk_metrics_str.copy()
     results = {OutDataTabs.RETURNS_YEARLY: returns_yearly,
                OutDataTabs.RETURNS_MONTHLY: returns_monthly,
-               OutDataTabs.RISK_METRICS: risk_metrics_str,
+               OutDataTabs.RISK_METRICS: risk_metrics,
                OutDataTabs.HIST_PERF_METRICS: pd.concat([pa_return_hist,
                                                          volatility_hist,
                                                          sharpe_ratio_hist,

@@ -1,34 +1,118 @@
+import time
+import warnings
+from enum import Enum
+from typing import List
+
 import pandas as pd
 
 import yfinance_api as yf
 from charts import load_portfolio_products, load_fx_rates
-from definitions import DATA_DIR, PORTFOLIO_NAME, BASE_CURRENCY
+from definitions import PORTFOLIO_NAME, BASE_CURRENCY, RESULTS_DIR, DATA_ETF_DIR
+from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_from_excel
+from product_definitions import ProductTypes
+from reporting import compute_portfolio_metrics, OutDataTabs
+from sql import query_products
 
 
-def get_instruments_adj_prices():
-	products_df = load_portfolio_products()
-	tickers = products_df['isin'].to_list()
+def get_instruments_adj_prices(isin_lst: List[str]) -> pd.DataFrame:
 	close_adj_df = pd.DataFrame()
-	for t in tickers:
-		df = yf.search_get_history(ticker=t)
+	for isin in isin_lst:
+		df = yf.search_get_history(isin=isin)
 		close_adj_df = pd.concat([close_adj_df, df], axis=1)
 	close_adj_df.index = pd.to_datetime(close_adj_df.index)
 	close_adj_df = close_adj_df.sort_index()
 	close_adj_df = close_adj_df.resample('B').last()
 	# convert to base currency
 	product_symbols = [s.split("__")[0].split('.')[0] for s in close_adj_df.columns]
-	product_curr = [s.split("__")[1] for s in close_adj_df.columns]
-	curr_foreign_lst = [c for c in list(set(product_curr)) if c != BASE_CURRENCY]
+	product_curr = [s.split("__")[1].upper() for s in close_adj_df.columns]
+	curr_foreign_lst = [c for c in list(set(product_curr)) if c not in [BASE_CURRENCY]]
 	fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, index=close_adj_df.index)
 	fx_rates_df = fx_rates_df.resample('B').last()
 	# average prices across exchanges
 	close_adj_base_cur_df = pd.DataFrame()
 	for symbol, cur, old_symbol in zip(product_symbols, product_curr, close_adj_df.columns.to_list()):
-		ser = close_adj_df[old_symbol].mul(fx_rates_df.loc[close_adj_df.index, f'{cur}/{BASE_CURRENCY}'])
+		try:
+			ser = close_adj_df[old_symbol].mul(fx_rates_df.loc[close_adj_df.index, f'{cur}/{BASE_CURRENCY}'], axis=0)
+			if isinstance(ser, pd.DataFrame):
+				ser = ser.mean(axis=1)
+		except KeyError:
+			warnings.warn(f'Warning! Missing foreign exchange historical time series for '
+			              f'{cur}/{BASE_CURRENCY}')
+			continue
 		close_adj_base_cur_df = pd.concat([close_adj_base_cur_df, ser.rename(symbol)], axis=1)
+	close_adj_base_cur_df.index = pd.to_datetime(close_adj_base_cur_df.index)
 	close_adj_base_cur_df = close_adj_base_cur_df.sort_index()
 	return close_adj_base_cur_df
 
 
+def get_portfolio_instruments_adj_prices() -> pd.DataFrame:
+	products_df = load_portfolio_products()
+	isin_lst = products_df['isin'].to_list()
+	close_adj_df = get_instruments_adj_prices(isin_lst=isin_lst)
+	return close_adj_df
+
+
+class UnitTests(Enum):
+	COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE = 1
+	FETCH_ETF_CATALOG_ADJ_CLOSE = 2
+	COMPUTE_ETF_CATALOG_PERFORMANCE = 3
+
+
+def run_unit_test(unit_test: UnitTests):
+	if unit_test == UnitTests.COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE:
+		close_adj_df = get_portfolio_instruments_adj_prices()
+		perf_metrics_df = pd.DataFrame()
+		for instr in close_adj_df.columns:
+			results_dict = compute_portfolio_metrics(nav=close_adj_df[instr])
+			perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
+		save_df_dict_to_excel(df_dict={OutDataTabs.RISK_METRICS: perf_metrics_df,
+		                               OutDataTabs.PRICES: close_adj_df},
+		                      folder=RESULTS_DIR,
+		                      file_name=f'{PORTFOLIO_NAME}_instr')
+	elif unit_test == UnitTests.FETCH_ETF_CATALOG_ADJ_CLOSE:
+		etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)
+		isin_lst = list(set([e for e in etf_info_df['isin'].to_list() if e is not None]))
+		name_lst = etf_info_df.set_index('isin').loc[isin_lst, 'name'].to_list()
+
+		for n, (isin, name) in enumerate(zip(isin_lst, name_lst)):
+			print(f'({n}/{len(isin_lst)} - Fetching data for {isin}')
+			close_adj_df = get_instruments_adj_prices(isin_lst=[isin])
+			save_df_to_excel(df=close_adj_df,
+			                 folder=DATA_ETF_DIR,
+			                 file_name=f'{isin}_adj_close')
+			time.sleep(0.5)
+	elif unit_test == UnitTests.COMPUTE_ETF_CATALOG_PERFORMANCE:
+		etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)
+		isin_lst = list(set([e for e in etf_info_df['isin'].to_list() if e is not None]))
+		ticker_lst = etf_info_df.set_index('isin').loc[isin_lst, 'symbol'].to_list()
+		name_lst = etf_info_df.set_index('isin').loc[isin_lst, 'name'].to_list()
+		# aggregate adjusted closing prices
+		perf_metrics_df = pd.DataFrame()
+		for n, (isin, ticker, name) in enumerate(zip(isin_lst, ticker_lst, name_lst)):
+			print(f'{n + 1}/{len(isin_lst)} - Loading data for {ticker} - {name}...')
+			try:
+				df = load_df_from_excel(file_name=f'{isin}_adj_close', folder=DATA_ETF_DIR)
+				ser = df.mean(axis=1).rename(ticker)
+			except FileNotFoundError:
+				warnings.warn(f'Data not found for {ticker} - {name}.')
+				continue
+			ser.index = pd.to_datetime(ser.index)
+			ser = ser.sort_index()
+			# compute performance metrics
+			try:
+				results_dict = compute_portfolio_metrics(nav=ser)
+			except:
+				continue
+			results_dict[OutDataTabs.RISK_METRICS]['isin'] = isin
+			results_dict[OutDataTabs.RISK_METRICS]['name'] = name
+			perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
+		save_df_to_excel(df=perf_metrics_df.T,
+		                 folder=RESULTS_DIR,
+		                 file_name='ETF_performance')
+	else:
+		raise NotImplementedError
+
+
 if __name__ == '__main__':
-	df = get_instruments_adj_prices()
+	unit_test = UnitTests.COMPUTE_ETF_CATALOG_PERFORMANCE
+	run_unit_test(unit_test=unit_test)

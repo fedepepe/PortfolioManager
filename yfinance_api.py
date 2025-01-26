@@ -46,6 +46,7 @@ def get_history_single(ticker: str | yf.Ticker):
 	else:
 		raise TypeError
 	df = ticker.history(period="10y", interval='1d', auto_adjust=False)
+	df.index = pd.to_datetime(df.index)
 	df = df.resample('D').last().dropna(how='all')
 	df.index = df.index.tz_localize(None)
 	return df
@@ -65,8 +66,8 @@ def get_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
 	return df
 
 
-def search_get_history(ticker: Optional[str],
-                       isin: Optional[str],
+def search_get_history(ticker: Optional[str] = None,
+                       isin: Optional[str] = None,
                        column: str | YFinPriceCols = YFinPriceCols.adj_close
                        ) -> pd.DataFrame:
 	if ticker is not None:

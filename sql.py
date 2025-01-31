@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from db_conn import engine, conn
 from sql_utils import list_to_str, str_to_date
 from table_definitions import Product, Close
-from product_definitions import Exchanges
+from product_definitions import ProductTypes, Exchanges
 
 
 def insert_product(product: ProductItem):
@@ -81,7 +81,7 @@ def db_commit(message: Optional[str] = None):
 def query_products(product_name: Optional[str] = None,
                    product_id: Optional[int] = None,
                    product_isin: Optional[str] = None,
-                   product_type: Optional[str] = None,
+                   product_type: Optional[ProductTypes] = None,
                    tradable: Optional[bool] = None,
                    exchange: Optional[Exchanges] = None,
                    ) -> pd.DataFrame:
@@ -104,6 +104,14 @@ def query_products(product_name: Optional[str] = None,
 	df = pd.read_sql(stmt, engine)
 	df = df.set_index('id', drop=False)
 	return df
+
+
+def query_tradable_products(product_type: ProductTypes) -> pd.DataFrame:
+	etf_info_df = pd.DataFrame()
+	for exc in Exchanges:
+		df = query_products(product_type=product_type, tradable=True, exchange=exc.value)
+		etf_info_df = pd.concat([etf_info_df, df])
+	return etf_info_df
 
 
 def query_close(product_id: int,

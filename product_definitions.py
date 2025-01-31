@@ -1,3 +1,5 @@
+from enum import Enum
+
 
 class Currencies:
     EUR = 'EUR'
@@ -19,9 +21,10 @@ class ProductTypes:
     CASH = 'CASH'
 
 
-class Exchanges:
+class Exchanges(Enum):
     XET = 194
     TDG = 196
     EAM = 200
     LSE = 570
+    MIL = 608
     SWX = 947

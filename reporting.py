@@ -149,7 +149,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 	max_dd = (nav.subtract(nav_cummax).div(nav_cummax)).abs().max()
 	# turnover
 	if hist_portfolio_data is not None:
-		turnover = hist_portfolio_data.transaction_value.iloc[1:].abs().div(
+		turnover = hist_portfolio_data.transaction_value.sum(axis=1).iloc[1:].abs().div(
 			hist_portfolio_data.nav.iloc[1:]).rename(OutDataTabs.TURNOVER)
 		turnover_mean_daily = turnover.resample(freq).sum().mean() / 365 * ANN_FACTOR_DICT[freq]
 	else:

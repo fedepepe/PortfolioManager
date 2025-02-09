@@ -19,18 +19,19 @@ class YFinHistCols:
 
 
 class Exchange(NamedTuple):
-	name: str
+	code: str
+	name: Optional[str] = None
 
 
 class Exchanges(Exchange, Enum):
-	SW = Exchange('SW')
-	MI = Exchange('MI')
-	DE = Exchange('DE')
-	BE = Exchange('BE')
-	MU = Exchange('MU')
-	DU = Exchange('DU')
-	SG = Exchange('SG')
-	L = Exchange('L')
+	SW = Exchange('SW', 'Switzerland')
+	MI = Exchange('MI', 'Milan')
+	DE = Exchange('DE', 'Frankfurt')
+	BE = Exchange('BE', 'Berlin')
+	MU = Exchange('MU', 'Munich')
+	DU = Exchange('DU', 'Dusseldorf')
+	SG = Exchange('SG', 'Singapore')
+	L = Exchange('L', 'London')
 	XC = Exchange('XC')
 	XD = Exchange('XD')
 
@@ -78,7 +79,7 @@ def search_fetch_history(ticker: Optional[str] = None,
                          ) -> Dict[str, pd.DataFrame]:
 	if ticker is not None:
 		search = search_ticker(ticker=ticker).all['quotes']
-		match = [e for e in search if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.name}' for x in Exchanges]]
+		match = [e for e in search if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.code}' for x in Exchanges]]
 	elif isin is not None:
 		match = search_ticker(ticker=isin).all['quotes']
 	else:

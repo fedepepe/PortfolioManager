@@ -10,7 +10,7 @@ from definitions import RESULTS_DIR
 from date_utils import ANN_FACTOR_DICT
 from file_utils import PD_DATA_TYPES
 from file_utils import save_df_dict_to_excel
-from portfolio_history import HistPortfolioData
+from portfolio import HistPortfolioData
 
 
 class Metric(NamedTuple):
@@ -168,6 +168,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 		down_vol_hist = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(len(nav), min_periods=2
 		                                                                             ).apply(compute_downside_volatility)
 		sortino_ratio_hist = ((pa_return_hist - risk_free_rate) / down_vol_hist).rename('Sortino ratio')
+
 	# put all together in a dictionary
 	risk_metrics = pd.Series({
 		Metrics.TOTAL_RETURN.name: total_return,
@@ -208,6 +209,10 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 		                                                    volatility_hist,
 		                                                    sharpe_ratio_hist,
 		                                                    sortino_ratio_hist], axis=1),
+	# correlation of adjusted closing prices
+	if hist_portfolio_data is not None:
+		if hist_portfolio_data.close_adj is not None:
+			results[OutDataTabs.CORRELATION] = hist_portfolio_data.close_adj.corr()
 	return results
 
 

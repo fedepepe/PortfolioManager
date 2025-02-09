@@ -1,3 +1,5 @@
+from typing import NamedTuple, Optional
+
 import numpy as np
 import pandas as pd
 
@@ -52,3 +54,21 @@ class Portfolio:
             self.transaction_costs = tx_history_df.iloc[n, :][TxHistFields.total_fees_in_base_currency]
             self.current_cash_balance = self.current_cash_balance + self.transaction_value + self.transaction_costs
             self.previous_units = self.current_units.copy()
+
+
+class HistPortfolioData(NamedTuple):
+    nav: pd.Series
+    cum_pnl: pd.DataFrame
+    div_yield: pd.DataFrame
+    units: pd.DataFrame
+    target_weights: Optional[pd.DataFrame]
+    effective_weights: pd.DataFrame
+    transaction_costs: pd.Series
+    transaction_value: pd.Series
+    prices: Optional[pd.DataFrame] = None
+    dividends: Optional[pd.DataFrame] = None
+    fx_rates: Optional[pd.DataFrame] = None
+    deposits: Optional[pd.Series] = None
+    nav_eff: Optional[pd.Series] = None
+    close_adj: Optional[pd.Series] = None
+    freq: Optional[str] = 'B'

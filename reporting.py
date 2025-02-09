@@ -68,7 +68,8 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
                               hist_portfolio_data: Optional[HistPortfolioData] = None,
                               strategy_benchmark: Optional[Union[pd.Series]] = None,
                               compute_hist_metrics: bool = True,
-                              to_string: bool = False
+                              to_string: bool = False,
+                              print_results: bool = True
                               ) -> Dict[str, PD_DATA_TYPES]:
 	if hist_portfolio_data is not None:
 		nav = hist_portfolio_data.nav_eff
@@ -195,8 +196,9 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 			if not np.isnan(risk_metrics[metric.name]):
 				risk_metrics_str[metric.name] = metric.format.format(risk_metrics[metric.name])
 		# risk_metrics.index.name = 'Parameter'
-		print(risk_metrics_str)
 		risk_metrics = risk_metrics_str.copy()
+	if print_results:
+		print(risk_metrics)
 	results = {OutDataTabs.RETURNS_YEARLY: returns_yearly,
 	           OutDataTabs.RETURNS_MONTHLY: returns_monthly,
 	           OutDataTabs.RISK_METRICS: risk_metrics,

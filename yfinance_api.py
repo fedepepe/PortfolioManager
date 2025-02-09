@@ -1,11 +1,11 @@
-from typing import List, NamedTuple, Optional
+from typing import List, NamedTuple, Optional, Dict
 from enum import Enum
 
 import pandas as pd
 import yfinance as yf
 
 
-class YFinPriceCols:
+class YFinHistCols:
 	open = 'Open'
 	high = 'High'
 	low = 'Low'
@@ -38,7 +38,7 @@ def search_ticker(ticker: str) -> yf.search.Search:
 	return yf.Search(query=ticker, include_research=True)
 
 
-def get_history_single(ticker: str | yf.Ticker):
+def fetch_history_single(ticker: str | yf.Ticker):
 	if isinstance(ticker, str):
 		ticker = yf.Ticker(ticker=ticker)
 	elif isinstance(ticker, yf.Ticker):
@@ -52,24 +52,30 @@ def get_history_single(ticker: str | yf.Ticker):
 	return df
 
 
-def get_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
-                column: str | YFinPriceCols = YFinPriceCols.adj_close
-                ) -> pd.DataFrame:
+def fetch_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
+				  columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close
+				  ) -> Dict[str | YFinHistCols, pd.DataFrame]:
 	if isinstance(tickers, str) or isinstance(tickers, yf.Ticker):
 		tickers = [tickers]
+	if isinstance(columns, str) or isinstance(columns, YFinHistCols):
+		columns = [columns]
 	tickers = [yf.Ticker(t) if isinstance(t, str) else t for t in tickers]
-	df = pd.DataFrame()
+	data = {col: pd.DataFrame() for col in columns}
 	for ticker in tickers:
-		df = pd.concat([df, get_history_single(ticker=ticker)[column].rename(ticker.ticker)], axis=1)
-	df.index = pd.to_datetime(df.index)
-	df = df.sort_index()
-	return df
+		df = fetch_history_single(ticker=ticker)
+		for col in columns:
+			data[col] = pd.concat([data[col], df[col].rename(ticker.ticker)], axis=1)
+	for col in columns:
+		data[col].index = pd.to_datetime(data[col].index)
+		data[col] = data[col].sort_index()
+	return data
 
 
-def search_get_history(ticker: Optional[str] = None,
-                       isin: Optional[str] = None,
-                       column: str | YFinPriceCols = YFinPriceCols.adj_close
-                       ) -> pd.DataFrame:
+def search_fetch_history(ticker: Optional[str] = None,
+						 isin: Optional[str] = None,
+						 columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
+						 return_currency_info: bool = False
+						 ) -> Dict[str, pd.DataFrame]:
 	if ticker is not None:
 		search = search_ticker(ticker=ticker).all['quotes']
 		match = [e for e in search if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.name}' for x in Exchanges]]
@@ -77,20 +83,27 @@ def search_get_history(ticker: Optional[str] = None,
 		match = search_ticker(ticker=isin).all['quotes']
 	else:
 		raise ValueError('Ticker or ISIN not provided.')
-	hist_df = pd.DataFrame()
+	if isinstance(columns, str) or isinstance(columns, YFinHistCols):
+		columns = [columns]
+	data = {col: pd.DataFrame() for col in columns}
+	tkr_curr_dict = {}
 	for t in match:
 		ticker = t['symbol']
 		try:
 			currency = yf.Ticker(ticker).info['currency']
 		except KeyError:
 			continue
-		df = get_history(tickers=ticker, column=column)
-		df = df.rename(columns={ticker: f"{ticker}__{currency}"})
-		hist_df = pd.concat([hist_df, df], axis=1)
-	return hist_df
+		data_ticker = fetch_history(tickers=ticker, columns=columns)
+		tkr_curr_dict[ticker] = currency
+		for col in columns:
+			data[col] = pd.concat([data[col], data_ticker[col]], axis=1)
+	if return_currency_info:
+		return data, tkr_curr_dict
+	else:
+		return data
 
 
 if __name__ == '__main__':
-	ticker = 'IE00077FRP95'
-	df = search_get_history(ticker=ticker)
+	isin = 'IE00077FRP95'
+	data = search_fetch_history(isin=isin)
 	pass

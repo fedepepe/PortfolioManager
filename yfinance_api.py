@@ -15,6 +15,7 @@ class YFinHistCols:
 	dividends = 'Dividends'
 	stock_splits = 'Stock Splits'
 	capital_gains = 'Capital Gains'
+	currency = 'Currency'
 
 
 class Exchange(NamedTuple):
@@ -53,8 +54,8 @@ def fetch_history_single(ticker: str | yf.Ticker):
 
 
 def fetch_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
-				  columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close
-				  ) -> Dict[str | YFinHistCols, pd.DataFrame]:
+                  columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close
+                  ) -> Dict[str | YFinHistCols, pd.DataFrame]:
 	if isinstance(tickers, str) or isinstance(tickers, yf.Ticker):
 		tickers = [tickers]
 	if isinstance(columns, str) or isinstance(columns, YFinHistCols):
@@ -72,10 +73,9 @@ def fetch_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
 
 
 def search_fetch_history(ticker: Optional[str] = None,
-						 isin: Optional[str] = None,
-						 columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
-						 return_currency_info: bool = False
-						 ) -> Dict[str, pd.DataFrame]:
+                         isin: Optional[str] = None,
+                         columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
+                         ) -> Dict[str, pd.DataFrame]:
 	if ticker is not None:
 		search = search_ticker(ticker=ticker).all['quotes']
 		match = [e for e in search if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.name}' for x in Exchanges]]
@@ -85,8 +85,8 @@ def search_fetch_history(ticker: Optional[str] = None,
 		raise ValueError('Ticker or ISIN not provided.')
 	if isinstance(columns, str) or isinstance(columns, YFinHistCols):
 		columns = [columns]
-	data = {col: pd.DataFrame() for col in columns}
-	tkr_curr_dict = {}
+	columns_ext = columns + [YFinHistCols.currency]
+	data = {col: pd.DataFrame() for col in columns_ext}
 	for t in match:
 		ticker = t['symbol']
 		try:
@@ -94,11 +94,9 @@ def search_fetch_history(ticker: Optional[str] = None,
 		except KeyError:
 			continue
 		data_ticker = fetch_history(tickers=ticker, columns=columns)
-		tkr_curr_dict[ticker] = currency
-		for col in columns:
+		data_ticker[YFinHistCols.currency] = pd.DataFrame(currency, columns=[ticker], index=['Currency'])
+		for col in columns_ext:
 			data[col] = pd.concat([data[col], data_ticker[col]], axis=1)
-	if return_currency_info:
-		return data, tkr_curr_dict
 	else:
 		return data
 

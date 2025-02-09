@@ -9,7 +9,7 @@ from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher, SeriesF
 import file_utils as fu
 from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME, BASE_CURRENCY
 from degiro_connection import TRADING_API
-from products import fetch_product_info, load_portfolio_products, query_products
+from products import fetch_product_info, load_portfolio_products, query_products, ProductTypes
 from sql import insert_close
 
 
@@ -115,7 +115,7 @@ def load_portfolio_charts(chart_name: str = PRODUCTS_CHART_FILE_NAME,
 
 
 def fetch_fx_charts():
-	results_df = query_products(product_type='CURRENCY')
+	results_df = query_products(product_type=ProductTypes.CURRENCY)
 	chart_df = fetch_charts(product_ids=results_df['id'].to_list())
 	save_charts(chart_df=chart_df, chart_name=FX_RATES_CHART_FILE_NAME)
 

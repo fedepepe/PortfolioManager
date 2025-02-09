@@ -14,4 +14,4 @@ FREQ_LABELS_DICT = {'hourly': 'H',
 
 
 def reset_time(ts: pd.Timestamp) -> pd.Timestamp:
-	return ts.replace(hour=0, minute=0, second=0, microsecond=0)
+    return ts.replace(hour=0, minute=0, second=0, microsecond=0)

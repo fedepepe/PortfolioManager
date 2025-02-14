@@ -5,10 +5,12 @@ from typing import List, Optional
 import pandas as pd
 from degiro_connector.quotecast.models.chart import ChartRequest, Interval
 from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher, SeriesFormatter
+from degiro_connector.trading.api import API
 
 import file_utils as fu
-from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME, BASE_CURRENCY
-from degiro_connection import TRADING_API
+from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
+from definitions import BASE_CURRENCY, DEFAULT_PORTFOLIO_NAME
+from degiro_connection import get_degiro_connection
 from products import fetch_product_info, load_portfolio_products, query_products, ProductTypes
 from sql import insert_close
 
@@ -19,24 +21,27 @@ class ChartType(str, Enum):
 	VOLUME = 'volume'
 
 
-def fetch_charts(product_ids: Optional[int | List[int]] = None,
+def fetch_charts(degiro_conn: Optional[API] = None,
+                 product_ids: Optional[int | List[int]] = None,
                  product_info_df: Optional[pd.DataFrame] = None,
                  chart_type: ChartType = ChartType.PRICE,
                  period: Optional[Interval] = Interval.P10Y,
                  resolution: Optional[Interval] = Interval.P1D,
                  rename_columns_to: str = 'symbols',
                  ) -> pd.DataFrame:
+	if degiro_conn is None:
+		degiro_conn = get_degiro_connection()
 	if product_info_df is None:
 		if isinstance(product_ids, int):
 			product_ids = [product_ids]
 		# GET PRODUCT INFO
-		product_info_df = fetch_product_info(product_ids)
+		product_info_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)
 	else:
 		product_ids = product_info_df['id'].astype(int).to_list()
 	if len(product_ids) > 100:
 		rename_columns_to = 'ids'
 	# ESTABLISH CONNECTION
-	client_details_table = TRADING_API.get_client_details()
+	client_details_table = degiro_conn.get_client_details()
 	int_account = client_details_table['data']['intAccount']
 	user_token = client_details_table['data']['id']
 	# FETCH DATA
@@ -92,38 +97,43 @@ def fetch_charts(product_ids: Optional[int | List[int]] = None,
 
 def save_charts(chart_df: pd.DataFrame,
                 chart_name: str = PRODUCTS_CHART_FILE_NAME,
-                chart_type: ChartType = ChartType.PRICE):
+                chart_type: ChartType = ChartType.PRICE,
+                portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
 	try:
 		df_old = fu.load_df_from_excel(file_name=f'{chart_name}_{chart_type.value}', folder=DATA_DIR)
 	except FileNotFoundError:
 		df_old = pd.DataFrame()
 	chart_df = pd.concat([df_old, chart_df], axis=1)
 	chart_df = chart_df.T.groupby(by=chart_df.columns).mean().T
-	fu.save_df_to_excel(df=chart_df, file_name=f'{chart_name}_{chart_type.value}', folder=DATA_DIR)
+	fu.save_df_to_excel(df=chart_df, file_name=f'{portfolio_name}_{chart_name}_{chart_type.value}', folder=DATA_DIR)
 
 
-def fetch_portfolio_charts():
-	products_df = load_portfolio_products()
-	chart_df = fetch_charts(product_ids=list(set(products_df['id'].astype(int).to_list())))
-	save_charts(chart_df=chart_df)
+def fetch_portfolio_charts(degiro_conn: Optional[API] = None,
+                           portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
+	products_df = load_portfolio_products(portfolio_name=portfolio_name)
+	chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=list(set(products_df['id'].astype(int).to_list())))
+	save_charts(chart_df=chart_df, portfolio_name=portfolio_name)
 
 
 def load_portfolio_charts(chart_name: str = PRODUCTS_CHART_FILE_NAME,
-                          chart_type: ChartType = ChartType.PRICE) -> pd.DataFrame:
-	chart_df = fu.load_df_from_excel(file_name=f'{chart_name}_{chart_type.value}', folder=DATA_DIR)
+                          chart_type: ChartType = ChartType.PRICE,
+                          portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
+	chart_df = fu.load_df_from_excel(file_name=f'{portfolio_name}_{chart_name}_{chart_type.value}', folder=DATA_DIR)
 	return chart_df
 
 
-def fetch_fx_charts():
+def fetch_fx_charts(degiro_conn: Optional[API] = None,
+                    portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
 	results_df = query_products(product_type=ProductTypes.CURRENCY)
-	chart_df = fetch_charts(product_ids=results_df['id'].to_list())
-	save_charts(chart_df=chart_df, chart_name=FX_RATES_CHART_FILE_NAME)
+	chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=results_df['id'].to_list())
+	save_charts(chart_df=chart_df, chart_name=FX_RATES_CHART_FILE_NAME, portfolio_name=portfolio_name)
 
 
 def load_fx_rates(curr_foreign_lst: List[str],
-                  index: pd.DatetimeIndex
+                  index: pd.DatetimeIndex,
+                  portfolio_name: str = DEFAULT_PORTFOLIO_NAME
                   ) -> pd.DataFrame:
-	fx_rates_df_tmp = load_portfolio_charts(chart_name=FX_RATES_CHART_FILE_NAME)
+	fx_rates_df_tmp = load_portfolio_charts(chart_name=FX_RATES_CHART_FILE_NAME, portfolio_name=portfolio_name)
 	# additional fx
 	if 'CHF/GBP' not in fx_rates_df_tmp and 'GBP/CHF' not in fx_rates_df_tmp:
 		fx_rates_df_tmp.loc[:, 'GBP/CHF'] = fx_rates_df_tmp['EUR/CHF'].div(fx_rates_df_tmp['EUR/GBP'])

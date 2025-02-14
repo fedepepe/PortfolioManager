@@ -7,12 +7,14 @@ import pandas as pd
 import file_utils as fu
 from date_utils import reset_time
 from charts import fetch_portfolio_charts, load_portfolio_charts, fetch_fx_charts, load_fx_rates
-from definitions import DATA_DIR, PORTFOLIO_NAME, BASE_CURRENCY
+from definitions import DATA_DIR, BASE_CURRENCY, DEFAULT_PORTFOLIO_NAME
 from portfolio import Portfolio, HistPortfolioData
 from products import fetch_portfolio_products, load_portfolio_products
 from transactions import fetch_account_movements, load_account_movements
 from transactions import fetch_tx_history, load_tx_history, TxHistFields
 from instruments_performance import fetch_portfolio_instr_adj_prices
+from degiro_connection import get_degiro_connection
+from definitions import Accounts
 
 
 def compute_hist_nav(prices_df: pd.DataFrame,
@@ -99,42 +101,48 @@ def compute_hist_nav(prices_df: pd.DataFrame,
     return hist_portfolio_data
 
 
-def save_hist_portfolio_data(hist_portfolio_data: HistPortfolioData):
+def save_hist_portfolio_data(hist_portfolio_data: HistPortfolioData,
+                             portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
     fu.save_df_dict_to_excel(df_dict=hist_portfolio_data._asdict(),
-                             file_name=PORTFOLIO_NAME,
+                             file_name=portfolio_name,
                              folder=DATA_DIR)
 
 
-def load_hist_portfolio_data() -> HistPortfolioData:
-    data_dict = fu.load_df_dict_from_excel(file_name=PORTFOLIO_NAME, folder=DATA_DIR)
+def load_hist_portfolio_data(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> HistPortfolioData:
+    data_dict = fu.load_df_dict_from_excel(file_name=portfolio_name, folder=DATA_DIR)
     return HistPortfolioData(**data_dict)
 
 
 def update_data():
-    fetch_tx_history()
-    fetch_portfolio_products()
-    fetch_account_movements()
-    fetch_portfolio_charts()
-    fetch_fx_charts()
+    for account in Accounts:
+        conn = get_degiro_connection(file_name=account.file_name)
+        fetch_tx_history(degiro_conn=conn, portfolio_name=account.name)
+        fetch_portfolio_products(degiro_conn=conn, portfolio_name=account.name)
+        fetch_account_movements(degiro_conn=conn, portfolio_name=account.name)
+        fetch_portfolio_charts(degiro_conn=conn, portfolio_name=account.name)
+        fetch_fx_charts(degiro_conn=conn, portfolio_name=account.name)
 
 
-def compute_hist_portfolio_data() -> HistPortfolioData:
+def compute_hist_portfolio_data(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> HistPortfolioData:
     # prices
-    prices_df = load_portfolio_charts()
+    prices_df = load_portfolio_charts(portfolio_name=portfolio_name)
     # transaction history
-    tx_hist_df = load_tx_history()
+    tx_hist_df = load_tx_history(portfolio_name=portfolio_name)
     # dividends
-    account_mvmts_df = load_account_movements()
-    dividends_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Dividendo', 'Cedola']), :]
+    account_mvmts_df = load_account_movements(portfolio_name=portfolio_name)
+    dividends_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Dividendo',
+                                                                              'Cedola',
+                                                                              'Imposta sulla Cedola']), :]
     # deposits/withdrawals
-    deposits_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Deposito', 'Prelievo',
+    deposits_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Deposito',
+                                                                             'Prelievo',
                                                                              'Deposito flatex',
                                                                              'Prelievo flatex']), :]
     # forex rates
-    products_df = load_portfolio_products()
+    products_df = load_portfolio_products(portfolio_name=portfolio_name)
     curr_foreign_lst = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
     curr_foreign_lst = [c for c in curr_foreign_lst if c != BASE_CURRENCY]
-    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, index=prices_df.index)
+    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, index=prices_df.index, portfolio_name=portfolio_name)
 
     product_ids = list(set(tx_hist_df[TxHistFields.product_id].to_list()))
     product_symbols = products_df.loc[product_ids, 'symbol'].fillna(products_df.loc[product_ids, 'id']).to_list()
@@ -169,7 +177,7 @@ def compute_hist_portfolio_data() -> HistPortfolioData:
     dividends_df.loc[:, 'amount_base_currency'] = dividends_df['change'].mul(dividends_df['fx_rate'])
 
     # adjusted closing prices from Yahoo Finance
-    close_adj_df = fetch_portfolio_instr_adj_prices()
+    close_adj_df = fetch_portfolio_instr_adj_prices(portfolio_name=portfolio_name)
 
     # compute historical portfolio data
     hist_portfolio_data = compute_hist_nav(prices_df=prices_df,
@@ -179,7 +187,7 @@ def compute_hist_portfolio_data() -> HistPortfolioData:
                                            fx_rates_df=fx_rates_df,
                                            dep_hist_df=deposits_df,
                                            close_adj_df=close_adj_df)
-    save_hist_portfolio_data(hist_portfolio_data)
+    save_hist_portfolio_data(hist_portfolio_data=hist_portfolio_data, portfolio_name=portfolio_name)
     return hist_portfolio_data
 
 
@@ -192,9 +200,10 @@ def run_unit_test(unit_test: UnitTests):
     if unit_test == UnitTests.UPDATE_DATA:
         update_data()
     elif unit_test == UnitTests.COMPUTE_NAV:
-        compute_hist_portfolio_data()
+        for account in Accounts:
+            compute_hist_portfolio_data(portfolio_name=account.name)
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.UPDATE_DATA
+    unit_test = UnitTests.COMPUTE_NAV
     run_unit_test(unit_test=unit_test)

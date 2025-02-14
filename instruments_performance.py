@@ -6,7 +6,8 @@ from typing import List, Dict, Optional
 import pandas as pd
 
 from charts import load_portfolio_products, load_fx_rates
-from definitions import PORTFOLIO_NAME, BASE_CURRENCY, RESULTS_DIR, DATA_ETF_DIR
+from definitions import BASE_CURRENCY, RESULTS_DIR, DATA_ETF_DIR, DEFAULT_PORTFOLIO_NAME
+from definitions import Accounts
 from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_dict_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
@@ -29,15 +30,20 @@ def fetch_instr_hist_data(isin_lst: List[str],
         data[col].index = pd.to_datetime(data[col].index)
         data[col] = data[col].sort_index()
         data[col] = data[col].resample('B').last()
+        data[col] = data[col].loc[:, ~data[col].columns.duplicated()].copy()
     return data
 
 
-def prices_to_base_curr(price_df: pd.DataFrame, curr_info: Dict | pd.Series):
+def prices_to_base_curr(price_df: pd.DataFrame,
+                        curr_info: Dict | pd.Series,
+                        portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
     tickers_yfin = price_df.columns.to_list()
     product_symbols = [s.split('.')[0] for s in tickers_yfin]
     product_curr = curr_info.loc[YFinHistCols.currency, :].to_list()
     curr_foreign_lst = [c for c in list(set(product_curr)) if c not in [BASE_CURRENCY]]
-    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, index=price_df.index)
+    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,
+                                index=price_df.index,
+                                portfolio_name=portfolio_name)
     fx_rates_df = fx_rates_df.resample('B').last().reindex(index=price_df.index).ffill()
     # average prices across exchanges
     price_base_df = pd.DataFrame()
@@ -56,12 +62,13 @@ def prices_to_base_curr(price_df: pd.DataFrame, curr_info: Dict | pd.Series):
     return price_base_df
 
 
-def fetch_portfolio_instr_adj_prices() -> pd.DataFrame:
-    products_df = load_portfolio_products()
+def fetch_portfolio_instr_adj_prices(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
+    products_df = load_portfolio_products(portfolio_name=portfolio_name)
     isin_lst = products_df['isin'].to_list()
     data = fetch_instr_hist_data(isin_lst=isin_lst, columns=YFinHistCols.adj_close)
     close_adj_base_curr_df = prices_to_base_curr(price_df=data[YFinHistCols.adj_close],
-                                                 curr_info=data[YFinHistCols.currency])
+                                                 curr_info=data[YFinHistCols.currency],
+                                                 portfolio_name=portfolio_name)
     return close_adj_base_curr_df
 
 
@@ -108,15 +115,16 @@ class UnitTests(Enum):
 
 def run_unit_test(unit_test: UnitTests):
     if unit_test == UnitTests.COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE:
-        close_adj_df = fetch_portfolio_instr_adj_prices()
-        perf_metrics_df = pd.DataFrame()
-        for instr in close_adj_df.columns:
-            results_dict = compute_portfolio_metrics(nav=close_adj_df[instr])
-            perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
-        save_df_dict_to_excel(df_dict={OutDataTabs.RISK_METRICS: perf_metrics_df,
-                                       OutDataTabs.PRICES: close_adj_df},
-                              folder=RESULTS_DIR,
-                              file_name=f'{PORTFOLIO_NAME}_instr')
+        for account in Accounts:
+            close_adj_df = fetch_portfolio_instr_adj_prices(portfolio_name=account.name)
+            perf_metrics_df = pd.DataFrame()
+            for instr in close_adj_df.columns:
+                results_dict = compute_portfolio_metrics(nav=close_adj_df[instr])
+                perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
+            save_df_dict_to_excel(df_dict={OutDataTabs.RISK_METRICS: perf_metrics_df,
+                                           OutDataTabs.PRICES: close_adj_df},
+                                  folder=RESULTS_DIR,
+                                  file_name=f'{account.name}_instr')
     elif unit_test == UnitTests.FETCH_ETF_CATALOG_DATA:
         etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)
         isin_lst = list(set([e for e in etf_info_df['isin'].to_list() if e is not None]))

@@ -1,4 +1,7 @@
 import os
+from enum import Enum
+from typing import NamedTuple
+
 from product_definitions import Currencies
 
 # directories
@@ -16,12 +19,24 @@ for path in [DATA_DIR, CONFIG_DIR, RESULTS_DIR, FIGURES_DIR]:
 DEFAULT_DATA_FREQ = 'B'
 
 # product data
-PRODUCTS_CHART_FILE_NAME = 'products'
+PRODUCTS_CHART_FILE_NAME = 'prod'
 FX_RATES_CHART_FILE_NAME = 'fx_rates'
 
 # portfolio
-BASE_CURRENCY = Currencies.CHF
-PORTFOLIO_NAME = f'Portfolio {BASE_CURRENCY}'
+BASE_CURRENCY = Currencies.EUR
+DEFAULT_PORTFOLIO_NAME = 'Portfolio'
+
+
+class AccountDegiro(NamedTuple):
+	name: str
+	currency: Currencies
+	file_name: str
+
+
+class Accounts(AccountDegiro, Enum):
+	CHF = AccountDegiro('Portfolio CHF', Currencies.CHF, 'config')
+	EUR = AccountDegiro('Portfolio EUR', Currencies.EUR, 'config_2')
+
 
 # financial math constants
 RISK_FREE_RATE = 0.0

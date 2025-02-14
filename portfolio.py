@@ -3,7 +3,7 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from definitions import BASE_CURRENCY, PORTFOLIO_NAME
+from definitions import BASE_CURRENCY
 from product_definitions import Currencies
 from transactions import TxHistFields
 
@@ -11,7 +11,7 @@ from transactions import TxHistFields
 class Portfolio:
     def __init__(self,
                  prices_df: pd.DataFrame,
-                 name: str = PORTFOLIO_NAME,
+                 name: str = 'Default',
                  base_currency: Currencies = BASE_CURRENCY,
                  initial_cash_balance: float = 1e6):
         self.name: str = name
@@ -44,7 +44,14 @@ class Portfolio:
                 idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistFields.product_id])
             else:
                 idx = self.prices.columns.to_list().index(tx_history_df.iloc[n, :][TxHistFields.symbol])
-            self.current_units[idx] += tx_history_df.iloc[n, :][TxHistFields.quantity]
+            # check that units reflect price directly
+            quantity = tx_history_df.iloc[n, :][TxHistFields.quantity]
+            price = tx_history_df.iloc[n, :][TxHistFields.price]
+            total = tx_history_df.iloc[n, :][TxHistFields.total]
+            if quantity * price == - total:
+                self.current_units[idx] += quantity
+            else:
+                self.current_units[idx] += - total / price
             self.txn_value[idx] += tx_history_df.iloc[n, :][TxHistFields.total_in_base_currency]
             self.txn_costs[idx] += tx_history_df.iloc[n, :][TxHistFields.total_fees_in_base_currency]
         self.current_cash_balance = self.current_cash_balance + self.txn_value.sum() + self.txn_costs.sum()

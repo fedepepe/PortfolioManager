@@ -1,15 +1,16 @@
 import logging
-from typing import Any
 from datetime import date
 from enum import Enum
+from typing import Any, Optional
 
 import pandas as pd
-from degiro_connector.trading.models.transaction import HistoryRequest
+from degiro_connector.trading.api import API
 from degiro_connector.trading.models.account import OverviewRequest
+from degiro_connector.trading.models.transaction import HistoryRequest
 
 import file_utils as fu
-from degiro_connection import TRADING_API
-from definitions import DATA_DIR
+from definitions import DATA_DIR, DEFAULT_PORTFOLIO_NAME
+from degiro_connection import get_degiro_connection
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -65,9 +66,12 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
     return df
 
 
-def fetch_tx_history() -> pd.DataFrame:
+def fetch_tx_history(degiro_conn: Optional[API] = None,
+                     portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
+    if degiro_conn is None:
+        degiro_conn = get_degiro_connection()
     # FETCH ACCOUNT OVERVIEW
-    transactions_history = TRADING_API.get_transactions_history(
+    transactions_history = degiro_conn.get_transactions_history(
         transaction_request=HistoryRequest(
             from_date=date(year=date.today().year - 10, month=1, day=1),
             to_date=date.today(),
@@ -75,34 +79,37 @@ def fetch_tx_history() -> pd.DataFrame:
         raw=False,
     )
     tx_history_df = field_list_to_df(data=transactions_history.data)
-    fu.save_df_to_excel(df=tx_history_df, file_name='tx_history', folder=DATA_DIR)
+    fu.save_df_to_excel(df=tx_history_df, file_name=f'{portfolio_name}_tx_hist', folder=DATA_DIR)
     return tx_history_df
 
 
-def load_tx_history() -> pd.DataFrame:
-    tx_history_df = fu.load_df_from_excel(file_name='tx_history', folder=DATA_DIR)
+def load_tx_history(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
+    tx_history_df = fu.load_df_from_excel(file_name=f'{portfolio_name}_tx_hist', folder=DATA_DIR)
     tx_history_df = tx_history_df.astype({"product_id": int})
     return tx_history_df
 
 
-def fetch_account_movements():
+def fetch_account_movements(degiro_conn: Optional[API] = None,
+                            portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
+    if degiro_conn is None:
+        degiro_conn = get_degiro_connection()
     # FETCH ACCOUNT OVERVIEW
     overview_request = OverviewRequest(
         from_date=date(year=date.today().year - 10, month=1, day=1),
         to_date=date.today(),
     )
 
-    account_overview = TRADING_API.get_account_overview(
+    account_overview = degiro_conn.get_account_overview(
         overview_request=overview_request,
         raw=False,
     )
     account_movements_df = field_list_to_df(data=account_overview.cash_movements)
-    fu.save_df_to_excel(df=account_movements_df, file_name='account_movements', folder=DATA_DIR)
+    fu.save_df_to_excel(df=account_movements_df, file_name=f'{portfolio_name}_movements', folder=DATA_DIR)
     return account_movements_df
 
 
-def load_account_movements() -> pd.DataFrame:
-    account_movements_df = fu.load_df_from_excel(file_name='account_movements', folder=DATA_DIR)
+def load_account_movements(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
+    account_movements_df = fu.load_df_from_excel(file_name=f'{portfolio_name}_movements', folder=DATA_DIR)
     return account_movements_df
 
 

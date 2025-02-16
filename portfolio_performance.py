@@ -16,7 +16,7 @@ def run_unit_test(unit_test: UnitTests):
         update_data()
     elif unit_test == UnitTests.COMPUTE_PORTFOLIO_PERFORMANCE:
         for account in Accounts:
-            hist_portfolio_data = compute_hist_portfolio_data(portfolio_name=account.name)
+            hist_portfolio_data = compute_hist_portfolio_data(curr_base=account.currency, portfolio_name=account.name)
             results_dict = compute_portfolio_metrics(hist_portfolio_data=hist_portfolio_data)
             save_df_dict_to_excel(df_dict=results_dict,
                                   folder=RESULTS_DIR,

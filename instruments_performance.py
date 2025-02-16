@@ -6,9 +6,10 @@ from typing import List, Dict, Optional
 import pandas as pd
 
 from charts import load_portfolio_products, load_fx_rates
-from definitions import BASE_CURRENCY, RESULTS_DIR, DATA_ETF_DIR, DEFAULT_PORTFOLIO_NAME
-from definitions import Accounts
+from definitions import Accounts, DEFAULT_DATA_FREQ
+from definitions import RESULTS_DIR, DATA_ETF_DIR, DEFAULT_PORTFOLIO_NAME
 from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_dict_from_excel
+from product_definitions import Currencies
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
 from sql import query_products, query_tradable_products
@@ -16,7 +17,8 @@ from yfinance_api import YFinHistCols, search_fetch_history
 
 
 def fetch_instr_hist_data(isin_lst: List[str],
-                          columns: str | YFinHistCols | List[str] | List[YFinHistCols]
+                          columns: str | YFinHistCols | List[str] | List[YFinHistCols],
+                          freq: str = DEFAULT_DATA_FREQ,
                           ) -> Dict[str, pd.DataFrame | pd.Series]:
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
         columns = [columns]
@@ -29,32 +31,34 @@ def fetch_instr_hist_data(isin_lst: List[str],
     for col in columns:
         data[col].index = pd.to_datetime(data[col].index)
         data[col] = data[col].sort_index()
-        data[col] = data[col].resample('B').last()
+        data[col] = data[col].resample(freq).last()
         data[col] = data[col].loc[:, ~data[col].columns.duplicated()].copy()
     return data
 
 
 def prices_to_base_curr(price_df: pd.DataFrame,
                         curr_info: Dict | pd.Series,
-                        portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
+                        curr_base: str | Currencies,
+                        portfolio_name: str = DEFAULT_PORTFOLIO_NAME,
+                        freq: str = DEFAULT_DATA_FREQ):
     tickers_yfin = price_df.columns.to_list()
     product_symbols = [s.split('.')[0] for s in tickers_yfin]
     product_curr = curr_info.loc[YFinHistCols.currency, :].to_list()
-    curr_foreign_lst = [c for c in list(set(product_curr)) if c not in [BASE_CURRENCY]]
+    curr_foreign_lst = [c for c in list(set(product_curr)) if c != curr_base]
     fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,
+                                curr_base=curr_base,
                                 index=price_df.index,
                                 portfolio_name=portfolio_name)
-    fx_rates_df = fx_rates_df.resample('B').last().reindex(index=price_df.index).ffill()
+    fx_rates_df = fx_rates_df.resample(freq).last().reindex(index=price_df.index).ffill()
     # average prices across exchanges
     price_base_df = pd.DataFrame()
     for symbol, cur, old_symbol in zip(product_symbols, product_curr, tickers_yfin):
         try:
-            ser = (price_df[old_symbol].mul(fx_rates_df.loc[price_df.index, f'{cur}/{BASE_CURRENCY}'], axis=0))
+            ser = (price_df[old_symbol].mul(fx_rates_df.loc[price_df.index, f'{cur}/{curr_base}'], axis=0))
             if isinstance(ser, pd.DataFrame):
                 ser = ser.mean(axis=1)
         except KeyError:
-            warnings.warn(f'Warning! Missing foreign exchange historical time series for '
-                          f'{cur}/{BASE_CURRENCY}')
+            warnings.warn(f'Warning! Missing foreign exchange historical time series for {cur}/{curr_base}')
             continue
         price_base_df = pd.concat([price_base_df, ser.rename(symbol)], axis=1)
     price_base_df.index = pd.to_datetime(price_base_df.index)
@@ -62,12 +66,14 @@ def prices_to_base_curr(price_df: pd.DataFrame,
     return price_base_df
 
 
-def fetch_portfolio_instr_adj_prices(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
+def fetch_portfolio_instr_adj_prices(curr_base: str | Currencies,
+                                     portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
     products_df = load_portfolio_products(portfolio_name=portfolio_name)
     isin_lst = products_df['isin'].to_list()
     data = fetch_instr_hist_data(isin_lst=isin_lst, columns=YFinHistCols.adj_close)
     close_adj_base_curr_df = prices_to_base_curr(price_df=data[YFinHistCols.adj_close],
                                                  curr_info=data[YFinHistCols.currency],
+                                                 curr_base=curr_base,
                                                  portfolio_name=portfolio_name)
     return close_adj_base_curr_df
 
@@ -116,7 +122,7 @@ class UnitTests(Enum):
 def run_unit_test(unit_test: UnitTests):
     if unit_test == UnitTests.COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE:
         for account in Accounts:
-            close_adj_df = fetch_portfolio_instr_adj_prices(portfolio_name=account.name)
+            close_adj_df = fetch_portfolio_instr_adj_prices(curr_base=account.currency, portfolio_name=account.name)
             perf_metrics_df = pd.DataFrame()
             for instr in close_adj_df.columns:
                 results_dict = compute_portfolio_metrics(nav=close_adj_df[instr])
@@ -130,12 +136,18 @@ def run_unit_test(unit_test: UnitTests):
         isin_lst = list(set([e for e in etf_info_df['isin'].to_list() if e is not None]))
         for n, isin in enumerate(isin_lst):
             print(f'({n}/{len(isin_lst)} - Fetching data for {isin}')
-            data = fetch_instr_hist_data(isin_lst=[isin], columns=[YFinHistCols.adj_close,
-                                                                   YFinHistCols.close,
-                                                                   YFinHistCols.volume])
-            save_df_dict_to_excel(df_dict=data,
-                                  folder=DATA_ETF_DIR,
-                                  file_name=isin)
+            for attempt in range(5):
+                try:
+                    data = fetch_instr_hist_data(isin_lst=[isin], columns=[YFinHistCols.adj_close,
+                                                                           YFinHistCols.close,
+                                                                           YFinHistCols.volume])
+                    save_df_dict_to_excel(df_dict=data,
+                                          folder=DATA_ETF_DIR,
+                                          file_name=isin)
+                    break
+                except ConnectionError:
+                    time.sleep(0.5)
+                    continue
             time.sleep(0.5)
     elif unit_test == UnitTests.COMPUTE_ETF_CATALOG_PERFORMANCE:
         etf_info_df = query_tradable_products(product_type=ProductTypes.ETF)
@@ -159,5 +171,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE
+    unit_test = UnitTests.FETCH_ETF_CATALOG_DATA
     run_unit_test(unit_test=unit_test)

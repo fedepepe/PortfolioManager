@@ -23,14 +23,13 @@ PRODUCTS_CHART_FILE_NAME = 'prod'
 FX_RATES_CHART_FILE_NAME = 'fx_rates'
 
 # portfolio
-BASE_CURRENCY = Currencies.EUR
 DEFAULT_PORTFOLIO_NAME = 'Portfolio'
 
 
 class AccountDegiro(NamedTuple):
 	name: str
 	currency: Currencies
-	file_name: str
+	config_file: str
 
 
 class Accounts(AccountDegiro, Enum):

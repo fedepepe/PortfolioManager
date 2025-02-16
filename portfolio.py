@@ -3,7 +3,7 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from definitions import BASE_CURRENCY
+from definitions import DEFAULT_PORTFOLIO_NAME
 from product_definitions import Currencies
 from transactions import TxHistFields
 
@@ -11,8 +11,8 @@ from transactions import TxHistFields
 class Portfolio:
     def __init__(self,
                  prices_df: pd.DataFrame,
-                 name: str = 'Default',
-                 base_currency: Currencies = BASE_CURRENCY,
+                 base_currency: Currencies,
+                 name: str = DEFAULT_PORTFOLIO_NAME,
                  initial_cash_balance: float = 1e6):
         self.name: str = name
         self.base_currency: Currencies = base_currency
@@ -63,10 +63,10 @@ class HistPortfolioData(NamedTuple):
     cum_pnl: pd.DataFrame
     div_yield: pd.DataFrame
     units: pd.DataFrame
-    target_weights: Optional[pd.DataFrame]
-    effective_weights: pd.DataFrame
-    transaction_costs: pd.DataFrame
-    transaction_value: pd.DataFrame
+    target_weights: Optional[pd.DataFrame] = None
+    effective_weights: Optional[pd.DataFrame] = None
+    transaction_costs: Optional[pd.DataFrame] = None
+    transaction_value: Optional[pd.DataFrame] = None
     prices: Optional[pd.DataFrame] = None
     dividends: Optional[pd.DataFrame] = None
     fx_rates: Optional[pd.DataFrame] = None

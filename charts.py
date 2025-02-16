@@ -9,8 +9,9 @@ from degiro_connector.trading.api import API
 
 import file_utils as fu
 from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
-from definitions import BASE_CURRENCY, DEFAULT_PORTFOLIO_NAME
+from definitions import DEFAULT_PORTFOLIO_NAME
 from degiro_connection import get_degiro_connection
+from product_definitions import Currencies
 from products import fetch_product_info, load_portfolio_products, query_products, ProductTypes
 from sql import insert_close
 
@@ -130,6 +131,7 @@ def fetch_fx_charts(degiro_conn: Optional[API] = None,
 
 
 def load_fx_rates(curr_foreign_lst: List[str],
+                  curr_base: Currencies,
                   index: pd.DatetimeIndex,
                   portfolio_name: str = DEFAULT_PORTFOLIO_NAME
                   ) -> pd.DataFrame:
@@ -153,18 +155,18 @@ def load_fx_rates(curr_foreign_lst: List[str],
 		fx_rates_df_tmp.loc[:, 'PLN/CHF'] = fx_rates_df_tmp['USD/CHF'].div(fx_rates_df_tmp['USD/PLN'])
 	fx_rates_df = pd.DataFrame()
 	for cur in curr_foreign_lst:
-		if f'{cur}/{BASE_CURRENCY}' in fx_rates_df_tmp:
-			fx_rates_df = pd.concat([fx_rates_df, fx_rates_df_tmp[f'{cur}/{BASE_CURRENCY}']], axis=1)
-		elif f'{BASE_CURRENCY}/{cur}' in fx_rates_df_tmp:
-			ser = (1. / fx_rates_df_tmp[f'{BASE_CURRENCY}/{cur}']).rename(f'{cur}/{BASE_CURRENCY}')
+		if f'{cur}/{curr_base}' in fx_rates_df_tmp:
+			fx_rates_df = pd.concat([fx_rates_df, fx_rates_df_tmp[f'{cur}/{curr_base}']], axis=1)
+		elif f'{curr_base}/{cur}' in fx_rates_df_tmp:
+			ser = (1. / fx_rates_df_tmp[f'{curr_base}/{cur}']).rename(f'{cur}/{curr_base}')
 			fx_rates_df = pd.concat([fx_rates_df, ser], axis=1)
 		else:
 			warnings.warn(f'Warning! Missing foreign exchange historical time series for '
-			              f'{cur}/{BASE_CURRENCY}')
+			              f'{cur}/{curr_base}')
 	if fx_rates_df.empty:
 		fx_rates_df = fx_rates_df.reindex(index=index)
 	# dummy column of ones for domestic currency
-	fx_rates_df[f'{BASE_CURRENCY}/{BASE_CURRENCY}'] = 1.0
+	fx_rates_df[f'{curr_base}/{curr_base}'] = 1.0
 	fx_rates_df.index = pd.to_datetime(fx_rates_df.index)
 	return fx_rates_df
 

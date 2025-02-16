@@ -5,20 +5,22 @@ import numpy as np
 import pandas as pd
 
 import file_utils as fu
-from date_utils import reset_time
 from charts import fetch_portfolio_charts, load_portfolio_charts, fetch_fx_charts, load_fx_rates
-from definitions import DATA_DIR, BASE_CURRENCY, DEFAULT_PORTFOLIO_NAME
+from date_utils import reset_time
+from definitions import Accounts
+from definitions import DATA_DIR, DEFAULT_PORTFOLIO_NAME
+from degiro_connection import get_degiro_connection
+from instruments_performance import fetch_portfolio_instr_adj_prices
 from portfolio import Portfolio, HistPortfolioData
+from product_definitions import Currencies
 from products import fetch_portfolio_products, load_portfolio_products
 from transactions import fetch_account_movements, load_account_movements
 from transactions import fetch_tx_history, load_tx_history, TxHistFields
-from instruments_performance import fetch_portfolio_instr_adj_prices
-from degiro_connection import get_degiro_connection
-from definitions import Accounts
 
 
 def compute_hist_nav(prices_df: pd.DataFrame,
                      tx_hist_df: pd.DataFrame,
+                     curr_base: Currencies,
                      initial_cash_balance: float = 1e4,
                      div_hist_df: Optional[pd.DataFrame] = None,
                      fx_rates_df: Optional[pd.DataFrame] = None,
@@ -36,7 +38,7 @@ def compute_hist_nav(prices_df: pd.DataFrame,
     deposits = np.zeros(len(prices_df))
 
     # build initial portfolio
-    portfolio = Portfolio(prices_df=prices_df, initial_cash_balance=initial_cash_balance)
+    portfolio = Portfolio(prices_df=prices_df, base_currency=curr_base, initial_cash_balance=initial_cash_balance)
 
     # loop over t
     for t in np.arange(0, len(prices_df)):
@@ -115,7 +117,7 @@ def load_hist_portfolio_data(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> Hi
 
 def update_data():
     for account in Accounts:
-        conn = get_degiro_connection(file_name=account.file_name)
+        conn = get_degiro_connection(file_name=account.config_file)
         fetch_tx_history(degiro_conn=conn, portfolio_name=account.name)
         fetch_portfolio_products(degiro_conn=conn, portfolio_name=account.name)
         fetch_account_movements(degiro_conn=conn, portfolio_name=account.name)
@@ -123,7 +125,8 @@ def update_data():
         fetch_fx_charts(degiro_conn=conn, portfolio_name=account.name)
 
 
-def compute_hist_portfolio_data(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> HistPortfolioData:
+def compute_hist_portfolio_data(curr_base: Currencies,
+                                portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> HistPortfolioData:
     # prices
     prices_df = load_portfolio_charts(portfolio_name=portfolio_name)
     # transaction history
@@ -141,8 +144,11 @@ def compute_hist_portfolio_data(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) ->
     # forex rates
     products_df = load_portfolio_products(portfolio_name=portfolio_name)
     curr_foreign_lst = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
-    curr_foreign_lst = [c for c in curr_foreign_lst if c != BASE_CURRENCY]
-    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, index=prices_df.index, portfolio_name=portfolio_name)
+    curr_foreign_lst = [c for c in curr_foreign_lst if c != curr_base]
+    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,
+                                curr_base=curr_base,
+                                index=prices_df.index,
+                                portfolio_name=portfolio_name)
 
     product_ids = list(set(tx_hist_df[TxHistFields.product_id].to_list()))
     product_symbols = products_df.loc[product_ids, 'symbol'].fillna(products_df.loc[product_ids, 'id']).to_list()
@@ -169,19 +175,20 @@ def compute_hist_portfolio_data(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) ->
     assert all([d in prices_df.index for d in deposits_df['Date']])
 
     # currency conversion to base currency
-    for symbol, cur in zip(product_symbols, product_curr):
-        prices_df.loc[:, symbol] = prices_df[symbol].mul(fx_rates_df.loc[prices_df.index, f'{cur}/{BASE_CURRENCY}'])
-    fx_rates = [fx_rates_df.loc[dividends_df.iloc[n]['Date'], f'{cur}/{BASE_CURRENCY}']
-                for n, cur in enumerate(dividends_df['currency'])]
+    for symbol, curr in zip(product_symbols, product_curr):
+        prices_df.loc[:, symbol] = prices_df[symbol].mul(fx_rates_df.loc[prices_df.index, f'{curr}/{curr_base}'])
+    fx_rates = [fx_rates_df.loc[dividends_df.iloc[n]['Date'], f'{curr}/{curr_base}']
+                for n, curr in enumerate(dividends_df['currency'])]
     dividends_df.loc[:, 'fx_rate'] = fx_rates
     dividends_df.loc[:, 'amount_base_currency'] = dividends_df['change'].mul(dividends_df['fx_rate'])
 
     # adjusted closing prices from Yahoo Finance
-    close_adj_df = fetch_portfolio_instr_adj_prices(portfolio_name=portfolio_name)
+    close_adj_df = fetch_portfolio_instr_adj_prices(curr_base=curr_base, portfolio_name=portfolio_name)
 
     # compute historical portfolio data
     hist_portfolio_data = compute_hist_nav(prices_df=prices_df,
                                            tx_hist_df=tx_hist_df,
+                                           curr_base=curr_base,
                                            initial_cash_balance=initial_cash_balance,
                                            div_hist_df=dividends_df,
                                            fx_rates_df=fx_rates_df,
@@ -201,7 +208,7 @@ def run_unit_test(unit_test: UnitTests):
         update_data()
     elif unit_test == UnitTests.COMPUTE_NAV:
         for account in Accounts:
-            compute_hist_portfolio_data(portfolio_name=account.name)
+            compute_hist_portfolio_data(curr_base=account.currency, portfolio_name=account.name)
 
 
 if __name__ == '__main__':

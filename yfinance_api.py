@@ -95,6 +95,8 @@ def search_fetch_history(ticker: Optional[str] = None,
 		except KeyError:
 			continue
 		data_ticker = fetch_history(tickers=ticker, columns=columns)
+		for col in data_ticker:
+			data_ticker[col] = data_ticker[col].dropna(axis=1, how='all')
 		data_ticker[YFinHistCols.currency] = pd.DataFrame(currency, columns=[ticker], index=['Currency'])
 		for col in columns_ext:
 			data[col] = pd.concat([data[col], data_ticker[col]], axis=1)

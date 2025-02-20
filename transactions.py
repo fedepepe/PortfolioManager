@@ -9,7 +9,7 @@ from degiro_connector.trading.models.account import OverviewRequest
 from degiro_connector.trading.models.transaction import HistoryRequest
 
 import file_utils as fu
-from definitions import DATA_DIR, DEFAULT_PORTFOLIO_NAME
+from definitions import Accounts, DATA_DIR
 from degiro_connection import get_degiro_connection
 
 logging.basicConfig(level=logging.DEBUG)
@@ -66,8 +66,8 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
     return df
 
 
-def fetch_tx_history(degiro_conn: Optional[API] = None,
-                     portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
+def fetch_tx_history(account: Accounts,
+                     degiro_conn: Optional[API] = None) -> pd.DataFrame:
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     # FETCH ACCOUNT OVERVIEW
@@ -79,18 +79,18 @@ def fetch_tx_history(degiro_conn: Optional[API] = None,
         raw=False,
     )
     tx_history_df = field_list_to_df(data=transactions_history.data)
-    fu.save_df_to_excel(df=tx_history_df, file_name=f'{portfolio_name}_tx_hist', folder=DATA_DIR)
+    fu.save_df_to_excel(df=tx_history_df, file_name=f'{account.name}_tx_hist', folder=DATA_DIR)
     return tx_history_df
 
 
-def load_tx_history(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
-    tx_history_df = fu.load_df_from_excel(file_name=f'{portfolio_name}_tx_hist', folder=DATA_DIR)
+def load_tx_history(account: Accounts) -> pd.DataFrame:
+    tx_history_df = fu.load_df_from_excel(file_name=f'{account.name}_tx_hist', folder=DATA_DIR)
     tx_history_df = tx_history_df.astype({"product_id": int})
     return tx_history_df
 
 
-def fetch_account_movements(degiro_conn: Optional[API] = None,
-                            portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
+def fetch_account_movements(account: Accounts,
+                            degiro_conn: Optional[API] = None):
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     # FETCH ACCOUNT OVERVIEW
@@ -104,14 +104,10 @@ def fetch_account_movements(degiro_conn: Optional[API] = None,
         raw=False,
     )
     account_movements_df = field_list_to_df(data=account_overview.cash_movements)
-    fu.save_df_to_excel(df=account_movements_df, file_name=f'{portfolio_name}_movements', folder=DATA_DIR)
+    fu.save_df_to_excel(df=account_movements_df, file_name=f'{account.name}_movements', folder=DATA_DIR)
     return account_movements_df
 
 
-def load_account_movements(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
-    account_movements_df = fu.load_df_from_excel(file_name=f'{portfolio_name}_movements', folder=DATA_DIR)
+def load_account_movements(account: Accounts) -> pd.DataFrame:
+    account_movements_df = fu.load_df_from_excel(file_name=f'{account.name}_movements', folder=DATA_DIR)
     return account_movements_df
-
-
-if __name__ == '__main__':
-    load_account_movements()

@@ -3,7 +3,6 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from definitions import DEFAULT_PORTFOLIO_NAME
 from product_definitions import Currencies
 from transactions import TxHistFields
 
@@ -12,7 +11,7 @@ class Portfolio:
     def __init__(self,
                  prices_df: pd.DataFrame,
                  base_currency: Currencies,
-                 name: str = DEFAULT_PORTFOLIO_NAME,
+                 name: str = 'Portfolio',
                  initial_cash_balance: float = 1e6):
         self.name: str = name
         self.base_currency: Currencies = base_currency

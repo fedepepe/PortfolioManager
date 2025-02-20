@@ -6,7 +6,7 @@ import pandas as pd
 from degiro_connector.trading.api import API
 
 import file_utils as fu
-from definitions import DATA_DIR, DEFAULT_PORTFOLIO_NAME
+from definitions import Accounts, DATA_DIR
 from degiro_connection import get_degiro_connection
 from product_definitions import ProductTypes
 from sql import insert_product, query_products
@@ -63,21 +63,21 @@ def fetch_product_info(degiro_conn: Optional[API] = None,
     return product_info_df
 
 
-def save_product_info(product_info_df: pd.DataFrame,
-                      portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
-    fu.save_df_to_excel(df=product_info_df, file_name=f'{portfolio_name}_products_info', folder=DATA_DIR)
+def save_product_info(account: Accounts,
+                      product_info_df: pd.DataFrame):
+    fu.save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder=DATA_DIR)
 
 
-def fetch_portfolio_products(degiro_conn: Optional[API] = None,
-                             portfolio_name: str = DEFAULT_PORTFOLIO_NAME):
-    tx_history_df = load_tx_history(portfolio_name=portfolio_name)
+def fetch_portfolio_products(account: Accounts,
+                             degiro_conn: Optional[API] = None):
+    tx_history_df = load_tx_history(account=account)
     product_ids = list(set(tx_history_df['product_id'].astype(int).to_list()))
     product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)
-    save_product_info(product_info_df=product_df, portfolio_name=portfolio_name)
+    save_product_info(account=account, product_info_df=product_df)
 
 
-def load_portfolio_products(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> pd.DataFrame:
-    product_df = fu.load_df_from_excel(file_name=f'{portfolio_name}_products_info', folder=DATA_DIR)
+def load_portfolio_products(account: Accounts) -> pd.DataFrame:
+    product_df = fu.load_df_from_excel(file_name=f'{account.name}_products_info', folder=DATA_DIR)
     return product_df
 
 

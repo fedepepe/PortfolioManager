@@ -182,7 +182,7 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
 
     # adjusted closing prices from Yahoo Finance
     close_adj_df = fetch_portfolio_instr_adj_prices(account=account)
-    close_adj_df = close_adj_df.loc[:, prices_df.columns]
+    close_adj_df = close_adj_df.loc[:, [c for c in prices_df.columns if c in close_adj_df.columns]]
 
     # compute historical portfolio data
     hist_portfolio_data = compute_hist_nav(prices_df=prices_df,
@@ -211,5 +211,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.COMPUTE_NAV
+    unit_test = UnitTests.UPDATE_DATA
     run_unit_test(unit_test=unit_test)

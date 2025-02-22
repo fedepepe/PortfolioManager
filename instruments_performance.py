@@ -30,7 +30,11 @@ def fetch_instr_hist_data(isin_lst: List[str],
     for isin, ticker in zip(isin_lst, tickers_rename):
         data_isin = search_fetch_history(isin=isin, columns=columns)
         for col in columns:
-            data_isin[col] = data_isin[col].iloc[:, 0].rename(ticker)
+            try:
+                data_isin[col] = data_isin[col].iloc[:, 0]
+            except IndexError:
+                continue
+            data_isin[col] = data_isin[col].rename(ticker)
         for col in columns_ext:
             data[col] = pd.concat([data[col], data_isin[col]], axis=1)
     for col in columns:

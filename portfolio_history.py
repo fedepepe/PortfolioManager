@@ -110,19 +110,18 @@ def save_hist_portfolio_data(hist_portfolio_data: HistPortfolioData,
                              folder=DATA_DIR)
 
 
-def load_hist_portfolio_data(portfolio_name: str = DEFAULT_PORTFOLIO_NAME) -> HistPortfolioData:
-    data_dict = fu.load_df_dict_from_excel(file_name=portfolio_name, folder=DATA_DIR)
+def load_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
+    data_dict = fu.load_df_dict_from_excel(file_name=account.name, folder=DATA_DIR)
     return HistPortfolioData(**data_dict)
 
 
-def update_data():
-    for account in Accounts:
-        conn = get_degiro_connection(file_name=account.config_file)
-        fetch_tx_history(account=account, degiro_conn=conn)
-        fetch_portfolio_products(account=account, degiro_conn=conn)
-        fetch_account_movements(account=account, degiro_conn=conn)
-        fetch_portfolio_charts(account=account, degiro_conn=conn)
-        fetch_fx_charts(account=account, degiro_conn=conn)
+def update_data(account: Accounts):
+    conn = get_degiro_connection(file_name=account.config_file)
+    fetch_tx_history(account=account, degiro_conn=conn)
+    fetch_portfolio_products(account=account, degiro_conn=conn)
+    fetch_account_movements(account=account, degiro_conn=conn)
+    fetch_portfolio_charts(account=account, degiro_conn=conn)
+    fetch_fx_charts(account=account, degiro_conn=conn)
 
 
 def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
@@ -204,12 +203,13 @@ class UnitTests(Enum):
 
 def run_unit_test(unit_test: UnitTests):
     if unit_test == UnitTests.UPDATE_DATA:
-        update_data()
+        for account in Accounts:
+            update_data(account=account)
     elif unit_test == UnitTests.COMPUTE_NAV:
         for account in Accounts:
             compute_hist_portfolio_data(account=account)
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.UPDATE_DATA
+    unit_test = UnitTests.COMPUTE_NAV
     run_unit_test(unit_test=unit_test)

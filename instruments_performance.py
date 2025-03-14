@@ -8,7 +8,7 @@ import pandas as pd
 from charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
 from definitions import RESULTS_DIR, DATA_ETF_DIR
-from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_dict_from_excel
+from file_utils import save_df_dict_to_excel, save_df_to_excel
 from product_definitions import Currencies
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
@@ -16,13 +16,17 @@ from sql import query_products, query_tradable_products
 from yfinance_api import YFinHistCols, search_fetch_history
 
 
-def fetch_instr_hist_data(isin_lst: List[str],
+def fetch_instr_hist_data(isin_lst: str | List[str],
                           columns: str | YFinHistCols | List[str] | List[YFinHistCols],
-                          tickers_rename: Optional[List[str]] = None,
+                          tickers_rename: Optional[str | List[str]] = None,
                           freq: str = DEFAULT_DATA_FREQ,
                           ) -> Dict[str, pd.DataFrame | pd.Series]:
+    if isinstance(isin_lst, str):
+        isin_lst = [isin_lst]
     if tickers_rename is None:
         tickers_rename = isin_lst.copy()
+    elif isinstance(tickers_rename, str):
+        tickers_rename = [tickers_rename]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
         columns = [columns]
     columns_ext = columns + [YFinHistCols.currency]
@@ -89,11 +93,8 @@ def compute_product_performance(isin: str,
                                 etf_info_df: Optional[pd.DataFrame] = None,
                                 curr_dom: Optional[Currencies] = None) -> pd.DataFrame:
     perf_metrics_df = pd.DataFrame()
-    try:
-        data = load_df_dict_from_excel(file_name=isin, folder=DATA_ETF_DIR)
-    except FileNotFoundError:
-        warnings.warn(f'Data not found for instrument {isin}.')
-        return perf_metrics_df
+    data = fetch_instr_hist_data(isin_lst=isin,
+                                 columns=YFinHistCols.adj_close)
     for ticker in data[YFinHistCols.adj_close].columns:
         print(f'Computing performance metrics for {ticker} | {isin}... ')
         # compute performance metrics
@@ -181,6 +182,7 @@ class UnitTests(Enum):
     FETCH_ETF_CATALOG_DATA = 2
     COMPUTE_ETF_CATALOG_PERFORMANCE = 3
     COMPUTE_SINGLE_ETF_PERFORMANCE = 4
+    FETCH_SINGLE_ETF_ADJ_PRICE = 5
 
 
 def run_unit_test(unit_test: UnitTests):
@@ -192,10 +194,13 @@ def run_unit_test(unit_test: UnitTests):
         compute_etf_catalog_performance()
     elif unit_test == UnitTests.COMPUTE_SINGLE_ETF_PERFORMANCE:
         compute_single_etf_performance(isin='IE00B7N3YW49')
+    elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
+        data = fetch_instr_hist_data(isin_lst='IE00B7N3YW49', columns=YFinHistCols.adj_close)
+        pass
     else:
         raise NotImplementedError
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.COMPUTE_SINGLE_ETF_PERFORMANCE
+    unit_test = UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE
     run_unit_test(unit_test=unit_test)

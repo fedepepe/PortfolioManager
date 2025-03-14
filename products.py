@@ -76,6 +76,10 @@ def fetch_portfolio_products(account: Accounts,
     save_product_info(account=account, product_info_df=product_df)
 
 
+def get_product_info_from_isin(product_isin: str) -> pd.DataFrame:
+    return query_products(product_isin=product_isin)
+
+
 def load_portfolio_products(account: Accounts) -> pd.DataFrame:
     product_df = fu.load_df_from_excel(file_name=f'{account.name}_products_info', folder=DATA_DIR)
     return product_df
@@ -84,6 +88,7 @@ def load_portfolio_products(account: Accounts) -> pd.DataFrame:
 class UnitTests(Enum):
     FETCH_FULL_PRODUCT_CATALOG = 1
     LOAD_ETF_CATALOG = 2
+    GET_PRODUCT_INFO_FROM_ISIN = 3
 
 
 def run_unit_test(unit_test: UnitTests):
@@ -92,10 +97,13 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.LOAD_ETF_CATALOG:
         results_df = query_products(product_type=ProductTypes.ETF, tradable=True)
         print(results_df)
+    elif unit_test == UnitTests.GET_PRODUCT_INFO_FROM_ISIN:
+        results_df = get_product_info_from_isin('IE00B7N3YW49')
+        print(results_df)
     else:
         raise NotImplementedError
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.FETCH_FULL_PRODUCT_CATALOG
+    unit_test = UnitTests.GET_PRODUCT_INFO_FROM_ISIN
     run_unit_test(unit_test=unit_test)

@@ -89,7 +89,7 @@ def search_fetch_history(ticker: Optional[str] = None,
 	columns_ext = columns + [YFinHistCols.currency]
 	data = {col: pd.DataFrame() for col in columns_ext}
 	for t in match:
-		ticker = t['symbol']
+		ticker = t['symbol'] or isin
 		try:
 			currency = yf.Ticker(ticker).info['currency']
 		except KeyError:

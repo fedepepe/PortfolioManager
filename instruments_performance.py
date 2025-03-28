@@ -1,6 +1,8 @@
 import time
 import warnings
 from enum import Enum
+from os import listdir
+from os.path import isfile, join
 from typing import List, Dict, Optional
 
 import pandas as pd
@@ -8,8 +10,7 @@ import pandas as pd
 from charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
 from definitions import RESULTS_DIR, DATA_ETF_DIR
-from file_utils import save_df_dict_to_excel, save_df_to_excel
-from product_definitions import Currencies
+from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
 from sql import query_products, query_tradable_products
@@ -28,7 +29,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
     elif isinstance(tickers_rename, str):
         tickers_rename = [tickers_rename]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
-        columns = [columns]
+        columns = [str(columns)]
     columns_ext = columns + [YFinHistCols.currency]
     data = {col: pd.DataFrame() for col in columns_ext}
     for isin, ticker in zip(isin_lst, tickers_rename):
@@ -91,10 +92,14 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
 
 def compute_product_performance(isin: str,
                                 etf_info_df: Optional[pd.DataFrame] = None,
-                                curr_dom: Optional[Currencies] = None) -> pd.DataFrame:
+                                use_local_data: bool = False) -> pd.DataFrame:
     perf_metrics_df = pd.DataFrame()
-    data = fetch_instr_hist_data(isin_lst=isin,
-                                 columns=YFinHistCols.adj_close)
+    if use_local_data:
+        data = load_df_from_excel(folder_name=DATA_ETF_DIR,
+                                  file_name=isin)
+    else:
+        data = fetch_instr_hist_data(isin_lst=isin,
+                                     columns=YFinHistCols.adj_close)
     for ticker in data[YFinHistCols.adj_close].columns:
         print(f'Computing performance metrics for {ticker} | {isin}... ')
         # compute performance metrics
@@ -121,11 +126,10 @@ def compute_product_performance(isin: str,
     return perf_metrics_df
 
 
-def compute_single_etf_performance(isin: str, curr_dom: Optional[Currencies] = None):
+def compute_single_etf_performance(isin: str):
     etf_info_df = query_tradable_products(product_type=ProductTypes.ETF)
     df = compute_product_performance(isin=isin,
-                                     etf_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :],
-                                     curr_dom=curr_dom)
+                                     etf_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :])
     print(df)
 
 
@@ -138,7 +142,7 @@ def compute_portfolio_instruments_performance():
             perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
         save_df_dict_to_excel(df_dict={OutDataTabs.RISK_METRICS: perf_metrics_df,
                                        OutDataTabs.PRICES: close_adj_df},
-                              folder=RESULTS_DIR,
+                              folder_name=RESULTS_DIR,
                               file_name=f'{account.name}_instr')
 
 
@@ -153,7 +157,7 @@ def fetch_etf_catalog_data():
                                                                        YFinHistCols.close,
                                                                        YFinHistCols.volume])
                 save_df_dict_to_excel(df_dict=data,
-                                      folder=DATA_ETF_DIR,
+                                      folder_name=DATA_ETF_DIR,
                                       file_name=isin)
                 break
             except ConnectionError:
@@ -169,12 +173,34 @@ def compute_etf_catalog_performance() -> pd.DataFrame:
     perf_metrics_df = pd.DataFrame()
     for n, isin in enumerate(isin_lst):
         print(f'{n + 1}/{len(isin_lst)} - ', end='')
-        df = compute_product_performance(isin=isin, etf_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :])
+        df = compute_product_performance(isin=isin,
+                                         etf_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :],
+                                         use_local_data=True)
         perf_metrics_df = pd.concat([perf_metrics_df, df], axis=1)
     save_df_to_excel(df=perf_metrics_df.T,
-                     folder=RESULTS_DIR,
+                     folder_name=RESULTS_DIR,
                      file_name='ETF_performance')
     return perf_metrics_df
+
+
+def load_etf_catalog_performance() -> pd.DataFrame:
+    return load_df_from_excel(file_name='ETF_performance', folder_name=RESULTS_DIR)
+
+
+def load_etf_catalog_data(column: str,
+                          isin_lst: Optional[str | List[str]] = None) -> pd.DataFrame:
+    if isin_lst is None:
+        isin_lst = load_etf_catalog_performance()['ISIN'].to_list()[:50]
+    if isinstance(isin_lst, str):
+        isin_lst = [isin_lst]
+    df = pd.DataFrame()
+    for n, isin in enumerate(isin_lst):
+        df_isin = load_df_from_excel(folder_name=DATA_ETF_DIR,
+                                     file_name=isin,
+                                     sheet_name=column)
+        df = pd.concat([df, df_isin], axis=1)
+        print(f'{n}/{len(isin_lst)} loaded.')
+    return df
 
 
 class UnitTests(Enum):
@@ -183,6 +209,7 @@ class UnitTests(Enum):
     COMPUTE_ETF_CATALOG_PERFORMANCE = 3
     COMPUTE_SINGLE_ETF_PERFORMANCE = 4
     FETCH_SINGLE_ETF_ADJ_PRICE = 5
+    LOAD_ETF_CATALOG_DATA = 6
 
 
 def run_unit_test(unit_test: UnitTests):
@@ -196,11 +223,14 @@ def run_unit_test(unit_test: UnitTests):
         compute_single_etf_performance(isin='IE00B7N3YW49')
     elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
         data = fetch_instr_hist_data(isin_lst='IE00B7N3YW49', columns=YFinHistCols.adj_close)
-        pass
+        print(data)
+    elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
+        df = load_etf_catalog_data(column=YFinHistCols.adj_close)
+        print(df)
     else:
         raise NotImplementedError
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE
+    unit_test = UnitTests.LOAD_ETF_CATALOG_DATA
     run_unit_test(unit_test=unit_test)

@@ -100,12 +100,12 @@ def save_charts(account: Accounts,
                 chart_name: str = PRODUCTS_CHART_FILE_NAME,
                 chart_type: ChartType = ChartType.PRICE):
 	try:
-		df_old = load_df_from_excel(file_name=f'{chart_name}_{chart_type.value}', folder=DATA_DIR)
+		df_old = load_df_from_excel(file_name=f'{chart_name}_{chart_type.value}', folder_name=DATA_DIR)
 	except FileNotFoundError:
 		df_old = pd.DataFrame()
 	chart_df = pd.concat([df_old, chart_df], axis=1)
 	chart_df = chart_df.T.groupby(by=chart_df.columns).mean().T
-	save_df_to_excel(df=chart_df, file_name=f'{account.name}_{chart_name}_{chart_type.value}', folder=DATA_DIR)
+	save_df_to_excel(df=chart_df, file_name=f'{account.name}_{chart_name}_{chart_type.value}', folder_name=DATA_DIR)
 
 
 def fetch_portfolio_charts(account: Accounts,
@@ -118,7 +118,7 @@ def fetch_portfolio_charts(account: Accounts,
 def load_portfolio_charts(account: Accounts,
                           chart_name: str = PRODUCTS_CHART_FILE_NAME,
                           chart_type: ChartType = ChartType.PRICE) -> pd.DataFrame:
-	chart_df = load_df_from_excel(file_name=f'{account.name}_{chart_name}_{chart_type.value}', folder=DATA_DIR)
+	chart_df = load_df_from_excel(file_name=f'{account.name}_{chart_name}_{chart_type.value}', folder_name=DATA_DIR)
 	return chart_df
 
 

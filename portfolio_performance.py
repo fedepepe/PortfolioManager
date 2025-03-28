@@ -19,12 +19,12 @@ def compute_portfolio_performance(account: Accounts):
     hist_portfolio_data = compute_hist_portfolio_data(account=account)
     results_dict = compute_portfolio_metrics(hist_portfolio_data=hist_portfolio_data)
     save_df_dict_to_excel(df_dict=results_dict,
-                          folder=RESULTS_DIR,
+                          folder_name=RESULTS_DIR,
                           file_name=account.name)
 
 
 def load_portfolio_performance(account: Accounts) -> Dict[str, pd.DataFrame]:
-    return load_df_dict_from_excel(folder=RESULTS_DIR, file_name=account.name)
+    return load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=account.name)
 
 
 def run_unit_test(unit_test: UnitTests):

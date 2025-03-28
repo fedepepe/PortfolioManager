@@ -3,18 +3,18 @@ from fastapi import FastAPI
 from fastapi.middleware.wsgi import WSGIMiddleware
 from fastapi.responses import RedirectResponse
 
-from dash_portfolio import dash as dash_pf
+from dash_main import dash
 
 # Define the FastAPI server
 app = FastAPI()
 # Mount the Dash app as a sub-application in the FastAPI server
-app.mount("/portfolio", WSGIMiddleware(dash_pf.server))
+app.mount("/portfolio_manager", WSGIMiddleware(dash.server))
 
 
 # Define the main API endpoint
 @app.get("/")
 def index():
-    return RedirectResponse(url="/portfolio")
+    return RedirectResponse(url="/portfolio_manager")
 
 
 # Start the FastAPI server

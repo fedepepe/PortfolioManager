@@ -17,13 +17,18 @@ class Metric(NamedTuple):
 	name: str
 	format: str = '{:.2%}'
 
+	def to_ag_grid_format_func(self):
+		return (f"params.value ? "
+		        f"d3.format('{self.format.replace(':', '').replace('{', '').replace('}', '')}')(params.value) "
+		        f": ''")
+
 
 class Metrics(Metric, Enum):
-	TOTAL_RETURN = Metric('Total return')
-	PA_RETURN = Metric('P.a. return')
-	LAST_YEAR_RETURN = Metric('1Y return')
-	ANN_3Y_RETURN = Metric('3Y p.a. return')
-	ANN_5Y_RETURN = Metric('5Y p.a. return')
+	TOTAL_RETURN = Metric('Total Return')
+	PA_RETURN = Metric('Return')
+	LAST_YEAR_RETURN = Metric('1Y Return')
+	ANN_3Y_RETURN = Metric('3Y Return')
+	ANN_5Y_RETURN = Metric('5Y Return')
 	VOLATILITY = Metric('Volatility')
 	SHARPE_RATIO = Metric('Sharpe ratio', format='{:.2f}')
 	SORTINO_RATIO = Metric('Sortino ratio', format='{:.2f}')
@@ -259,7 +264,7 @@ def compute_results_from_navs(navs: Union[pd.Series, pd.DataFrame],
 	if file_name is None:
 		file_name = 'results'
 	save_df_dict_to_excel(df_dict=results_dict,
-	                      folder=RESULTS_DIR,
+	                      folder_name=RESULTS_DIR,
 	                      file_name=file_name)
 	return results_dict
 

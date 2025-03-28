@@ -79,12 +79,12 @@ def fetch_tx_history(account: Accounts,
         raw=False,
     )
     tx_history_df = field_list_to_df(data=transactions_history.data)
-    fu.save_df_to_excel(df=tx_history_df, file_name=f'{account.name}_tx_hist', folder=DATA_DIR)
+    fu.save_df_to_excel(df=tx_history_df, file_name=f'{account.name}_tx_hist', folder_name=DATA_DIR)
     return tx_history_df
 
 
 def load_tx_history(account: Accounts) -> pd.DataFrame:
-    tx_history_df = fu.load_df_from_excel(file_name=f'{account.name}_tx_hist', folder=DATA_DIR)
+    tx_history_df = fu.load_df_from_excel(file_name=f'{account.name}_tx_hist', folder_name=DATA_DIR)
     tx_history_df = tx_history_df.astype({"product_id": int})
     return tx_history_df
 
@@ -104,10 +104,10 @@ def fetch_account_movements(account: Accounts,
         raw=False,
     )
     account_movements_df = field_list_to_df(data=account_overview.cash_movements)
-    fu.save_df_to_excel(df=account_movements_df, file_name=f'{account.name}_movements', folder=DATA_DIR)
+    fu.save_df_to_excel(df=account_movements_df, file_name=f'{account.name}_movements', folder_name=DATA_DIR)
     return account_movements_df
 
 
 def load_account_movements(account: Accounts) -> pd.DataFrame:
-    account_movements_df = fu.load_df_from_excel(file_name=f'{account.name}_movements', folder=DATA_DIR)
+    account_movements_df = fu.load_df_from_excel(file_name=f'{account.name}_movements', folder_name=DATA_DIR)
     return account_movements_df

@@ -8,7 +8,7 @@ import file_utils as fu
 from charts import fetch_portfolio_charts, load_portfolio_charts, fetch_fx_charts, load_fx_rates
 from date_utils import reset_time
 from definitions import Accounts
-from definitions import DATA_DIR, DEFAULT_PORTFOLIO_NAME
+from definitions import DATA_DIR
 from degiro_connection import get_degiro_connection
 from instruments_performance import fetch_portfolio_instr_adj_prices
 from portfolio import Portfolio, HistPortfolioData
@@ -107,11 +107,11 @@ def save_hist_portfolio_data(hist_portfolio_data: HistPortfolioData,
                              account: Accounts):
     fu.save_df_dict_to_excel(df_dict=hist_portfolio_data._asdict(),
                              file_name=account.name,
-                             folder=DATA_DIR)
+                             folder_name=DATA_DIR)
 
 
 def load_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
-    data_dict = fu.load_df_dict_from_excel(file_name=account.name, folder=DATA_DIR)
+    data_dict = fu.load_df_dict_from_excel(file_name=account.name, folder_name=DATA_DIR)
     return HistPortfolioData(**data_dict)
 
 
@@ -211,5 +211,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.COMPUTE_NAV
+    unit_test = UnitTests.UPDATE_DATA
     run_unit_test(unit_test=unit_test)

@@ -5,7 +5,7 @@ from typing import List, Optional
 import pandas as pd
 from degiro_connector.trading.api import API
 
-import file_utils as fu
+from file_utils import save_df_to_excel, load_df_from_excel
 from definitions import Accounts, DATA_DIR
 from degiro_connection import get_degiro_connection
 from product_definitions import ProductTypes
@@ -65,7 +65,7 @@ def fetch_product_info(degiro_conn: Optional[API] = None,
 
 def save_product_info(account: Accounts,
                       product_info_df: pd.DataFrame):
-    fu.save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder=DATA_DIR)
+    save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
 
 
 def fetch_portfolio_products(account: Accounts,
@@ -81,7 +81,7 @@ def get_product_info_from_isin(product_isin: str) -> pd.DataFrame:
 
 
 def load_portfolio_products(account: Accounts) -> pd.DataFrame:
-    product_df = fu.load_df_from_excel(file_name=f'{account.name}_products_info', folder=DATA_DIR)
+    product_df = load_df_from_excel(file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
     return product_df
 
 

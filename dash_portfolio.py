@@ -3,24 +3,17 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, html, dcc, Input, Output, callback
+from dash import html, dcc, Input, Output, callback
 
 from definitions import Accounts
 from instruments_performance import fetch_instr_hist_data
 from portfolio_analysis_funcs import vol_risk_contr
 from portfolio_history import load_hist_portfolio_data, update_data, compute_hist_portfolio_data
 from portfolio_performance import load_portfolio_performance, compute_portfolio_performance
+from products import get_product_info_from_isin
 from products import load_portfolio_products
 from reporting import OutDataTabs
 from yfinance_api import YFinHistCols
-from products import get_product_info_from_isin
-
-# external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-
-dash = Dash(__name__,
-            requests_pathname_prefix="/portfolio/",
-            external_stylesheets=[dbc.themes.SLATE],
-            meta_tags=[{"name": "portfolio", "content": "width=device-width"}])
 
 account = Accounts.CHF
 
@@ -199,12 +192,12 @@ def draw_text(text: str):
 
 
 # DASHBOARD
-dash.layout = dbc.Container([
+content_portfolio = html.Div(
     dbc.Card(
         dbc.CardBody([
             dbc.Row([
                 dbc.Col([html.H2(draw_text(account.name))], width=2),
-                dbc.Col([dbc.Button("Update", id="update-button", className="me-2", n_clicks=0)], width=2),
+                dbc.Col([dbc.Button("Update", id="button-update", className="me-2", n_clicks=0)], width=2),
                 dbc.Col([html.H2("Text")], width=2),
             ], align='center'),
             html.Br(),
@@ -230,18 +223,18 @@ dash.layout = dbc.Container([
             ], align='center'),
             html.Br(),
         ]), color='dark'
-    )
-], fluid=True)
+    ),
+)
 
 
 # update portfolio data charts
 @callback(
     Output('fig_nav', 'figure'),
     Output('fig_comp', 'figure'),
-    Input('update-button', 'n_clicks'),
+    Input('button-update', 'n_clicks'),
     prevent_initial_call=True
 )
-def update(n_clicks):
+def update(n_clicks) -> (go.Figure, go.Figure):
     pf_data.update()
     return get_fig_nav(), get_fig_comp()
 
@@ -252,7 +245,7 @@ def update(n_clicks):
     Input('input_isin', 'value'),
     prevent_initial_call=True
 )
-def update_instr_adj_close_fig(isin):
+def update_instr_adj_close_fig(isin) -> go.Figure:
     results_df = get_product_info_from_isin(product_isin=isin)
     ticker = results_df['symbol'].mode().iloc[0]
     data = fetch_instr_hist_data(isin_lst=isin,
@@ -268,7 +261,3 @@ def update_instr_adj_close_fig(isin):
                              name=data[YFinHistCols.adj_close].columns[0],
                              mode='lines'))
     return fig
-
-
-if __name__ == '__main__':
-    dash.run(debug=True)

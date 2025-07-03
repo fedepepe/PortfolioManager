@@ -3,26 +3,23 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, html, dcc
+from dash import html, dcc
 
+from definitions import Accounts
 from instruments_performance import load_etf_catalog_data
 from instruments_performance import load_etf_catalog_performance, compute_etf_catalog_performance
 from reporting import Metrics
 from yfinance_api import YFinHistCols
 
+account = Accounts.CHF
 MAX_INSTR_CORR = 50
-
-dash = Dash(__name__,
-            requests_pathname_prefix="/instruments/",
-            external_stylesheets=[dbc.themes.SLATE],
-            meta_tags=[{"name": "portfolio", "content": "width=device-width"}])
 
 
 # LOAD DATA
 class InstrumentsData:
     def __init__(self):
         self.perf_df = load_etf_catalog_performance()
-        adj_close_df = load_etf_catalog_data(column=YFinHistCols.adj_close)
+        adj_close_df = load_etf_catalog_data(account=account, column=YFinHistCols.adj_close)
         self.adj_close_df = adj_close_df.loc[:, ~adj_close_df.columns.duplicated()].copy()
 
     def update(self):
@@ -81,35 +78,28 @@ def get_fig_corr() -> go.Figure:
                                       template="plotly_dark",
                                       xaxis=dict(side='top', scaleanchor="y", constrain="domain"),
                                       yaxis=dict(scaleanchor="x", constrain="domain"),
+                                      margin={"l": 30, "r": 30, "t": 130, "b": 30}
                                       )
                      )
 
 
 # DASHBOARD
 content_instruments = html.Div([
-    get_table_perf(),
-    html.Br(),
     dbc.Card(
-        dbc.CardBody(
-            [dcc.Graph(id='fig_corr', figure=get_fig_corr(), style={'height': 1000}, responsive=True)],
-        ), color='dark'
-    ),
-],
-    style={
-        'width': '90%',
-        'margin-left': 35,
-        'margin-top': 35,
-        'margin-bottom': 35
-    },
+        dbc.CardBody([
+            get_table_perf(),
+            html.Br(),
+            dcc.Graph(id='fig_corr', figure=get_fig_corr(), style={'height': 1000}, responsive=True)
+        ]), color='dark'
+    )],
 )
 
 
 # # update instrument chart
 # @callback(
-#     Output('table_perf', 'children'),
+#     Output('fig_corr', 'figure'),
 #     Input('table_perf', 'virtualRowData'),
 #     prevent_initial_call=True
 # )
 # def update_corr_heatmap_fig(virtual_data):
-#     test = str(virtual_data)
-#     return test
+#     return get_fig_corr()

@@ -3,8 +3,9 @@ from dash import Dash, html, Input, Output, callback, ctx
 
 from dash_common import CONTENT_STYLE
 from dash_sidebar import sidebar
-from dash_portfolio import content_portfolio
+from dash_portfolio import build_content_portfolio
 from dash_instruments import content_instruments
+from definitions import Accounts
 
 dash = Dash(__name__,
             requests_pathname_prefix="/portfolio_manager/",
@@ -23,9 +24,10 @@ dash.layout = dbc.Container(
         ]
     ),
     fluid=True,
-    # style={'display': 'flex'},
     className='dashboard-container'
 )
+
+account = Accounts.CHF
 
 
 @callback(Output("page-content", "children"),
@@ -35,8 +37,8 @@ dash.layout = dbc.Container(
           )
 def switch_content(n1, n2, n3):
     if ctx.triggered_id == "button-portfolio":
-        return content_portfolio
+        return build_content_portfolio(account=account)
     elif ctx.triggered_id == "button-instruments":
         return content_instruments
     else:
-        return content_portfolio
+        return build_content_portfolio(account=account)

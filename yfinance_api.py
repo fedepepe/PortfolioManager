@@ -16,6 +16,7 @@ class YFinHistCols:
 	stock_splits = 'Stock Splits'
 	capital_gains = 'Capital Gains'
 	currency = 'Currency'
+	name_long = 'LongName'
 
 
 class Exchange(NamedTuple):
@@ -86,22 +87,21 @@ def search_fetch_history(ticker: Optional[str] = None,
 		raise ValueError('Ticker or ISIN not provided.')
 	if isinstance(columns, str) or isinstance(columns, YFinHistCols):
 		columns = [columns]
-	columns_ext = columns + [YFinHistCols.currency]
+	columns_ext = columns + [YFinHistCols.currency, YFinHistCols.name_long]
 	data = {col: pd.DataFrame() for col in columns_ext}
 	for t in match:
-		ticker = t['symbol'] or isin
-		try:
-			currency = yf.Ticker(ticker).info['currency']
-		except KeyError:
-			continue
+		ticker = t['symbol']
+		yf_info = yf.Ticker(ticker).info.copy()
+		currency = yf_info.get('currency', None)
+		name_long = yf_info.get('longName', '')
 		data_ticker = fetch_history(tickers=ticker, columns=columns)
 		for col in data_ticker:
 			data_ticker[col] = data_ticker[col].dropna(axis=1, how='all')
-		data_ticker[YFinHistCols.currency] = pd.DataFrame(currency, columns=[ticker], index=['Currency'])
-		for col in columns_ext:
-			data[col] = pd.concat([data[col], data_ticker[col]], axis=1)
-	else:
-		return data
+		data_ticker[YFinHistCols.currency] = pd.DataFrame(currency, columns=[ticker], index=[YFinHistCols.currency])
+		data_ticker[YFinHistCols.name_long] = pd.DataFrame(name_long, columns=[ticker], index=[YFinHistCols.name_long])
+		for key in data_ticker:
+			data[key] = pd.concat([data[key], data_ticker[key]], axis=1)
+	return data
 
 
 if __name__ == '__main__':

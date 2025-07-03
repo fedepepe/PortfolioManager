@@ -1,8 +1,7 @@
 import time
 import warnings
+from difflib import SequenceMatcher
 from enum import Enum
-from os import listdir
-from os.path import isfile, join
 from typing import List, Dict, Optional
 
 import pandas as pd
@@ -10,6 +9,7 @@ import pandas as pd
 from charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
 from definitions import RESULTS_DIR, DATA_ETF_DIR
+from file_utils import PD_DATA_TYPES
 from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
@@ -19,11 +19,14 @@ from yfinance_api import YFinHistCols, search_fetch_history
 
 def fetch_instr_hist_data(isin_lst: str | List[str],
                           columns: str | YFinHistCols | List[str] | List[YFinHistCols],
+                          name_lst: Optional[str | List[str]] = None,
                           tickers_rename: Optional[str | List[str]] = None,
                           freq: str = DEFAULT_DATA_FREQ,
                           ) -> Dict[str, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
+    if isinstance(name_lst, str):
+        name_lst = [name_lst]
     if tickers_rename is None:
         tickers_rename = isin_lst.copy()
     elif isinstance(tickers_rename, str):
@@ -32,16 +35,28 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         columns = [str(columns)]
     columns_ext = columns + [YFinHistCols.currency]
     data = {col: pd.DataFrame() for col in columns_ext}
-    for isin, ticker in zip(isin_lst, tickers_rename):
-        data_isin = search_fetch_history(isin=isin, columns=columns)
-        for col in columns:
-            try:
-                data_isin[col] = data_isin[col].iloc[:, 0]
-            except IndexError:
-                continue
-            data_isin[col] = data_isin[col].rename(ticker)
+    for n, (isin, ticker) in enumerate(zip(isin_lst, tickers_rename)):
+        data_single = search_fetch_history(isin=isin, columns=columns)
+        tickers_restrict = list(set.intersection(*map(set, [data_single[key].columns for key in data_single])))
+        for key in data_single:
+            data_single[key] = data_single[key].loc[:, tickers_restrict]
         for col in columns_ext:
-            data[col] = pd.concat([data[col], data_isin[col]], axis=1)
+            if data_single[col].shape[1] == 1:
+                data_single[col] = data_single[col].iloc[:, 0]
+            elif data_single[col].shape[1] > 1:
+                raise Exception
+            else:  # try with ticker
+                data_single = search_fetch_history(ticker=ticker, columns=columns)
+                if data_single[col].empty:
+                    continue
+                names_long = data_single[YFinHistCols.name_long].iloc[0, :].values
+                name_match = [SequenceMatcher(None, name_lst[n], name).ratio() for name in names_long]
+                ticker_best = data_single[YFinHistCols.name_long].columns[name_match.index(max(name_match))]
+                for key in data_single:
+                    data_single[key] = data_single[key].loc[:, ticker_best]
+            data_single[col] = data_single[col].rename(ticker)
+        for col in columns_ext:
+            data[col] = pd.concat([data[col], data_single[col]], axis=1)
     for col in columns:
         data[col].index = pd.to_datetime(data[col].index)
         data[col] = data[col].sort_index()
@@ -50,19 +65,23 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
     return data
 
 
-def prices_to_curr_dom(account: Accounts,
-                       price_df: pd.DataFrame,
-                       curr_info: pd.Series,
-                       freq: str = DEFAULT_DATA_FREQ):
-    product_curr = curr_info.loc[YFinHistCols.currency, :].to_list()
-    curr_foreign_lst = [c for c in list(set(product_curr)) if c != account.currency]
+def prices_to_base_curr(account: Accounts,
+                        price_df: pd.DataFrame,
+                        curr_info: PD_DATA_TYPES | List[str]):
+    if isinstance(curr_info, pd.DataFrame):
+        curr_lst = curr_info.loc[YFinHistCols.currency, :].str.upper().to_list()
+    elif isinstance(curr_info, List):
+        curr_lst = [c.upper() for c in curr_info]
+    else:
+        raise TypeError
+    curr_foreign_lst = list(set([c for c in curr_lst if c != account.currency]))
     fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,
                                 account=account,
                                 index=price_df.index)
-    fx_rates_df = fx_rates_df.resample(freq).last().reindex(index=price_df.index).ffill()
+    fx_rates_df = fx_rates_df.reindex(index=price_df.index).ffill()
     # average prices across exchanges
     price_base_df = pd.DataFrame()
-    for ticker, curr in zip(price_df.columns, product_curr):
+    for ticker, curr in zip(price_df.columns, curr_lst):
         try:
             ser = (price_df[ticker].mul(fx_rates_df.loc[price_df.index, f'{curr}/{account.currency}'], axis=0))
             ser = ser.rename(ticker)
@@ -81,12 +100,14 @@ def prices_to_curr_dom(account: Accounts,
 def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
     products_df = load_portfolio_products(account=account)
     isin_lst = products_df['isin'].to_list()
+    name_lst = products_df['name'].to_list()
     data = fetch_instr_hist_data(isin_lst=isin_lst,
                                  columns=YFinHistCols.adj_close,
+                                 name_lst=name_lst,
                                  tickers_rename=products_df['symbol'].to_list())
-    close_adj_base_curr_df = prices_to_curr_dom(account=account,
-                                                price_df=data[YFinHistCols.adj_close],
-                                                curr_info=data[YFinHistCols.currency])
+    close_adj_base_curr_df = prices_to_base_curr(account=account,
+                                                 price_df=data[YFinHistCols.adj_close],
+                                                 curr_info=data[YFinHistCols.currency])
     return close_adj_base_curr_df
 
 
@@ -107,13 +128,13 @@ def compute_product_performance(isin: str,
             results_dict = compute_portfolio_metrics(nav=data[YFinHistCols.adj_close][ticker],
                                                      compute_hist_metrics=False,
                                                      print_results=False)
-        except:
+        except ValueError:
             continue
         # add dollar volume
         try:
             volume = data[YFinHistCols.close][ticker].mul(data[YFinHistCols.volume][ticker])
             results_dict[OutDataTabs.RISK_METRICS]['Volume ($)'] = volume.rolling(60, min_periods=1).mean().iloc[-1]
-        except:
+        except ValueError:
             pass
         # add name
         results_dict[OutDataTabs.RISK_METRICS]['ISIN'] = isin
@@ -187,19 +208,29 @@ def load_etf_catalog_performance() -> pd.DataFrame:
     return load_df_from_excel(file_name='ETF_performance', folder_name=RESULTS_DIR)
 
 
-def load_etf_catalog_data(column: str,
+def load_etf_catalog_data(account: Accounts,
+                          column: str,
                           isin_lst: Optional[str | List[str]] = None) -> pd.DataFrame:
     if isin_lst is None:
-        isin_lst = load_etf_catalog_performance()['ISIN'].to_list()[:50]
+        isin_lst = load_etf_catalog_performance()['ISIN'].to_list()
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
     df = pd.DataFrame()
+    curr_lst = []
     for n, isin in enumerate(isin_lst):
-        df_isin = load_df_from_excel(folder_name=DATA_ETF_DIR,
-                                     file_name=isin,
-                                     sheet_name=column)
-        df = pd.concat([df, df_isin], axis=1)
+        data_single = load_df_from_excel(folder_name=DATA_ETF_DIR,
+                                         file_name=isin,
+                                         sheet_name=[column, YFinHistCols.currency])
+        if data_single[column].empty:
+            continue
+        df = pd.concat([df, data_single[column]], axis=1)
+        curr_lst.append(data_single[YFinHistCols.currency].iloc[0, 0])
         print(f'{n}/{len(isin_lst)} loaded.')
+        if n > 50:
+            break
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+    df = prices_to_base_curr(account=account, price_df=df, curr_info=curr_lst)
+    df = df.sort_index()
     return df
 
 

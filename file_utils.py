@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Union
+from typing import Dict, Union, List
 
 import pandas as pd
 
@@ -66,7 +66,7 @@ def save_df_to_parquet(df: PD_DATA_TYPES,
 
 def load_df_from_excel(file_name: str,
                        folder_name: str = None,
-                       sheet_name: str = 'Sheet1'
+                       sheet_name: str | List[str] = 'Sheet1'
                        ) -> pd.DataFrame:
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')

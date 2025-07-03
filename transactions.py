@@ -60,7 +60,7 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
         ser = pd.Series(values, columns)
         df = pd.concat([df, ser.to_frame().T])
     for col in [c for c in df.columns if 'date' in c.lower()]:
-        df[col] = pd.DatetimeIndex(df[col]).tz_convert(None)
+        df[col] = pd.DatetimeIndex(pd.to_datetime(df[col], utc=True)).tz_convert(None)
     df = df.set_index('date')
     df = df.sort_index()
     return df

@@ -208,8 +208,10 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.COMPUTE_NAV:
         for account in Accounts:
             compute_hist_portfolio_data(account=account)
+    else:
+        raise NotImplementedError
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.UPDATE_DATA
+    unit_test = UnitTests.COMPUTE_NAV
     run_unit_test(unit_test=unit_test)

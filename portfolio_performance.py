@@ -13,6 +13,7 @@ class UnitTests(Enum):
     UPDATE_DATA = 1
     COMPUTE_PORTFOLIO_PERFORMANCE = 2
     LOAD_PORTFOLIO_PERFORMANCE = 3
+    UPDATE_DATA_NAV_PERFORMANCE = 4
 
 
 def compute_portfolio_performance(account: Accounts):
@@ -36,8 +37,15 @@ def run_unit_test(unit_test: UnitTests):
             compute_portfolio_performance(account=account)
     elif unit_test == UnitTests.LOAD_PORTFOLIO_PERFORMANCE:
         print(load_portfolio_performance(account=Accounts.CHF))
+    elif unit_test == UnitTests.UPDATE_DATA_NAV_PERFORMANCE:
+        for account in Accounts:
+            update_data(account=account)
+            compute_hist_portfolio_data(account=account)
+            compute_portfolio_performance(account=account)
+    else:
+        raise NotImplementedError
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.COMPUTE_PORTFOLIO_PERFORMANCE
+    unit_test = UnitTests.UPDATE_DATA_NAV_PERFORMANCE
     run_unit_test(unit_test=unit_test)

@@ -1,5 +1,5 @@
 from sqlite3 import IntegrityError
-from typing import Optional
+from typing import Optional, Dict
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError, PendingRollbackError
 
 from db_conn import engine, conn
 from sql_utils import list_to_str, str_to_date
-from table_definitions import Product, Close
+from table_definitions import Product, Close, YahooFinanceData
 from product_definitions import ProductTypes, Exchanges
 
 
@@ -63,12 +63,23 @@ def insert_close(series: pd.Series):
 	db_commit(message=f'Added closing prices of product {series.name}')
 
 
+def insert_yahoo_finance_data(data_dict: Dict[str, pd.DataFrame]):
+	for col, df in data_dict.items():
+		df_melt = pd.melt(df.reset_index(), id_vars='index', value_vars=df.columns)
+		for ticker in df.columns:
+			data = YahooFinanceData(ticker=ticker,
+			                        date=None,
+			                        quote_type=col,
+			                        value=None,
+			                        value_str=None)
+
+
 def db_commit(message: Optional[str] = None):
 	try:
 		conn.commit()
 		if message is not None:
 			print(f'Added entry {message}.')
-	except (IntegrityError, IntegrityError) as e:
+	except IntegrityError as e:
 		if 'UNIQUE constraint failed' in e._message():
 			if message is not None:
 				print(f'Entry {message} already exists. Skipped.')

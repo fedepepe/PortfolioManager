@@ -13,8 +13,8 @@ from file_utils import PD_DATA_TYPES
 from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
-from sql import query_products, query_tradable_products
-from yfinance_api import YFinHistCols, search_fetch_history
+from sql import query_products, query_tradable_products, insert_yahoo_finance_data
+from yfinance_api import YFinHistCols, YFinProdInfo, search_fetch_history, YF_PROD_INFO_LABEL
 
 
 def fetch_instr_hist_data(isin_lst: str | List[str],
@@ -33,8 +33,8 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         tickers_rename = [tickers_rename]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
         columns = [str(columns)]
-    columns_ext = columns + [YFinHistCols.currency]
-    data = {col: pd.DataFrame() for col in columns_ext}
+    columns_ext = columns + [YF_PROD_INFO_LABEL]
+    data_dict = {col: pd.DataFrame() for col in columns_ext}
     for n, (isin, ticker) in enumerate(zip(isin_lst, tickers_rename)):
         data_single = search_fetch_history(isin=isin, columns=columns)
         tickers_restrict = list(set.intersection(*map(set, [data_single[key].columns for key in data_single])))
@@ -49,20 +49,22 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                 data_single = search_fetch_history(ticker=ticker, columns=columns)
                 if data_single[col].empty:
                     continue
-                names_long = data_single[YFinHistCols.name_long].iloc[0, :].values
+                breakpoint()
+                names_long = data_single[YF_PROD_INFO_LABEL].loc[YFinProdInfo.name_long.value].iloc[0, :].values
                 name_match = [SequenceMatcher(None, name_lst[n], name).ratio() for name in names_long]
-                ticker_best = data_single[YFinHistCols.name_long].columns[name_match.index(max(name_match))]
+                ticker_best = data_single[YF_PROD_INFO_LABEL].loc[YFinProdInfo.name_long.value].columns[name_match.index(max(name_match))]
                 for key in data_single:
                     data_single[key] = data_single[key].loc[:, ticker_best]
             data_single[col] = data_single[col].rename(ticker)
         for col in columns_ext:
-            data[col] = pd.concat([data[col], data_single[col]], axis=1)
+            data_dict[col] = pd.concat([data_dict[col], data_single[col]], axis=1)
     for col in columns:
-        data[col].index = pd.to_datetime(data[col].index)
-        data[col] = data[col].sort_index()
-        data[col] = data[col].resample(freq).last()
-        data[col] = data[col].loc[:, ~data[col].columns.duplicated()].copy()
-    return data
+        data_dict[col].index = pd.to_datetime(data_dict[col].index)
+        data_dict[col] = data_dict[col].sort_index()
+        data_dict[col] = data_dict[col].resample(freq).last()
+        data_dict[col] = data_dict[col].loc[:, ~data_dict[col].columns.duplicated()].copy()
+    insert_yahoo_finance_data(data_dict=data_dict)
+    return data_dict
 
 
 def prices_to_base_curr(account: Accounts,
@@ -107,7 +109,7 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
                                  tickers_rename=products_df['symbol'].to_list())
     close_adj_base_curr_df = prices_to_base_curr(account=account,
                                                  price_df=data[YFinHistCols.adj_close],
-                                                 curr_info=data[YFinHistCols.currency])
+                                                 curr_info=data[YF_PROD_INFO_LABEL].loc[YFinProdInfo.currency.value])
     return close_adj_base_curr_df
 
 
@@ -220,11 +222,11 @@ def load_etf_catalog_data(account: Accounts,
     for n, isin in enumerate(isin_lst):
         data_single = load_df_from_excel(folder_name=DATA_ETF_DIR,
                                          file_name=isin,
-                                         sheet_name=[column, YFinHistCols.currency])
+                                         sheet_name=[column, YF_PROD_INFO_LABEL])
         if data_single[column].empty:
             continue
         df = pd.concat([df, data_single[column]], axis=1)
-        curr_lst.append(data_single[YFinHistCols.currency].iloc[0, 0])
+        curr_lst.append(data_single[YF_PROD_INFO_LABEL].loc[YFinProdInfo.currency.value])
         print(f'{n}/{len(isin_lst)} loaded.')
         if n > 50:
             break
@@ -263,5 +265,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.LOAD_ETF_CATALOG_DATA
+    unit_test = UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE
     run_unit_test(unit_test=unit_test)

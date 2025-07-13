@@ -51,15 +51,23 @@ class Close(Base):
 	close = Column(Float)
 
 
-class YahooFinanceData(Base):
-	__tablename__ = 'yahoo_finance'
+class YahooFinanceHistData(Base):
+	__tablename__ = 'yahoo_finance_hist'
 	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
 	ticker = Column(String)
 	date = Column(Date)
 	quote_type = Column(String)
 	value = Column(Float)
-	value_str = Column(String)
 	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
+
+
+class YahooFinanceProdInfo(Base):
+	__tablename__ = 'yahoo_finance_info'
+	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
+	ticker = Column(String)
+	quote_type = Column(String)
+	value = Column(String)
+	__table_args__ = (UniqueConstraint('ticker', 'quote_type', name='_ticker_quote_unique'), )
 
 
 # Create the table in the database

@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlite3 import IntegrityError
 from typing import Optional, Dict
 
@@ -8,8 +9,9 @@ from sqlalchemy.exc import IntegrityError, PendingRollbackError
 
 from db_conn import engine, conn
 from sql_utils import list_to_str, str_to_date
-from table_definitions import Product, Close, YahooFinanceData
+from table_definitions import Product, Close, YahooFinanceHistData, YahooFinanceProdInfo
 from product_definitions import ProductTypes, Exchanges
+from yfinance_api import YF_PROD_INFO_LABEL, YFinProdInfo
 
 
 def insert_product(product: ProductItem):
@@ -65,13 +67,34 @@ def insert_close(series: pd.Series):
 
 def insert_yahoo_finance_data(data_dict: Dict[str, pd.DataFrame]):
 	for col, df in data_dict.items():
-		df_melt = pd.melt(df.reset_index(), id_vars='index', value_vars=df.columns)
-		for ticker in df.columns:
-			data = YahooFinanceData(ticker=ticker,
-			                        date=None,
-			                        quote_type=col,
-			                        value=None,
-			                        value_str=None)
+		if col == YF_PROD_INFO_LABEL:
+			# write into product info table
+			for ticker in df.columns:
+				cond = YahooFinanceProdInfo.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker]
+				conn.query(YahooFinanceProdInfo).where(cond).delete()
+				conn.flush()
+				data = []
+				for t in range(df.shape[0]):
+					data.append(YahooFinanceProdInfo(ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker],
+					                                 quote_type=df.index[t],
+					                                 value=df[ticker].iloc[t]))
+				conn.add_all(data)
+		else:
+			# write into historical data table
+			for ticker in df.columns:
+				df_melt = pd.melt(df[ticker].reset_index(), id_vars='index', value_vars=df.columns)
+				cond = YahooFinanceHistData.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker]
+				cond = cond & (YahooFinanceHistData.quote_type == col)
+				conn.query(YahooFinanceHistData).where(cond).delete()
+				conn.flush()
+				data = []
+				for t in range(df_melt.shape[0]):
+					data.append(YahooFinanceHistData(ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker],
+					                                 date=df_melt['index'].iloc[t],
+					                                 quote_type=col,
+					                                 value=df_melt['value'].iloc[t]))
+				conn.add_all(data)
+	db_commit(message=f'Added closing prices of product {data_dict[YF_PROD_INFO_LABEL]}')
 
 
 def db_commit(message: Optional[str] = None):
@@ -127,7 +150,8 @@ def query_tradable_products(product_type: ProductTypes) -> pd.DataFrame:
 
 def query_close(product_id: int,
                 date_start: Optional[pd.Timestamp] = None,
-                date_stop: Optional[pd.Timestamp] = None):
+                date_stop: Optional[pd.Timestamp] = None
+                ) -> pd.DataFrame:
 	cond = Close.product_id == product_id
 	if date_start is not None:
 		cond = cond & (Close.date >= date_start)
@@ -141,9 +165,20 @@ def query_close(product_id: int,
 	return df
 
 
+def query_yahoo_finance_data(ticker: Optional[str] = None) -> pd.DataFrame:
+	cond = True
+	stmt = select(YahooFinanceHistData).where(cond)
+	df = pd.read_sql(stmt, engine)
+	return df
+
+
 def get_product_types() -> float:
 	return conn.query(Product.product_type).distinct().all()
 
 
 def get_max_product_id() -> int:
 	return conn.query(func.max(Product.id)).all()[0][0]
+
+
+if __name__ == '__main__':
+	query_yahoo_finance_data()

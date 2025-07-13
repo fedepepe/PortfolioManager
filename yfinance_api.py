@@ -15,8 +15,21 @@ class YFinHistCols:
 	dividends = 'Dividends'
 	stock_splits = 'Stock Splits'
 	capital_gains = 'Capital Gains'
-	currency = 'Currency'
-	name_long = 'LongName'
+
+
+YF_PROD_INFO_LABEL = 'Product Info'
+
+
+class YFinProdInfo(Enum):
+	symbol = 'symbol'
+	currency = 'currency'
+	isin = 'isin'
+	name_short = 'shortName'
+	name_long = 'longName'
+	quote_type = 'quoteType'
+	exchange = 'exchange'
+	market = 'market'
+	region = 'region'
 
 
 class Exchange(NamedTuple):
@@ -87,18 +100,21 @@ def search_fetch_history(ticker: Optional[str] = None,
 		raise ValueError('Ticker or ISIN not provided.')
 	if isinstance(columns, str) or isinstance(columns, YFinHistCols):
 		columns = [columns]
-	columns_ext = columns + [YFinHistCols.currency, YFinHistCols.name_long]
+	columns_ext = columns + [YF_PROD_INFO_LABEL]
 	data = {col: pd.DataFrame() for col in columns_ext}
 	for t in match:
 		ticker = t['symbol']
-		yf_info = yf.Ticker(ticker).info.copy()
-		currency = yf_info.get('currency', None)
-		name_long = yf_info.get('longName', '')
 		data_ticker = fetch_history(tickers=ticker, columns=columns)
 		for col in data_ticker:
 			data_ticker[col] = data_ticker[col].dropna(axis=1, how='all')
-		data_ticker[YFinHistCols.currency] = pd.DataFrame(currency, columns=[ticker], index=[YFinHistCols.currency])
-		data_ticker[YFinHistCols.name_long] = pd.DataFrame(name_long, columns=[ticker], index=[YFinHistCols.name_long])
+		yf_info = yf.Ticker(ticker).info.copy()
+		data_ticker[YF_PROD_INFO_LABEL] = pd.DataFrame(columns=[ticker])
+		for field in YFinProdInfo:
+			data_ticker[YF_PROD_INFO_LABEL].loc[field.value] = yf_info.get(field.value, '')
+		if isin is not None:
+			data_ticker[YF_PROD_INFO_LABEL].loc[YFinProdInfo.isin.value] = isin
+		else:
+			data_ticker[YF_PROD_INFO_LABEL].loc[YFinProdInfo.isin.value] = yf.Ticker(ticker).isin
 		for key in data_ticker:
 			data[key] = pd.concat([data[key], data_ticker[key]], axis=1)
 	return data

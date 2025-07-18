@@ -5,6 +5,7 @@ from enum import Enum
 from typing import List, Dict, Optional
 
 import pandas as pd
+import numpy as np
 
 from charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
@@ -14,48 +15,75 @@ from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_from_exc
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
 from sql import query_products, query_tradable_products, insert_yahoo_finance_data
-from yfinance_api import YFinHistCols, YFinProdInfo, search_fetch_history, YF_PROD_INFO_LABEL
+from sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
+from yfinance_api import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL, Exchanges
+from table_definitions import Product
 
 
 def fetch_instr_hist_data(isin_lst: str | List[str],
                           columns: str | YFinHistCols | List[str] | List[YFinHistCols],
+                          ticker_lst: Optional[str | List[str]] = None,
                           name_lst: Optional[str | List[str]] = None,
-                          tickers_rename: Optional[str | List[str]] = None,
                           freq: str = DEFAULT_DATA_FREQ,
                           ) -> Dict[str, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
-    if isinstance(name_lst, str):
+    if ticker_lst is None:
+        ticker_lst = [None] * len(isin_lst)
+    elif isinstance(ticker_lst, str):
+        ticker_lst = [ticker_lst]
+    if name_lst is None:
+        name_lst = [None] * len(ticker_lst)
+    elif isinstance(name_lst, str):
         name_lst = [name_lst]
-    if tickers_rename is None:
-        tickers_rename = isin_lst.copy()
-    elif isinstance(tickers_rename, str):
-        tickers_rename = [tickers_rename]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
         columns = [str(columns)]
     columns_ext = columns + [YF_PROD_INFO_LABEL]
     data_dict = {col: pd.DataFrame() for col in columns_ext}
-    for n, (isin, ticker) in enumerate(zip(isin_lst, tickers_rename)):
+    for n, isin in enumerate(isin_lst):
+        if ticker_lst[n] is None:
+            continue
+        # 1. try with isin
         data_single = search_fetch_history(isin=isin, columns=columns)
+        # 2. if no results is given, try with ticker
+        if all([df.empty for df in data_single.values()]):
+            if ticker_lst[n] is not None:
+                data_single = search_fetch_history(ticker=ticker_lst[n], columns=columns)
+            else:
+                continue
+        # 3. if still no results is given, give up
+        if data_single is None or all([df.empty for df in data_single.values()]):
+            continue
+        # 4. remove columns of historical data with less than 30% of valid data
+        for key in columns:
+            data_single[key] = data_single[key].loc[:, data_single[key].isin(['', ' ', np.nan, 0]).mean() < .3]
+        # 5. restrict to tickers that appear in all dataframes
         tickers_restrict = list(set.intersection(*map(set, [data_single[key].columns for key in data_single])))
         for key in data_single:
             data_single[key] = data_single[key].loc[:, tickers_restrict]
+        # 6. restrict to tickers with name matching
+        if len(tickers_restrict) > 1 and name_lst[n] is not None:
+            names_long = data_single[YF_PROD_INFO_LABEL].loc[YFinInfoCols.name_long.value].values
+            name_match = [SequenceMatcher(None, name_lst[n], name).ratio() for name in names_long]
+            ticker_match = data_single[YF_PROD_INFO_LABEL].columns[name_match.index(max(name_match))]
+            for key in data_single:
+                data_single[key] = data_single[key].loc[:, [ticker_match]]
+        # at this point, just choose the ticker according to priority arbitrarily assigned to exchanges
+        if all([df.empty for df in data_single.values()]):
+            continue
         for col in columns_ext:
             if data_single[col].shape[1] == 1:
                 data_single[col] = data_single[col].iloc[:, 0]
             elif data_single[col].shape[1] > 1:
-                raise Exception
-            else:  # try with ticker
-                data_single = search_fetch_history(ticker=ticker, columns=columns)
-                if data_single[col].empty:
-                    continue
-                breakpoint()
-                names_long = data_single[YF_PROD_INFO_LABEL].loc[YFinProdInfo.name_long.value].iloc[0, :].values
-                name_match = [SequenceMatcher(None, name_lst[n], name).ratio() for name in names_long]
-                ticker_best = data_single[YF_PROD_INFO_LABEL].loc[YFinProdInfo.name_long.value].columns[name_match.index(max(name_match))]
-                for key in data_single:
-                    data_single[key] = data_single[key].loc[:, ticker_best]
-            data_single[col] = data_single[col].rename(ticker)
+                remove_duplicated_tickers(col, data_single)
+                if data_single[col].shape[1] == 1:
+                    data_single[col] = data_single[col].iloc[:, 0]
+                else:
+                    is_in_x_dct = {f'{ticker_lst[n]}.{x.code}': f'{ticker_lst[n]}.{x.code}' in data_single[col].columns for x in Exchanges}
+                    if any(is_in_x_dct.values()):
+                        data_single[col] = data_single[col].loc[:, max(is_in_x_dct, key=is_in_x_dct.get)]
+                    else:
+                        raise Exception  # can't establish with ticker is to be chosen. skipping...
         for col in columns_ext:
             data_dict[col] = pd.concat([data_dict[col], data_single[col]], axis=1)
     for col in columns:
@@ -63,15 +91,21 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         data_dict[col] = data_dict[col].sort_index()
         data_dict[col] = data_dict[col].resample(freq).last()
         data_dict[col] = data_dict[col].loc[:, ~data_dict[col].columns.duplicated()].copy()
-    insert_yahoo_finance_data(data_dict=data_dict)
     return data_dict
+
+
+def remove_duplicated_tickers(col, data_single):
+    if col == YF_PROD_INFO_LABEL:
+        data_single[col] = data_single[col].loc[:, ~data_single[col].columns.duplicated()].copy()
+    else:
+        data_single[col] = data_single[col].groupby(by=data_single[col].columns, axis=1).mean()
 
 
 def prices_to_base_curr(account: Accounts,
                         price_df: pd.DataFrame,
                         curr_info: PD_DATA_TYPES | List[str]):
-    if isinstance(curr_info, pd.DataFrame):
-        curr_lst = curr_info.loc[YFinHistCols.currency, :].str.upper().to_list()
+    if isinstance(curr_info, pd.Series):
+        curr_lst = curr_info.str.upper().to_list()
     elif isinstance(curr_info, List):
         curr_lst = [c.upper() for c in curr_info]
     else:
@@ -105,11 +139,10 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
     name_lst = products_df['name'].to_list()
     data = fetch_instr_hist_data(isin_lst=isin_lst,
                                  columns=YFinHistCols.adj_close,
-                                 name_lst=name_lst,
-                                 tickers_rename=products_df['symbol'].to_list())
+                                 ticker_lst=products_df['symbol'].to_list())
     close_adj_base_curr_df = prices_to_base_curr(account=account,
                                                  price_df=data[YFinHistCols.adj_close],
-                                                 curr_info=data[YF_PROD_INFO_LABEL].loc[YFinProdInfo.currency.value])
+                                                 curr_info=data[YF_PROD_INFO_LABEL].loc[YFinInfoCols.currency.value])
     return close_adj_base_curr_df
 
 
@@ -170,18 +203,27 @@ def compute_portfolio_instruments_performance():
 
 
 def fetch_etf_catalog_data():
-    etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)
-    isin_lst = list(set([e for e in etf_info_df['isin'].to_list() if e is not None]))
-    for n, isin in enumerate(isin_lst):
+    etf_info_df = query_products(product_type=ProductTypes.ETF,
+                                 tradable=True
+                                 )[[Product.isin.name,
+                                    Product.symbol.name,
+                                    Product.name.name
+                                    ]]
+    etf_info_df = etf_info_df.drop_duplicates(subset=['isin', 'symbol'], keep='first')
+    isin_lst = etf_info_df[Product.isin.name].to_list()
+    ticker_lst = etf_info_df[Product.symbol.name].to_list()
+    name_lst = etf_info_df[Product.name.name].to_list()
+    for n, (isin, ticker, name) in enumerate(zip(isin_lst, ticker_lst, name_lst)):
         print(f'({n + 1}/{len(isin_lst)} - Fetching data for {isin}')
         for attempt in range(5):
             try:
-                data = fetch_instr_hist_data(isin_lst=[isin], columns=[YFinHistCols.adj_close,
-                                                                       YFinHistCols.close,
-                                                                       YFinHistCols.volume])
-                save_df_dict_to_excel(df_dict=data,
-                                      folder_name=DATA_ETF_DIR,
-                                      file_name=isin)
+                data = fetch_instr_hist_data(isin_lst=isin,
+                                             columns=[YFinHistCols.adj_close,
+                                                      YFinHistCols.close,
+                                                      YFinHistCols.volume],
+                                             ticker_lst=ticker,
+                                             name_lst=name)
+                insert_yahoo_finance_data(data_dict=data, overwrite=True)
                 break
             except ConnectionError:
                 time.sleep(0.5)
@@ -211,27 +253,16 @@ def load_etf_catalog_performance() -> pd.DataFrame:
 
 
 def load_etf_catalog_data(account: Accounts,
-                          column: str,
+                          column: str = YFinHistCols.adj_close,
                           isin_lst: Optional[str | List[str]] = None) -> pd.DataFrame:
     if isin_lst is None:
         isin_lst = load_etf_catalog_performance()['ISIN'].to_list()
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
-    df = pd.DataFrame()
-    curr_lst = []
-    for n, isin in enumerate(isin_lst):
-        data_single = load_df_from_excel(folder_name=DATA_ETF_DIR,
-                                         file_name=isin,
-                                         sheet_name=[column, YF_PROD_INFO_LABEL])
-        if data_single[column].empty:
-            continue
-        df = pd.concat([df, data_single[column]], axis=1)
-        curr_lst.append(data_single[YF_PROD_INFO_LABEL].loc[YFinProdInfo.currency.value])
-        print(f'{n}/{len(isin_lst)} loaded.')
-        if n > 50:
-            break
-    df = df.loc[:, ~df.columns.duplicated()].copy()
-    df = prices_to_base_curr(account=account, price_df=df, curr_info=curr_lst)
+    close_adj_df = query_yahoo_finance_hist_data(column=column)
+    prod_info_df = query_yahoo_finance_prod_info()
+    curr_lst = prod_info_df.loc[YFinInfoCols.currency.value, close_adj_df.columns].to_list()
+    df = prices_to_base_curr(account=account, price_df=close_adj_df, curr_info=curr_lst)
     df = df.sort_index()
     return df
 
@@ -255,15 +286,15 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.COMPUTE_SINGLE_ETF_PERFORMANCE:
         compute_single_etf_performance(isin='IE00B7N3YW49')
     elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
-        data = fetch_instr_hist_data(isin_lst='IE00B7N3YW49', columns=YFinHistCols.adj_close)
+        data = fetch_instr_hist_data(isin_lst='CH0183136065', columns=YFinHistCols.adj_close)
         print(data)
     elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
-        df = load_etf_catalog_data(column=YFinHistCols.adj_close)
+        df = load_etf_catalog_data(column=YFinHistCols.adj_close, account=Accounts.CHF)
         print(df)
     else:
         raise NotImplementedError
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE
+    unit_test = UnitTests.FETCH_ETF_CATALOG_DATA
     run_unit_test(unit_test=unit_test)

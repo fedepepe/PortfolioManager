@@ -1,17 +1,17 @@
-from datetime import datetime
 from sqlite3 import IntegrityError
 from typing import Optional, Dict
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
 from sqlalchemy import select, func
+from sqlalchemy import true
 from sqlalchemy.exc import IntegrityError, PendingRollbackError
 
 from db_conn import engine, conn
+from product_definitions import ProductTypes, Exchanges
 from sql_utils import list_to_str, str_to_date
 from table_definitions import Product, Close, YahooFinanceHistData, YahooFinanceProdInfo
-from product_definitions import ProductTypes, Exchanges
-from yfinance_api import YF_PROD_INFO_LABEL, YFinProdInfo
+from yfinance_api import YF_PROD_INFO_LABEL, YFinInfoCols, YFinHistCols
 
 
 def insert_product(product: ProductItem):
@@ -65,36 +65,51 @@ def insert_close(series: pd.Series):
 	db_commit(message=f'Added closing prices of product {series.name}')
 
 
-def insert_yahoo_finance_data(data_dict: Dict[str, pd.DataFrame]):
+def insert_yahoo_finance_data(data_dict: Dict[str, pd.DataFrame],
+                              overwrite: bool = False):
+	if data_dict[YF_PROD_INFO_LABEL].empty:
+		return
 	for col, df in data_dict.items():
+		if df.empty:
+			continue
 		if col == YF_PROD_INFO_LABEL:
 			# write into product info table
 			for ticker in df.columns:
-				cond = YahooFinanceProdInfo.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker]
-				conn.query(YahooFinanceProdInfo).where(cond).delete()
+				cond = YahooFinanceProdInfo.ticker == data_dict[YF_PROD_INFO_LABEL].loc[
+					YFinInfoCols.symbol.value, ticker]
+				query = conn.query(YahooFinanceProdInfo).where(cond)
+				if query.count() and not overwrite:
+					continue
+				query.delete()
 				conn.flush()
 				data = []
 				for t in range(df.shape[0]):
-					data.append(YahooFinanceProdInfo(ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker],
-					                                 quote_type=df.index[t],
-					                                 value=df[ticker].iloc[t]))
+					data.append(YahooFinanceProdInfo(
+						ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
+						quote_type=df.index[t],
+						value=df[ticker].iloc[t]))
 				conn.add_all(data)
 		else:
 			# write into historical data table
 			for ticker in df.columns:
 				df_melt = pd.melt(df[ticker].reset_index(), id_vars='index', value_vars=df.columns)
-				cond = YahooFinanceHistData.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker]
+				cond = YahooFinanceHistData.ticker == data_dict[YF_PROD_INFO_LABEL].loc[
+					YFinInfoCols.symbol.value, ticker]
 				cond = cond & (YahooFinanceHistData.quote_type == col)
-				conn.query(YahooFinanceHistData).where(cond).delete()
+				query = conn.query(YahooFinanceHistData).where(cond)
+				if query.count() and not overwrite:
+					continue
+				query.delete()
 				conn.flush()
 				data = []
 				for t in range(df_melt.shape[0]):
-					data.append(YahooFinanceHistData(ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinProdInfo.symbol.value, ticker],
-					                                 date=df_melt['index'].iloc[t],
-					                                 quote_type=col,
-					                                 value=df_melt['value'].iloc[t]))
+					data.append(YahooFinanceHistData(
+						ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
+						date=df_melt['index'].iloc[t],
+						quote_type=col,
+						value=df_melt['value'].iloc[t]))
 				conn.add_all(data)
-	db_commit(message=f'Added closing prices of product {data_dict[YF_PROD_INFO_LABEL]}')
+	db_commit(message=f'Added Yahoo Finance data of product {data_dict[YF_PROD_INFO_LABEL]}.')
 
 
 def db_commit(message: Optional[str] = None):
@@ -165,10 +180,41 @@ def query_close(product_id: int,
 	return df
 
 
-def query_yahoo_finance_data(ticker: Optional[str] = None) -> pd.DataFrame:
-	cond = True
+def query_yahoo_finance_prod_info(isin: Optional[str] = None,
+                                  ticker: Optional[str] = None
+                                  ) -> pd.DataFrame:
+	if isin is not None:
+		cond = (YahooFinanceProdInfo.quote_type == YFinInfoCols.isin.value) \
+		       & (YahooFinanceProdInfo.value.ilike(f'{isin}%'))
+	elif ticker is not None:
+		cond = YahooFinanceProdInfo.ticker.ilike(f'{ticker}%')
+	else:
+		cond = True
+	stmt = select(YahooFinanceProdInfo).where(cond)
+	df = pd.read_sql(stmt, engine)
+	df = df.pivot(columns=YahooFinanceProdInfo.ticker.name,
+	              index=YahooFinanceProdInfo.quote_type.name,
+	              values=YahooFinanceProdInfo.value.name)
+	return df
+
+
+def query_yahoo_finance_hist_data(column: str,
+                                  ticker: Optional[str] = None,
+                                  isin: Optional[str] = None
+                                  ) -> pd.DataFrame:
+	info_df = query_yahoo_finance_prod_info(isin=isin, ticker=ticker)
+	if info_df.empty:
+		return pd.DataFrame()
+	ticker_lst = info_df.loc[YFinInfoCols.symbol.value, :].to_list()
+	cond = YahooFinanceHistData.quote_type == column
+	cond = cond & (YahooFinanceHistData.ticker.in_(ticker_lst))
 	stmt = select(YahooFinanceHistData).where(cond)
 	df = pd.read_sql(stmt, engine)
+	df = df.pivot(columns=YahooFinanceHistData.ticker.name,
+	              index=YahooFinanceHistData.date.name,
+	              values=YahooFinanceHistData.value.name)
+	df.index = pd.to_datetime(df.index)
+	df = df.sort_index()
 	return df
 
 
@@ -181,4 +227,7 @@ def get_max_product_id() -> int:
 
 
 if __name__ == '__main__':
-	query_yahoo_finance_data()
+	df = query_yahoo_finance_hist_data(column=YFinHistCols.adj_close, ticker='EXSI.DE')  # , isin='IE00BNKF6C99')
+	# df = query_yahoo_finance_prod_info(ticker='XZEC')
+	# df = query_products(product_type=ProductTypes.ETF, tradable=True)
+	print(df)

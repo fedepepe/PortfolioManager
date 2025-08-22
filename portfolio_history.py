@@ -133,12 +133,12 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
     account_mvmts_df = load_account_movements(account=account)
     dividends_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Dividendo',
                                                                               'Cedola',
-                                                                              'Imposta sulla Cedola']), :]
+                                                                              'Imposta sulla Cedola']), :].copy()
     # deposits/withdrawals
     deposits_df = account_mvmts_df.loc[account_mvmts_df['description'].isin(['Deposito',
                                                                              'Prelievo',
                                                                              'Deposito flatex',
-                                                                             'Prelievo flatex']), :]
+                                                                             'Prelievo flatex']), :].copy()
     # forex rates
     products_df = load_portfolio_products(account=account)
     curr_foreign_lst = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
@@ -181,7 +181,6 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
 
     # adjusted closing prices from Yahoo Finance
     close_adj_df = fetch_portfolio_instr_adj_prices(account=account)
-    close_adj_df = close_adj_df.loc[:, [c for c in prices_df.columns if c in close_adj_df.columns]]
 
     # compute historical portfolio data
     hist_portfolio_data = compute_hist_nav(prices_df=prices_df,

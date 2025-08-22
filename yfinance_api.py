@@ -7,7 +7,7 @@ import yfinance as yf
 from curl_cffi.requests.exceptions import HTTPError, DNSError, Timeout
 
 
-class YFinHistCols:
+class YFinHistCols(Enum):
 	open = 'Open'
 	high = 'High'
 	low = 'Low'
@@ -17,6 +17,9 @@ class YFinHistCols:
 	dividends = 'Dividends'
 	stock_splits = 'Stock Splits'
 	capital_gains = 'Capital Gains'
+
+	def __str__(self):
+		return self.value
 
 
 YF_PROD_INFO_LABEL = 'Product Info'
@@ -94,7 +97,10 @@ def fetch_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
 	for ticker in tickers:
 		df = fetch_history_single(ticker=ticker)
 		for col in columns:
-			data[col] = pd.concat([data[col], df[col].rename(ticker.ticker)], axis=1)
+			if isinstance(col, str):
+				data[col] = pd.concat([data[col], df[col].rename(ticker.ticker)], axis=1)
+			elif isinstance(col, YFinHistCols):
+				data[col] = pd.concat([data[col], df[col.value].rename(ticker.ticker)], axis=1)
 	for col in columns:
 		data[col].index = pd.to_datetime(data[col].index)
 		data[col] = data[col].sort_index()
@@ -104,7 +110,7 @@ def fetch_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
 def search_fetch_history(ticker: Optional[str] = None,
                          isin: Optional[str] = None,
                          columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
-                         ) -> Optional[Dict[str, pd.DataFrame]]:
+                         ) -> Optional[Dict[str | YFinHistCols, pd.DataFrame]]:
 	if ticker is not None:
 		search = search_ticker(ticker=ticker).all['quotes']
 		match = [e for e in search if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.code}' for x in Exchanges]]

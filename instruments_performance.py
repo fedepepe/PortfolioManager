@@ -4,20 +4,26 @@ from difflib import SequenceMatcher
 from enum import Enum
 from typing import List, Dict, Optional
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
-from definitions import RESULTS_DIR, DATA_ETF_DIR
+from definitions import RESULTS_DIR
 from file_utils import PD_DATA_TYPES
 from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
 from sql import query_products, query_tradable_products, insert_yahoo_finance_data
 from sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
-from yfinance_api import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL, Exchanges
 from table_definitions import Product
+from yfinance_api import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL, Exchanges
+
+
+class InstrPerfTableCols:
+    ticker = 'Ticker'
+    isin = 'ISIN'
+    name = 'Name'
 
 
 def fetch_instr_hist_data(isin_lst: str | List[str],
@@ -25,7 +31,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                           ticker_lst: Optional[str | List[str]] = None,
                           name_lst: Optional[str | List[str]] = None,
                           freq: str = DEFAULT_DATA_FREQ,
-                          ) -> Dict[str, pd.DataFrame | pd.Series]:
+                          ) -> Dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
     if ticker_lst is None:
@@ -37,7 +43,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
     elif isinstance(name_lst, str):
         name_lst = [name_lst]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
-        columns = [str(columns)]
+        columns = [columns]
     columns_ext = columns + [YF_PROD_INFO_LABEL]
     data_dict = {col: pd.DataFrame() for col in columns_ext}
     for n, isin in enumerate(isin_lst):
@@ -46,7 +52,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         # 1. try with isin
         data_single = search_fetch_history(isin=isin, columns=columns)
         # 2. if no results is given, try with ticker
-        if all([df.empty for df in data_single.values()]):
+        if all([data_single[col].empty for col in columns]):
             if ticker_lst[n] is not None:
                 data_single = search_fetch_history(ticker=ticker_lst[n], columns=columns)
             else:
@@ -79,7 +85,8 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                 if data_single[col].shape[1] == 1:
                     data_single[col] = data_single[col].iloc[:, 0]
                 else:
-                    is_in_x_dct = {f'{ticker_lst[n]}.{x.code}': f'{ticker_lst[n]}.{x.code}' in data_single[col].columns for x in Exchanges}
+                    is_in_x_dct = {f'{ticker_lst[n]}.{x.code}': f'{ticker_lst[n]}.{x.code}' in data_single[col].columns
+                                   for x in Exchanges}
                     if any(is_in_x_dct.values()):
                         data_single[col] = data_single[col].loc[:, max(is_in_x_dct, key=is_in_x_dct.get)]
                     else:
@@ -90,7 +97,10 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         data_dict[col].index = pd.to_datetime(data_dict[col].index)
         data_dict[col] = data_dict[col].sort_index()
         data_dict[col] = data_dict[col].resample(freq).last()
+    for col in columns_ext:
         data_dict[col] = data_dict[col].loc[:, ~data_dict[col].columns.duplicated()].copy()
+    # dump collected data into the database
+    insert_yahoo_finance_data(data_dict=data_dict)
     return data_dict
 
 
@@ -137,55 +147,53 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
     products_df = load_portfolio_products(account=account)
     isin_lst = products_df['isin'].to_list()
     name_lst = products_df['name'].to_list()
+    tick_lst = products_df['symbol'].to_list()
     data = fetch_instr_hist_data(isin_lst=isin_lst,
                                  columns=YFinHistCols.adj_close,
-                                 ticker_lst=products_df['symbol'].to_list())
+                                 ticker_lst=tick_lst,
+                                 name_lst=name_lst)
     close_adj_base_curr_df = prices_to_base_curr(account=account,
                                                  price_df=data[YFinHistCols.adj_close],
                                                  curr_info=data[YF_PROD_INFO_LABEL].loc[YFinInfoCols.currency.value])
+    rename_dict = {old: new for (old, new) in zip(close_adj_base_curr_df.columns, tick_lst)}
+    close_adj_base_curr_df = close_adj_base_curr_df.rename(columns=rename_dict)
     return close_adj_base_curr_df
 
 
-def compute_product_performance(isin: str,
-                                etf_info_df: Optional[pd.DataFrame] = None,
-                                use_local_data: bool = False) -> pd.DataFrame:
+def compute_product_performance(adj_close_df: PD_DATA_TYPES,
+                                volume_df: Optional[PD_DATA_TYPES] = None,
+                                prod_info_df: Optional[PD_DATA_TYPES] = None) -> pd.DataFrame:
     perf_metrics_df = pd.DataFrame()
-    if use_local_data:
-        data = load_df_from_excel(folder_name=DATA_ETF_DIR,
-                                  file_name=isin)
-    else:
-        data = fetch_instr_hist_data(isin_lst=isin,
-                                     columns=YFinHistCols.adj_close)
-    for ticker in data[YFinHistCols.adj_close].columns:
-        print(f'Computing performance metrics for {ticker} | {isin}... ')
+    for ticker in adj_close_df.columns:
+        print(f"Computing performance metrics for {ticker} ({prod_info_df.loc['isin', ticker]})... ")
         # compute performance metrics
         try:
-            results_dict = compute_portfolio_metrics(nav=data[YFinHistCols.adj_close][ticker],
+            results_dict = compute_portfolio_metrics(nav=adj_close_df[ticker],
                                                      compute_hist_metrics=False,
                                                      print_results=False)
         except ValueError:
             continue
         # add dollar volume
-        try:
-            volume = data[YFinHistCols.close][ticker].mul(data[YFinHistCols.volume][ticker])
-            results_dict[OutDataTabs.RISK_METRICS]['Volume ($)'] = volume.rolling(60, min_periods=1).mean().iloc[-1]
-        except ValueError:
-            pass
-        # add name
-        results_dict[OutDataTabs.RISK_METRICS]['ISIN'] = isin
-        if etf_info_df is not None:
-            match_name = etf_info_df.loc[(etf_info_df['isin'] == isin) &
-                                         (etf_info_df['symbol'].str.startswith(ticker[:3], na=False)), 'name']
-            if not match_name.empty:
-                results_dict[OutDataTabs.RISK_METRICS]['Name'] = match_name.iloc[0]
+        if volume_df is not None:
+            if ticker in volume_df.columns:
+                volume_mean_last = volume_df[ticker].rolling(60, min_periods=1).mean().iloc[-1]
+                results_dict[OutDataTabs.RISK_METRICS]['Volume'] = volume_mean_last
+        if prod_info_df is not None:
+            isin = prod_info_df.loc[YFinInfoCols.isin.value, ticker]
+            results_dict[OutDataTabs.RISK_METRICS][InstrPerfTableCols.isin] = isin
+            name = prod_info_df.loc[YFinInfoCols.name_long.value, ticker]
+            results_dict[OutDataTabs.RISK_METRICS][InstrPerfTableCols.name] = name
         perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
+    perf_metrics_df = perf_metrics_df.T.copy()
+    perf_metrics_df.index.name = InstrPerfTableCols.ticker
+    perf_metrics_df = perf_metrics_df.reset_index().copy()
     return perf_metrics_df
 
 
 def compute_single_etf_performance(isin: str):
     etf_info_df = query_tradable_products(product_type=ProductTypes.ETF)
     df = compute_product_performance(isin=isin,
-                                     etf_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :])
+                                     prod_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :])
     print(df)
 
 
@@ -217,13 +225,12 @@ def fetch_etf_catalog_data():
         print(f'({n + 1}/{len(isin_lst)} - Fetching data for {isin}')
         for attempt in range(5):
             try:
-                data = fetch_instr_hist_data(isin_lst=isin,
-                                             columns=[YFinHistCols.adj_close,
-                                                      YFinHistCols.close,
-                                                      YFinHistCols.volume],
-                                             ticker_lst=ticker,
-                                             name_lst=name)
-                insert_yahoo_finance_data(data_dict=data, overwrite=True)
+                fetch_instr_hist_data(isin_lst=isin,
+                                      columns=[YFinHistCols.adj_close,
+                                               YFinHistCols.close,
+                                               YFinHistCols.volume],
+                                      ticker_lst=ticker,
+                                      name_lst=name)
                 break
             except ConnectionError:
                 time.sleep(0.5)
@@ -231,46 +238,28 @@ def fetch_etf_catalog_data():
         time.sleep(0.5)
 
 
-def compute_etf_catalog_performance() -> pd.DataFrame:
-    etf_info_df = query_tradable_products(product_type=ProductTypes.ETF)
-    isin_lst = list(set([e for e in etf_info_df['isin'].to_list() if e is not None]))
-    # aggregate adjusted closing prices
-    perf_metrics_df = pd.DataFrame()
-    for n, isin in enumerate(isin_lst):
-        print(f'{n + 1}/{len(isin_lst)} - ', end='')
-        df = compute_product_performance(isin=isin,
-                                         etf_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :],
-                                         use_local_data=True)
-        perf_metrics_df = pd.concat([perf_metrics_df, df], axis=1)
-    save_df_to_excel(df=perf_metrics_df.T,
-                     folder_name=RESULTS_DIR,
-                     file_name='ETF_performance')
-    return perf_metrics_df
-
-
 def load_etf_catalog_performance() -> pd.DataFrame:
     return load_df_from_excel(file_name='ETF_performance', folder_name=RESULTS_DIR)
 
 
-def load_etf_catalog_data(account: Accounts,
-                          column: str = YFinHistCols.adj_close,
-                          isin_lst: Optional[str | List[str]] = None) -> pd.DataFrame:
-    if isin_lst is None:
-        isin_lst = load_etf_catalog_performance()['ISIN'].to_list()
-    if isinstance(isin_lst, str):
-        isin_lst = [isin_lst]
-    close_adj_df = query_yahoo_finance_hist_data(column=column)
-    prod_info_df = query_yahoo_finance_prod_info()
-    curr_lst = prod_info_df.loc[YFinInfoCols.currency.value, close_adj_df.columns].to_list()
-    df = prices_to_base_curr(account=account, price_df=close_adj_df, curr_info=curr_lst)
-    df = df.sort_index()
-    return df
+def load_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]:
+    volume_df = query_yahoo_finance_hist_data(columns=YFinHistCols.volume)
+    volume_3m_df = volume_df.rolling(90).mean().dropna(how='all', axis=1)
+    curr_info = query_yahoo_finance_prod_info().loc[YFinInfoCols.currency.value, volume_3m_df.columns]
+    volume_3m_base_df = prices_to_base_curr(account=account, price_df=volume_3m_df, curr_info=curr_info)
+    volume_3m_base = volume_3m_base_df.apply(lambda x: x[x.notnull()].values[-1])
+    most_liquid_3m = volume_3m_base.sort_values(ascending=False).index[:100]
+    close_adj_df = query_yahoo_finance_hist_data(columns=YFinHistCols.adj_close, tickers=list(most_liquid_3m))
+    close_adj_df = prices_to_base_curr(account=account, price_df=close_adj_df, curr_info=curr_info)
+    info_df = query_yahoo_finance_prod_info(ticker=list(most_liquid_3m))
+    return {YFinHistCols.adj_close: close_adj_df[most_liquid_3m],
+            YFinHistCols.volume: volume_3m_base_df[most_liquid_3m],
+            YF_PROD_INFO_LABEL: info_df[most_liquid_3m]}
 
 
 class UnitTests(Enum):
     COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE = 1
     FETCH_ETF_CATALOG_DATA = 2
-    COMPUTE_ETF_CATALOG_PERFORMANCE = 3
     COMPUTE_SINGLE_ETF_PERFORMANCE = 4
     FETCH_SINGLE_ETF_ADJ_PRICE = 5
     LOAD_ETF_CATALOG_DATA = 6
@@ -281,15 +270,13 @@ def run_unit_test(unit_test: UnitTests):
         compute_portfolio_instruments_performance()
     elif unit_test == UnitTests.FETCH_ETF_CATALOG_DATA:
         fetch_etf_catalog_data()
-    elif unit_test == UnitTests.COMPUTE_ETF_CATALOG_PERFORMANCE:
-        compute_etf_catalog_performance()
     elif unit_test == UnitTests.COMPUTE_SINGLE_ETF_PERFORMANCE:
         compute_single_etf_performance(isin='IE00B7N3YW49')
     elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
         data = fetch_instr_hist_data(isin_lst='CH0183136065', columns=YFinHistCols.adj_close)
         print(data)
     elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
-        df = load_etf_catalog_data(column=YFinHistCols.adj_close, account=Accounts.CHF)
+        df = load_etf_catalog_data(account=Accounts.CHF)
         print(df)
     else:
         raise NotImplementedError

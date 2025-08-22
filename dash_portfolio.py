@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
 from definitions import Accounts
+from instruments_performance import prices_to_base_curr
 from portfolio_analysis_funcs import vol_risk_contr
 from portfolio_history import load_hist_portfolio_data, update_data, compute_hist_portfolio_data
 from portfolio_performance import load_portfolio_performance, compute_portfolio_performance
@@ -13,6 +14,9 @@ from products import load_portfolio_products
 from reporting import OutDataTabs
 from sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
 from yfinance_api import YFinHistCols, YFinInfoCols
+
+
+# TODO: add benchmark(s)
 
 
 # LOAD DATA
@@ -188,10 +192,10 @@ def get_fig_monthly_ret() -> go.Figure:
 		                   )],
 		layout=go.Layout(title=dict(text="Monthly returns distribution"),
 		                 xaxis_title=dict(text='Return'),
-		                 yaxis_title=dict(text='Frequency [%]'),
+		                 yaxis_title=dict(text='Frequency'),
 		                 bargap=0.1,
 		                 template="plotly_dark")
-		)
+	)
 
 
 # PORTFOLIO INSTRUMENTS ADJUSTED CLOSE
@@ -263,24 +267,32 @@ def update(n_clicks) -> (go.Figure, go.Figure):
 def update_instr_adj_close_fig(isin) -> go.Figure:
 	results_df = query_yahoo_finance_prod_info(ticker=isin)
 	if len(isin) >= 4:
-		results_df = query_yahoo_finance_prod_info(isin=isin)
+		results_df = pd.concat([results_df, query_yahoo_finance_prod_info(isin=isin)], axis=1)
 	if not results_df.empty:
 		ticker = results_df.iloc[:, 0][YFinInfoCols.symbol.value]
 		name = results_df.iloc[:, 0][YFinInfoCols.name_long.value]
 		currency = results_df.iloc[:, 0][YFinInfoCols.currency.value]
-		df = query_yahoo_finance_hist_data(column=YFinHistCols.adj_close,
-		                                   ticker=ticker)
+		df = query_yahoo_finance_hist_data(columns=YFinHistCols.adj_close,
+		                                   tickers=ticker)
+		df_base = prices_to_base_curr(account=build_content_portfolio.pf_data.account,
+		                              price_df=df,
+		                              curr_info=[currency])
 		fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
-		                                 yaxis_title=dict(text=f'Adjusted Closing Price '
-		                                                       f'[{currency}]'),
+		                                 yaxis_title=dict(text=f'Adjusted Closing Price'),
 		                                 template='plotly_dark',
 		                                 title=name,
 		                                 showlegend=True))
 		fig.add_trace(go.Scatter(x=df.index,
 		                         y=df.iloc[:, 0],
-		                         name=df.columns[0],
+		                         name=f'{df.columns[0]} [{currency}]',
 		                         mode='lines',
 		                         hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+		if not df_base.empty:
+			fig.add_trace(go.Scatter(x=df_base.index,
+			                         y=df_base.iloc[:, 0],
+			                         name=f'{df.columns[0]} [{build_content_portfolio.pf_data.account.currency}]',
+			                         mode='lines',
+			                         hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
 	else:
 		fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
 		                                 yaxis_title=dict(text=f'Adjusted Closing Price'),

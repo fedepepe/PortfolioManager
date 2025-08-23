@@ -11,7 +11,7 @@ from charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
 from definitions import RESULTS_DIR
 from file_utils import PD_DATA_TYPES
-from file_utils import save_df_dict_to_excel, save_df_to_excel, load_df_from_excel
+from file_utils import save_df_dict_to_excel, load_df_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
 from sql import query_products, query_tradable_products, insert_yahoo_finance_data
@@ -24,6 +24,7 @@ class InstrPerfTableCols:
     ticker = 'Ticker'
     isin = 'ISIN'
     name = 'Name'
+    volume = 'Volume'
 
 
 def fetch_instr_hist_data(isin_lst: str | List[str],
@@ -176,8 +177,8 @@ def compute_product_performance(adj_close_df: PD_DATA_TYPES,
         # add dollar volume
         if volume_df is not None:
             if ticker in volume_df.columns:
-                volume_mean_last = volume_df[ticker].rolling(60, min_periods=1).mean().iloc[-1]
-                results_dict[OutDataTabs.RISK_METRICS]['Volume'] = volume_mean_last
+                volume_mean_90 = int(volume_df[ticker][volume_df[ticker].notnull()].values[-1])
+                results_dict[OutDataTabs.RISK_METRICS][InstrPerfTableCols.volume] = volume_mean_90
         if prod_info_df is not None:
             isin = prod_info_df.loc[YFinInfoCols.isin.value, ticker]
             results_dict[OutDataTabs.RISK_METRICS][InstrPerfTableCols.isin] = isin

@@ -21,21 +21,18 @@ class InstrumentsData:
 		self.adj_close_df = data[YFinHistCols.adj_close]
 		self.volume_df = data[YFinHistCols.volume]
 		self.prod_info_df = data[YF_PROD_INFO_LABEL]
-		# TODO: fix compute product performance
 		self.perf_df = compute_product_performance(adj_close_df=self.adj_close_df,
 		                                           volume_df=self.volume_df,
 		                                           prod_info_df=self.prod_info_df)
-		# TODO: order by best performance metric
-		pass
 
 	def update(self):
-		compute_product_performance(adj_close_df=self.adj_close_df,
-		                            volume_df=self.volume_df,
-		                            prod_info_df=self.prod_info_df)
 		self.__init__()
 
 
 instr_data = InstrumentsData()
+cols_info_table = [InstrPerfTableCols.ticker,
+                   InstrPerfTableCols.isin,
+                   InstrPerfTableCols.volume]
 cols_perf_table = [Metrics.PA_RETURN,
                    Metrics.LAST_YEAR_RETURN,
                    Metrics.ANN_3Y_RETURN,
@@ -44,15 +41,13 @@ cols_perf_table = [Metrics.PA_RETURN,
                    Metrics.SHARPE_RATIO,
                    Metrics.SORTINO_RATIO,
                    Metrics.MAX_DD]
-labels_perf_table_ext = [InstrPerfTableCols.ticker] + [m.name for m in cols_perf_table]
+labels_perf_table_ext = cols_info_table + [m.name for m in cols_perf_table]
 column_defs = [{"field": m.name,
+                "sort": m.sort,
                 "filter": "agNumberColumnFilter",
                 "valueFormatter": {"function": m.to_ag_grid_format_func()}
                 } for m in cols_perf_table]
-column_defs = [{"field": InstrPerfTableCols.ticker}] + column_defs
-
-
-# TODO: add hierarchical clustering to filter out smaller products
+column_defs = [{"field": f} for f in cols_info_table] + column_defs
 
 
 # PERFORMANCE METRICS TABLE
@@ -64,12 +59,14 @@ def get_table_perf() -> dag.AgGrid:
 		rowData=instr_data.perf_df.reset_index()[labels_perf_table_ext].to_dict("records"),
 		columnSize="responsiveSizeToFit",
 		defaultColDef={"filter": "agTextColumnFilter"},
-		dashGridOptions={"animateRows": False}
+		dashGridOptions={"animateRows": False,
+		                 'enableCellTextSelection': True},
 	)
 
 
 # INSTRUMENTS CORRELATION MATRIX HEATMAP
 def get_fig_corr() -> go.Figure:
+	# TODO: order by best performance metric and take top MAX_INSTR_CORR
 	corr_mat = instr_data.adj_close_df.resample('W-WED').last().pct_change().corr()
 	corr_mat = np.tril(corr_mat)
 	corr_mat[np.triu_indices(corr_mat.shape[0], 1)] = np.nan

@@ -16,6 +16,7 @@ from portfolio import HistPortfolioData
 class Metric(NamedTuple):
 	name: str
 	format: str = '{:.2%}'
+	sort: Optional[str] = None
 
 	def to_ag_grid_format_func(self):
 		return (f"params.value ? "
@@ -30,7 +31,7 @@ class Metrics(Metric, Enum):
 	ANN_3Y_RETURN = Metric('3Y Return')
 	ANN_5Y_RETURN = Metric('5Y Return')
 	VOLATILITY = Metric('Volatility')
-	SHARPE_RATIO = Metric('Sharpe ratio', format='{:.2f}')
+	SHARPE_RATIO = Metric('Sharpe ratio', format='{:.2f}', sort='desc')
 	SORTINO_RATIO = Metric('Sortino ratio', format='{:.2f}')
 	BEST_MONTH = Metric('Best month')
 	WORST_MONTH = Metric('Worst month')

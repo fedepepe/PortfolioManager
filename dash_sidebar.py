@@ -1,7 +1,10 @@
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import html, callback, Output, Input, ctx
 
 from dash_common import SIDEBAR_STYLE
+from dash_instruments import build_content_instruments
+from dash_portfolio import build_content_portfolio
+from definitions import Accounts
 
 # Sidebar
 sidebar = html.Div(
@@ -19,3 +22,19 @@ sidebar = html.Div(
 		), color='dark'),
 	style=SIDEBAR_STYLE
 )
+
+account = Accounts.CHF
+
+
+@callback(Output("page-content", "children"),
+          Input("button-portfolio", "n_clicks"),
+          Input("button-instruments", "n_clicks"),
+          Input("button-strategies", "n_clicks"),
+          )
+def switch_content(n1, n2, n3):
+    if ctx.triggered_id == "button-portfolio":
+        return build_content_portfolio(account=account)
+    elif ctx.triggered_id == "button-instruments":
+        return build_content_instruments()
+    else:
+        return build_content_portfolio(account=account)

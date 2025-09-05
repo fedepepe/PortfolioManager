@@ -1,3 +1,5 @@
+from typing import Optional, List
+
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -65,9 +67,11 @@ def get_table_perf() -> dag.AgGrid:
 
 
 # INSTRUMENTS CORRELATION MATRIX HEATMAP
-def get_fig_corr() -> go.Figure:
-	# TODO: order by best performance metric and take top MAX_INSTR_CORR
-	adj_close_corr = instr_data.adj_close_df.iloc[:, :MAX_INSTR_CORR].copy()
+def get_fig_corr_instr(ticker_lst: Optional[List] = None) -> go.Figure:
+	if ticker_lst is not None:
+		adj_close_corr = instr_data.adj_close_df[ticker_lst].iloc[:, :MAX_INSTR_CORR].copy()
+	else:
+		adj_close_corr = instr_data.adj_close_df.iloc[:, :MAX_INSTR_CORR].copy()
 	corr_mat = adj_close_corr.resample('W-WED').last().pct_change().corr()
 	corr_mat = np.tril(corr_mat)
 	corr_mat[np.triu_indices(corr_mat.shape[0], 1)] = np.nan
@@ -94,22 +98,25 @@ def get_fig_corr() -> go.Figure:
 
 
 # DASHBOARD
-content_instruments = html.Div([
-	dbc.Card(
-		dbc.CardBody([
-			get_table_perf(),
-			html.Br(),
-			dcc.Graph(id='fig_corr', figure=get_fig_corr(), style={'height': 1000}, responsive=True)
-		]), color='dark'
-	)],
+def build_content_instruments() -> html.Div:
+	return html.Div([
+		dbc.Card(
+			dbc.CardBody([
+				get_table_perf(),
+				html.Br(),
+				dcc.Graph(id='fig_corr_instr', figure=get_fig_corr_instr(), style={'height': 1000}, responsive=True)
+			]), color='dark'
+		)],
+	)
+
+
+# update instrument correlation matrix
+@callback(
+	Output('fig_corr_instr', 'figure'),
+	Input('table_perf', 'virtualRowData'),
+	prevent_initial_call=True
 )
-
-
-# # update instrument correlation matrix
-# @callback(
-# 	Output('fig_corr', 'figure'),
-# 	Input('table_perf', 'virtualRowData'),
-# 	prevent_initial_call=True
-# )
-# def update_corr_heatmap_fig(virtual_data) -> go.Figure:
-# 	return get_fig_corr()
+def update_corr_heatmap_fig(virtual_data) -> go.Figure:
+	df = pd.DataFrame(virtual_data)
+	ticker_lst = df['Ticker'].to_list()
+	return get_fig_corr_instr(ticker_lst=ticker_lst)

@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
+import dash_sidebar
 from definitions import Accounts
 from instruments_performance import prices_to_base_curr
 from portfolio_analysis_funcs import vol_risk_contr
@@ -203,7 +204,7 @@ def get_fig_monthly_ret() -> go.Figure:
 
 # PORTFOLIO INSTRUMENTS ADJUSTED CLOSE
 def get_fig_pf_instr_adj_close() -> go.Figure:
-	currency = build_content_portfolio.pf_data.account.currency
+	currency = dash_sidebar.account.currency
 	fig_pf_instr_adj_close = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
 	                                                    yaxis_title=dict(
 		                                                    text=f'Adjusted Closing Price [{currency}]'),
@@ -277,7 +278,7 @@ def update_instr_adj_close_fig(isin) -> go.Figure:
 		currency = results_df.iloc[:, 0][YFinInfoCols.currency.value]
 		df = query_yahoo_finance_hist_data(columns=YFinHistCols.adj_close,
 		                                   tickers=ticker)
-		df_base = prices_to_base_curr(account=build_content_portfolio.pf_data.account,
+		df_base = prices_to_base_curr(account=dash_sidebar.account,
 		                              price_df=df,
 		                              curr_info=[currency])
 		fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
@@ -293,7 +294,7 @@ def update_instr_adj_close_fig(isin) -> go.Figure:
 		if not df_base.empty:
 			fig.add_trace(go.Scatter(x=df_base.index,
 			                         y=df_base.iloc[:, 0],
-			                         name=f'{df.columns[0]} [{build_content_portfolio.pf_data.account.currency}]',
+			                         name=f'{df.columns[0]} [{dash_sidebar.account.currency}]',
 			                         mode='lines',
 			                         hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
 	else:

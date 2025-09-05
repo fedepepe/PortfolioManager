@@ -7,16 +7,16 @@ from dash_portfolio import build_content_portfolio
 from dash_instruments import content_instruments
 from definitions import Accounts
 
-dash = Dash(__name__,
-            requests_pathname_prefix="/portfolio_manager/",
-            external_stylesheets=[dbc.themes.SLATE],
-            meta_tags=[{"name": "portfolio", "content": "width=device-width"}])
+app = Dash(__name__,
+           requests_pathname_prefix="/portfolio_manager/",
+           external_stylesheets=[dbc.themes.SLATE],
+           meta_tags=[{"name": "portfolio", "content": "width=device-width"}])
 
 # Content
 content = html.Div(id="page-content", style=CONTENT_STYLE)
 
 # App Layout
-dash.layout = dbc.Container(
+app.layout = dbc.Container(
     html.Div(
         [
             sidebar,

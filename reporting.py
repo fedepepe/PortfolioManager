@@ -143,7 +143,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 	returns_resampled = nav.resample(freq).last().ffill().pct_change()
 	volatility = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.std()
 	# calculate sharpe ratio
-	risk_free_rate = 0
+	risk_free_rate = 0.0
 	sharpe_ratio = (pa_return - risk_free_rate) / volatility
 	# sortino ratio
 	volatility_downside = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled[returns_resampled < 0].std()

@@ -42,7 +42,10 @@ class PortfolioData:
 		risk_contrib = pd.DataFrame(np.append(risk_contrib, 0.),
 		                            columns=['Risk contrib.'],
 		                            index=self.hist_data.effective_weights.columns)
-		alloc_risk_df = pd.concat([weights_last, risk_contrib, self.prod_df.set_index('symbol')['name']], axis=1)
+		prod_df = self.prod_df.copy()
+		prod_df.loc[:, 'symbol'] = prod_df['symbol'].fillna(self.prod_df['id'])
+		prod_df = prod_df.set_index('symbol')
+		alloc_risk_df = pd.concat([weights_last, risk_contrib, prod_df['name']], axis=1)
 		alloc_risk_df = alloc_risk_df.sort_values(by='Allocation', ascending=False)
 		alloc_risk_df['name'] = alloc_risk_df['name'].fillna(alloc_risk_df.index.to_series())
 		row_cash = alloc_risk_df.iloc[alloc_risk_df.index == 'Cash', :]

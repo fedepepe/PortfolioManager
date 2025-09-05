@@ -86,6 +86,10 @@ def compute_hist_nav(prices_df: pd.DataFrame,
     cum_pnl = prices_df.mul(units_df).diff().add(dividends).add(txn_value).add(txn_costs).cumsum()
     units_df['Cash'] = cash_balance
 
+    missing_tickers = [t for t in prices_df if t not in close_adj_df]
+    close_adj_df[missing_tickers] = prices_df[missing_tickers]
+    close_adj_df = close_adj_df[prices_df.columns]
+
     hist_portfolio_data = HistPortfolioData(nav=nav,
                                             cum_pnl=cum_pnl,
                                             div_yield=div_yield,

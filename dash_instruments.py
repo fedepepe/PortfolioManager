@@ -3,7 +3,7 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from dash import html, dcc
+from dash import html, dcc, Input, Output, callback
 
 from definitions import Accounts
 from instruments_performance import compute_product_performance, load_etf_catalog_data, InstrPerfTableCols
@@ -30,10 +30,10 @@ class InstrumentsData:
 
 
 instr_data = InstrumentsData()
-cols_info_table = [InstrPerfTableCols.ticker,
+COLS_INFO_TABLE = [InstrPerfTableCols.ticker,
                    InstrPerfTableCols.isin,
                    InstrPerfTableCols.volume]
-cols_perf_table = [Metrics.PA_RETURN,
+COLS_PERF_TABLE = [Metrics.PA_RETURN,
                    Metrics.LAST_YEAR_RETURN,
                    Metrics.ANN_3Y_RETURN,
                    Metrics.ANN_5Y_RETURN,
@@ -41,13 +41,13 @@ cols_perf_table = [Metrics.PA_RETURN,
                    Metrics.SHARPE_RATIO,
                    Metrics.SORTINO_RATIO,
                    Metrics.MAX_DD]
-labels_perf_table_ext = cols_info_table + [m.name for m in cols_perf_table]
-column_defs = [{"field": m.name,
+LABELS_PERF_TABLE_EXT = COLS_INFO_TABLE + [m.name for m in COLS_PERF_TABLE]
+COLUMN_DEFS = [{"field": m.name,
                 "sort": m.sort,
                 "filter": "agNumberColumnFilter",
                 "valueFormatter": {"function": m.to_ag_grid_format_func()}
-                } for m in cols_perf_table]
-column_defs = [{"field": f} for f in cols_info_table] + column_defs
+                } for m in COLS_PERF_TABLE]
+COLUMN_DEFS = [{"field": f} for f in COLS_INFO_TABLE] + COLUMN_DEFS
 
 
 # PERFORMANCE METRICS TABLE
@@ -55,8 +55,8 @@ def get_table_perf() -> dag.AgGrid:
 	return dag.AgGrid(
 		id="table_perf",
 		className='ag-theme-alpine-dark',
-		columnDefs=column_defs,
-		rowData=instr_data.perf_df.reset_index()[labels_perf_table_ext].to_dict("records"),
+		columnDefs=COLUMN_DEFS,
+		rowData=instr_data.perf_df.reset_index()[LABELS_PERF_TABLE_EXT].to_dict("records"),
 		columnSize="responsiveSizeToFit",
 		defaultColDef={"filter": "agTextColumnFilter"},
 		dashGridOptions={"animateRows": False,
@@ -67,15 +67,17 @@ def get_table_perf() -> dag.AgGrid:
 # INSTRUMENTS CORRELATION MATRIX HEATMAP
 def get_fig_corr() -> go.Figure:
 	# TODO: order by best performance metric and take top MAX_INSTR_CORR
-	corr_mat = instr_data.adj_close_df.resample('W-WED').last().pct_change().corr()
+	adj_close_corr = instr_data.adj_close_df.iloc[:, :MAX_INSTR_CORR].copy()
+	corr_mat = adj_close_corr.resample('W-WED').last().pct_change().corr()
 	corr_mat = np.tril(corr_mat)
 	corr_mat[np.triu_indices(corr_mat.shape[0], 1)] = np.nan
-	corr_mat = pd.DataFrame(corr_mat, columns=instr_data.adj_close_df.columns,
-	                        index=instr_data.adj_close_df.columns)
-	corr_mat = corr_mat.loc[list(reversed(instr_data.adj_close_df.columns)), :].values
+	corr_mat = pd.DataFrame(corr_mat,
+	                        columns=adj_close_corr.columns,
+	                        index=adj_close_corr.columns)
+	corr_mat = corr_mat.loc[list(reversed(adj_close_corr.columns)), :].values
 	return go.Figure(data=[go.Heatmap(z=corr_mat,
-	                                  x=instr_data.adj_close_df.columns,
-	                                  y=list(reversed(instr_data.adj_close_df.columns)),
+	                                  x=adj_close_corr.columns,
+	                                  y=list(reversed(adj_close_corr.columns)),
 	                                  colorscale='RdBu_r',
 	                                  zmin=-1,
 	                                  zmax=1,
@@ -102,11 +104,12 @@ content_instruments = html.Div([
 	)],
 )
 
-# # update instrument chart
+
+# # update instrument correlation matrix
 # @callback(
-#     Output('fig_corr', 'figure'),
-#     Input('table_perf', 'virtualRowData'),
-#     prevent_initial_call=True
+# 	Output('fig_corr', 'figure'),
+# 	Input('table_perf', 'virtualRowData'),
+# 	prevent_initial_call=True
 # )
-# def update_corr_heatmap_fig(virtual_data):
-#     return get_fig_corr()
+# def update_corr_heatmap_fig(virtual_data) -> go.Figure:
+# 	return get_fig_corr()

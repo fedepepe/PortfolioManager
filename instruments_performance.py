@@ -61,14 +61,11 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         # 3. if still no results is given, give up
         if data_single is None or all([df.empty for df in data_single.values()]):
             continue
-        # 4. remove columns of historical data with less than 30% of valid data
-        for key in columns:
-            data_single[key] = data_single[key].loc[:, data_single[key].isin(['', ' ', np.nan, 0]).mean() < .3]
-        # 5. restrict to tickers that appear in all dataframes
+        # 4. restrict to tickers that appear in all dataframes
         tickers_restrict = list(set.intersection(*map(set, [data_single[key].columns for key in data_single])))
         for key in data_single:
             data_single[key] = data_single[key].loc[:, tickers_restrict]
-        # 6. restrict to tickers with name matching
+        # 5. restrict to tickers with name matching
         if len(tickers_restrict) > 1 and name_lst[n] is not None:
             names_long = data_single[YF_PROD_INFO_LABEL].loc[YFinInfoCols.name_long.value].values
             name_match = [SequenceMatcher(None, name_lst[n], name).ratio() for name in names_long]
@@ -88,10 +85,9 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                 else:
                     is_in_x_dct = {f'{ticker_lst[n]}.{x.code}': f'{ticker_lst[n]}.{x.code}' in data_single[col].columns
                                    for x in Exchanges}
-                    if any(is_in_x_dct.values()):
-                        data_single[col] = data_single[col].loc[:, max(is_in_x_dct, key=is_in_x_dct.get)]
-                    else:
-                        raise Exception  # can't establish with ticker is to be chosen. skipping...
+                    data_single[col] = data_single[col].loc[:, max(is_in_x_dct, key=is_in_x_dct.get)]
+        if ticker_lst[n] not in [None, np.nan]:
+            data_single[YF_PROD_INFO_LABEL].loc['symbol_ext'] = ticker_lst[n]
         for col in columns_ext:
             data_dict[col] = pd.concat([data_dict[col], data_single[col]], axis=1)
     for col in columns:
@@ -156,7 +152,8 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
     close_adj_base_curr_df = prices_to_base_curr(account=account,
                                                  price_df=data[YFinHistCols.adj_close],
                                                  curr_info=data[YF_PROD_INFO_LABEL].loc[YFinInfoCols.currency.value])
-    rename_dict = {old: new for (old, new) in zip(close_adj_base_curr_df.columns, tick_lst)}
+    rename_dict = {old: new for (old, new) in zip(data[YF_PROD_INFO_LABEL].loc['symbol'],
+                                                  data[YF_PROD_INFO_LABEL].loc['symbol_ext'])}
     close_adj_base_curr_df = close_adj_base_curr_df.rename(columns=rename_dict)
     return close_adj_base_curr_df
 
@@ -169,7 +166,7 @@ def compute_product_performance(adj_close_df: PD_DATA_TYPES,
         print(f"Computing performance metrics for {ticker} ({prod_info_df.loc['isin', ticker]})... ")
         # compute performance metrics
         try:
-            results_dict = compute_portfolio_metrics(nav=adj_close_df[ticker],
+            results_dict = compute_portfolio_metrics(nav=adj_close_df[ticker].dropna(),
                                                      compute_hist_metrics=False,
                                                      print_results=False)
         except ValueError:
@@ -249,9 +246,10 @@ def load_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]
     curr_info = query_yahoo_finance_prod_info().loc[YFinInfoCols.currency.value, volume_3m_df.columns]
     volume_3m_base_df = prices_to_base_curr(account=account, price_df=volume_3m_df, curr_info=curr_info)
     volume_3m_base = volume_3m_base_df.apply(lambda x: x[x.notnull()].values[-1])
-    most_liquid_3m = volume_3m_base.sort_values(ascending=False).index[:100]
+    most_liquid_3m = volume_3m_base.sort_values(ascending=False).index[:250].to_list()
     close_adj_df = query_yahoo_finance_hist_data(columns=YFinHistCols.adj_close, tickers=list(most_liquid_3m))
     close_adj_df = prices_to_base_curr(account=account, price_df=close_adj_df, curr_info=curr_info)
+    most_liquid_3m = [e for e in most_liquid_3m if e in close_adj_df.columns]
     info_df = query_yahoo_finance_prod_info(ticker=list(most_liquid_3m))
     return {YFinHistCols.adj_close: close_adj_df[most_liquid_3m],
             YFinHistCols.volume: volume_3m_base_df[most_liquid_3m],

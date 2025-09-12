@@ -68,8 +68,8 @@ def save_product_info(account: Accounts,
     save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
 
 
-def fetch_portfolio_products(account: Accounts,
-                             degiro_conn: Optional[API] = None):
+def fetch_portfolio_products_info(account: Accounts,
+                                  degiro_conn: Optional[API] = None):
     tx_history_df = load_tx_history(account=account)
     product_ids = list(set(tx_history_df['product_id'].astype(int).to_list()))
     product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)

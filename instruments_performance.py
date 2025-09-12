@@ -145,6 +145,14 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
     isin_lst = products_df['isin'].to_list()
     name_lst = products_df['name'].to_list()
     tick_lst = products_df['symbol'].to_list()
+    close_adj_base_curr_df = fetch_instr_adj_prices(account, isin_lst, name_lst, tick_lst)
+    return close_adj_base_curr_df
+
+
+def fetch_instr_adj_prices(account: Accounts,
+                           isin_lst: List,
+                           name_lst: Optional[List] = None,
+                           tick_lst: Optional[List] = None):
     data = fetch_instr_hist_data(isin_lst=isin_lst,
                                  columns=YFinHistCols.adj_close,
                                  ticker_lst=tick_lst,

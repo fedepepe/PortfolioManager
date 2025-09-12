@@ -6,57 +6,17 @@ import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
 import dash_sidebar
+from dash_portfolio_data import get_portfolio_data
 from definitions import Accounts
 from instruments_performance import prices_to_base_curr
-from portfolio_analysis_funcs import vol_risk_contr
-from portfolio_history import load_hist_portfolio_data, update_data, compute_hist_portfolio_data
-from portfolio_performance import load_portfolio_performance, compute_portfolio_performance
-from products import load_portfolio_products
 from reporting import OutDataTabs
 from sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
 from yfinance_api import YFinHistCols, YFinInfoCols
 
 
-# TODO: add benchmark(s)
-
-
-# LOAD DATA
-class PortfolioData:
-	def __init__(self, account: Accounts):
-		self.account = account
-		self.hist_data = load_hist_portfolio_data(account=self.account)
-		self.perf_dct = load_portfolio_performance(account=self.account)
-		self.prod_df = load_portfolio_products(account=self.account)
-		self.returns_adj_weekly_df = self.hist_data.close_adj.resample('W-WED').last().pct_change()
-		self.alloc_risk_df = self.get_alloc_risk()
-
-	def update(self):
-		update_data(account=self.account)
-		compute_hist_portfolio_data(account=self.account)
-		compute_portfolio_performance(account=self.account)
-		self.__init__(account=self.account)
-
-	def get_alloc_risk(self) -> pd.DataFrame:
-		weights_last = self.hist_data.effective_weights.T.iloc[:, -1].rename('Allocation')
-		risk_contrib = vol_risk_contr(w=self.hist_data.effective_weights.drop('Cash', axis=1).iloc[-1, :].values,
-		                              cov_mat=self.returns_adj_weekly_df.cov().values)
-		risk_contrib = pd.DataFrame(np.append(risk_contrib, 0.),
-		                            columns=['Risk contrib.'],
-		                            index=self.hist_data.effective_weights.columns)
-		prod_df = self.prod_df.copy()
-		prod_df.loc[:, 'symbol'] = prod_df['symbol'].fillna(self.prod_df['id'])
-		prod_df = prod_df.set_index('symbol')
-		alloc_risk_df = pd.concat([weights_last, risk_contrib, prod_df['name']], axis=1)
-		alloc_risk_df = alloc_risk_df.sort_values(by='Allocation', ascending=False)
-		alloc_risk_df['name'] = alloc_risk_df['name'].fillna(alloc_risk_df.index.to_series())
-		row_cash = alloc_risk_df.iloc[alloc_risk_df.index == 'Cash', :]
-		alloc_risk_df = alloc_risk_df.drop('Cash', axis=0)
-		return pd.concat([alloc_risk_df, row_cash])
-
-
 # DASHBOARD
 def build_content_portfolio(account: Accounts):
-	build_content_portfolio.pf_data = PortfolioData(account=account)
+	build_content_portfolio.pf_data = get_portfolio_data(account=account)
 	return html.Div(
 		dbc.Card(
 			dbc.CardBody([

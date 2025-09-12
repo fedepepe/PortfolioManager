@@ -40,7 +40,6 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.UPDATE_DATA_NAV_PERFORMANCE:
         for account in Accounts:
             update_data(account=account)
-            compute_hist_portfolio_data(account=account)
             compute_portfolio_performance(account=account)
     else:
         raise NotImplementedError

@@ -114,7 +114,6 @@ def build_content_instruments() -> html.Div:
 @callback(
 	Output('fig_corr_instr', 'figure'),
 	Input('table_perf', 'virtualRowData'),
-	prevent_initial_call=True
 )
 def update_corr_heatmap_fig(virtual_data) -> go.Figure:
 	df = pd.DataFrame(virtual_data)

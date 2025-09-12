@@ -132,27 +132,27 @@ def db_commit(message: Optional[str] = None):
 def query_products(product_name: Optional[str] = None,
                    product_id: Optional[int] = None,
                    product_isin: Optional[str] = None,
+                   product_symbol: Optional[str] = None,
                    product_type: Optional[ProductTypes] = None,
                    tradable: Optional[bool] = None,
                    exchange: Optional[Exchanges] = None,
                    ) -> pd.DataFrame:
-	stmt = select(Product)
+	query = select(Product)
 	if product_name is not None:
-		cond = Product.name == product_name
-	elif product_id is not None:
-		cond = Product.id == product_id
-	elif product_isin is not None:
-		cond = Product.isin == product_isin
-	elif product_type is not None:
-		cond = Product.product_type == product_type
-	else:
-		raise Exception('Product name, id, isin or type must be specified.')
+		query = query.where(Product.name == product_name)
+	if product_id is not None:
+		query = query.where(Product.id == product_id)
+	if product_isin is not None:
+		query = query.where(Product.isin == product_isin)
+	if product_symbol is not None:
+		query = query.where(Product.symbol == product_symbol)
+	if product_type is not None:
+		query = query.where(Product.product_type == product_type)
 	if tradable:
-		cond = cond & (Product.tradable == tradable)
+		query = query.where(Product.tradable == tradable)
 	if exchange is not None:
-		cond = cond & (Product.exchange_id == exchange)
-	stmt = stmt.where(cond)
-	df = pd.read_sql(stmt, engine)
+		query = query.where(Product.exchange_id == exchange)
+	df = pd.read_sql(query, engine)
 	df = df.set_index('id', drop=False)
 	return df
 

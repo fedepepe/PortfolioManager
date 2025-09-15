@@ -2,8 +2,10 @@ import numpy as np
 import pandas as pd
 
 from definitions import Accounts
+from portfolio import HistPortfolioData
 from portfolio_analysis_funcs import vol_risk_contr
-from portfolio_history import load_hist_portfolio_data, update_data, compute_hist_portfolio_data
+from portfolio_history import load_hist_portfolio_data, update_data
+from portfolio_history import compute_hist_portfolio_data, compute_hist_benchmark_data
 from portfolio_performance import load_portfolio_performance, compute_portfolio_performance
 from products import load_portfolio_products
 
@@ -45,3 +47,9 @@ def get_portfolio_data(account: Accounts) -> PortfolioData:
     if not hasattr(get_portfolio_data, 'portfolio_data'):
             get_portfolio_data.portfolio_data = PortfolioData(account=account)
     return get_portfolio_data.portfolio_data
+
+
+def get_benchmark_data(account: Accounts, index: pd.DatetimeIndex) -> HistPortfolioData:
+    if not hasattr(get_benchmark_data, 'portfolio_data'):
+            get_benchmark_data.portfolio_data = compute_hist_benchmark_data(account=account, index=index)
+    return get_benchmark_data.portfolio_data

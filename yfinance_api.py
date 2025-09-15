@@ -21,6 +21,11 @@ class YFinHistCols(Enum):
 	def __str__(self):
 		return self.value
 
+	@classmethod
+	def get_entry_by_val(cls, value: str):
+		lst = [e for e in YFinHistCols if e.value == value]
+		return lst[0] if lst else value
+
 
 YF_PROD_INFO_LABEL = 'Product Info'
 

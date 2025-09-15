@@ -11,7 +11,7 @@ from charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
 from definitions import RESULTS_DIR
 from file_utils import PD_DATA_TYPES
-from file_utils import save_df_dict_to_excel, load_df_from_excel
+from file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
 from sql import query_products, query_tradable_products, insert_yahoo_finance_data
@@ -248,7 +248,7 @@ def load_etf_catalog_performance() -> pd.DataFrame:
     return load_df_from_excel(file_name='ETF_performance', folder_name=RESULTS_DIR)
 
 
-def load_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]:
+def build_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]:
     volume_df = query_yahoo_finance_hist_data(columns=YFinHistCols.volume)
     volume_3m_df = volume_df.rolling(90).mean().dropna(how='all', axis=1)
     curr_info = query_yahoo_finance_prod_info().loc[YFinInfoCols.currency.value, volume_3m_df.columns]
@@ -259,9 +259,18 @@ def load_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]
     close_adj_df = prices_to_base_curr(account=account, price_df=close_adj_df, curr_info=curr_info)
     most_liquid_3m = [e for e in most_liquid_3m if e in close_adj_df.columns]
     info_df = query_yahoo_finance_prod_info(ticker=list(most_liquid_3m))
-    return {YFinHistCols.adj_close: close_adj_df[most_liquid_3m],
-            YFinHistCols.volume: volume_3m_base_df[most_liquid_3m],
-            YF_PROD_INFO_LABEL: info_df[most_liquid_3m]}
+    data_dict = {YFinHistCols.adj_close: close_adj_df[most_liquid_3m],
+                 YFinHistCols.volume: volume_3m_base_df[most_liquid_3m],
+                 YF_PROD_INFO_LABEL: info_df[most_liquid_3m]}
+    data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
+    save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
+    return data_dict
+
+
+def load_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]:
+    data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
+    data_dict_renamed = {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}
+    return data_dict_renamed
 
 
 class UnitTests(Enum):
@@ -270,6 +279,7 @@ class UnitTests(Enum):
     COMPUTE_SINGLE_ETF_PERFORMANCE = 4
     FETCH_SINGLE_ETF_ADJ_PRICE = 5
     LOAD_ETF_CATALOG_DATA = 6
+    BUILD_ETF_CATALOG_DATA = 7
 
 
 def run_unit_test(unit_test: UnitTests):
@@ -285,6 +295,8 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
         df = load_etf_catalog_data(account=Accounts.CHF)
         print(df)
+    elif unit_test == UnitTests.BUILD_ETF_CATALOG_DATA:
+        build_etf_catalog_data(account=Accounts.CHF)
     else:
         raise NotImplementedError
 

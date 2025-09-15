@@ -18,7 +18,8 @@ from transactions import fetch_account_movements, load_account_movements
 from transactions import fetch_tx_history, load_tx_history, TxHistFields
 
 
-def compute_hist_nav(prices_df: pd.DataFrame,
+def compute_hist_nav(name: str,
+                     prices_df: pd.DataFrame,
                      target_exp: Optional[pd.DataFrame | List] = None,
                      target_units: Optional[pd.DataFrame | List] = None,
                      tx_hist_df: Optional[pd.DataFrame] = None,
@@ -110,7 +111,8 @@ def compute_hist_nav(prices_df: pd.DataFrame,
         close_adj_df[missing_tickers] = prices_df[missing_tickers]
         close_adj_df = close_adj_df[prices_df.columns]
 
-    hist_portfolio_data = HistPortfolioData(nav=nav,
+    hist_portfolio_data = HistPortfolioData(name=name,
+                                            nav=nav,
                                             cum_pnl=cum_pnl,
                                             div_yield=div_yield,
                                             units=units,
@@ -127,15 +129,15 @@ def compute_hist_nav(prices_df: pd.DataFrame,
     return hist_portfolio_data
 
 
-def save_hist_portfolio_data(hist_portfolio_data: HistPortfolioData,
-                             account: Accounts):
+def save_hist_portfolio_data(hist_portfolio_data: HistPortfolioData):
     fu.save_df_dict_to_excel(df_dict=hist_portfolio_data._asdict(),
-                             file_name=account.name,
+                             file_name=hist_portfolio_data.name,
                              folder_name=DATA_DIR)
 
 
 def load_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
     data_dict = fu.load_df_dict_from_excel(file_name=account.name, folder_name=DATA_DIR)
+    data_dict['name'] = account.name
     return HistPortfolioData(**data_dict)
 
 
@@ -207,7 +209,8 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
     close_adj_df = fetch_portfolio_instr_adj_prices(account=account)
 
     # compute historical portfolio data
-    hist_portfolio_data = compute_hist_nav(prices_df=prices_df,
+    hist_portfolio_data = compute_hist_nav(name=account.name,
+                                           prices_df=prices_df,
                                            tx_hist_df=tx_hist_df,
                                            curr_base=account.currency,
                                            initial_cash_balance=initial_cash_balance,
@@ -215,7 +218,7 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
                                            fx_rates_df=fx_rates_df,
                                            dep_hist_df=deposits_df,
                                            close_adj_df=close_adj_df)
-    save_hist_portfolio_data(hist_portfolio_data=hist_portfolio_data, account=account)
+    save_hist_portfolio_data(hist_portfolio_data=hist_portfolio_data)
     return hist_portfolio_data
 
 
@@ -228,10 +231,13 @@ def compute_hist_benchmark_data(account: Accounts,
     prices_adj_df = fetch_instr_adj_prices(account=account,
                                            isin_lst=list(instr_dct.values()),
                                            tick_lst=list(instr_dct.keys()))
-    return compute_hist_nav(prices_df=prices_adj_df.reindex(index=index).ffill(),
-                            target_exp=[0.6, 0.2, 0.2],
-                            curr_base=account.currency,
-                            freq_rebalancing=freq_rebalancing)
+    hist_benchmark_data = compute_hist_nav(name=f'{account.name}_benchmark',
+                                           prices_df=prices_adj_df.reindex(index=index).ffill(),
+                                           target_exp=[0.6, 0.2, 0.2],
+                                           curr_base=account.currency,
+                                           freq_rebalancing=freq_rebalancing)
+    save_hist_portfolio_data(hist_portfolio_data=hist_benchmark_data)
+    return hist_benchmark_data
 
 
 class UnitTests(Enum):

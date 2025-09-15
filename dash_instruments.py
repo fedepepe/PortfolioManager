@@ -1,3 +1,4 @@
+import time
 from typing import Optional, List
 
 import dash_ag_grid as dag
@@ -116,6 +117,7 @@ def build_content_instruments() -> html.Div:
 	Input('table_perf', 'virtualRowData'),
 )
 def update_corr_heatmap_fig(virtual_data) -> go.Figure:
+	time.sleep(1)
 	df = pd.DataFrame(virtual_data)
 	ticker_lst = df['Ticker'].to_list()
 	return get_fig_corr_instr(ticker_lst=ticker_lst)

@@ -70,9 +70,17 @@ def poly_reg(y: pd.Series,
 	return coeffs, pvalues, r2
 
 
+def compute_pa_return_last_n_years(nav: pd.Series,
+                                   freq: str,
+                                   n_years: int = None
+                                   ) -> float:
+	num_periods = n_years * ANN_FACTOR_DICT[freq]
+	return (1. + nav.resample(freq).last().ffill().pct_change(num_periods).iloc[-1]) ** (1. / n_years) - 1
+
+
 def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
                               hist_portfolio_data: Optional[HistPortfolioData] = None,
-                              strategy_benchmark: Optional[Union[pd.Series]] = None,
+                              strategy_benchmark: Optional[pd.Series] = None,
                               compute_hist_metrics: bool = True,
                               to_string: bool = False,
                               print_results: bool = True
@@ -110,10 +118,8 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 	returns_yearly = returns_yearly.reindex(index=returns_yearly.index[::-1])
 	returns_monthly = nav.resample('M').last().pct_change().dropna().rename('return')
 	return_1y = nav.resample(freq).last().ffill().pct_change(ANN_FACTOR_DICT[freq]).iloc[-1]
-	return_3y_ann = (1. + nav.resample(freq).last().ffill().pct_change(3 * ANN_FACTOR_DICT[freq]).iloc[-1]) ** (
-			1. / 3) - 1
-	return_5y_ann = (1. + nav.resample(freq).last().ffill().pct_change(5 * ANN_FACTOR_DICT[freq]).iloc[-1]) ** (
-			1. / 5) - 1
+	return_3y_ann = compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=3)
+	return_5y_ann = compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=5)
 
 	""" calculate portfolio alpha and beta """
 	if strategy_benchmark is not None:
@@ -172,7 +178,8 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 			return returns[returns < 0].std()
 
 		down_vol_hist = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(len(nav), min_periods=2
-		                                                                             ).apply(compute_downside_volatility)
+		                                                                             ).apply(
+			compute_downside_volatility)
 		sortino_ratio_hist = ((pa_return_hist - risk_free_rate) / down_vol_hist).rename('Sortino ratio')
 
 	# put all together in a dictionary

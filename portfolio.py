@@ -76,6 +76,7 @@ class Portfolio:
 
 
 class HistPortfolioData(NamedTuple):
+    name: str
     nav: pd.Series
     cum_pnl: pd.DataFrame
     div_yield: pd.DataFrame

@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
 import dash_sidebar
-from dash_portfolio_data import get_portfolio_data
+from dash_portfolio_data import get_portfolio_data, get_benchmark_data
 from definitions import Accounts
 from instruments_performance import prices_to_base_curr
 from reporting import OutDataTabs
@@ -17,6 +17,8 @@ from yfinance_api import YFinHistCols, YFinInfoCols
 # DASHBOARD
 def build_content_portfolio(account: Accounts):
 	build_content_portfolio.pf_data = get_portfolio_data(account=account)
+	index = build_content_portfolio.pf_data.hist_data.nav_eff.index
+	build_content_portfolio.bm_data = get_benchmark_data(account=account, index=index)
 	return html.Div(
 		dbc.Card(
 			dbc.CardBody([
@@ -28,7 +30,7 @@ def build_content_portfolio(account: Accounts):
 				], align='center'),
 				html.Br(),
 				dbc.Row([
-					dbc.Col([dcc.Graph(id='fig_nav', figure=get_fig_nav())], style={"width": "15%"}),
+					dbc.Col([dcc.Graph(id='fig_nav', figure=get_fig_navs())], style={"width": "15%"}),
 					dbc.Col([dcc.Graph(id='fig_comp', figure=get_fig_comp())], style={"width": "10%"}),
 					dbc.Col([dcc.Graph(id='fig_perf', figure=get_fig_perf())], style={"width": "10%"}),
 					dbc.Col([dcc.Graph(id='fig_corr', figure=get_fig_corr())], style={"width": "10%"}),
@@ -55,15 +57,22 @@ def build_content_portfolio(account: Accounts):
 
 
 # NAV ADJUSTED LINE PLOT
-def get_fig_nav() -> go.Figure:
-	return go.Figure(data=[go.Scatter(x=build_content_portfolio.pf_data.hist_data.nav_eff.index,
-	                                  y=build_content_portfolio.pf_data.hist_data.nav_eff["NAV Effective"],
-	                                  mode='lines',
-	                                  hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>')],
-	                 layout=go.Layout(xaxis_title=dict(text='Date'),
-	                                  yaxis_title=dict(text='NAV (adjusted)'),
-	                                  template='plotly_dark')
-	                 )
+def get_fig_navs() -> go.Figure:
+	fig_navs = go.Figure(data=[go.Scatter(x=build_content_portfolio.pf_data.hist_data.nav_eff.index,
+	                                      y=build_content_portfolio.pf_data.hist_data.nav_eff["NAV Effective"],
+	                                      name='Portfolio',
+	                                      mode='lines',
+	                                      hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>')],
+	                     layout=go.Layout(xaxis_title=dict(text='Date'),
+	                                      yaxis_title=dict(text='NAV (adjusted)'),
+	                                      template='plotly_dark')
+	                     )
+	fig_navs.add_trace(go.Scatter(x=build_content_portfolio.bm_data.nav_eff.index,
+	                              y=build_content_portfolio.bm_data.nav_eff.values,
+	                              name='Benchmark',
+	                              mode='lines',
+	                              hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+	return fig_navs
 
 
 # PORTFOLIO ALLOCATION PIE CHART
@@ -126,20 +135,20 @@ def get_fig_risk_contrib() -> go.Figure:
 def get_fig_perf() -> go.Figure:
 	row_even_color = px.colors.qualitative.Plotly[2]
 	row_odd_color = px.colors.qualitative.Plotly[0]
+	perf_df = build_content_portfolio.pf_data.perf_dct[OutDataTabs.RISK_METRICS]
 	return go.Figure(data=[go.Table(
 		columnwidth=[120, 50],
 		header=dict(
-			values=['<b>Performance Metric</b>', '<b>Value</b>'],
+			values=['<b>Performance Metric</b>', '<b>Portfolio</b>'],
 			align=['left', 'center'],
-			height=30
+			height=25
 		),
 		cells=dict(
-			values=build_content_portfolio.pf_data.perf_dct[OutDataTabs.RISK_METRICS].dropna().round(
-				3).reset_index().T.values.tolist(),
+			values=perf_df.dropna().round(3).reset_index().T.values.tolist(),
 			# 2-D list of colors for alternating rows
 			fill_color=[[row_odd_color, row_even_color] * 10],
 			align=['left', 'center'],
-			height=30
+			height=22
 		))],
 		layout=go.Layout(template="plotly_dark",
 		                 margin={"l": 30, "r": 30, "t": 30, "b": 30}
@@ -213,7 +222,7 @@ def draw_text(text: str):
 )
 def update(n_clicks) -> (go.Figure, go.Figure):
 	build_content_portfolio.pf_data.update()
-	return (get_fig_nav(),
+	return (get_fig_navs(),
 	        get_fig_comp(),
 	        get_fig_perf(),
 	        get_fig_corr(),

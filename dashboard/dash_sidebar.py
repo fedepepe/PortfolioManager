@@ -1,9 +1,9 @@
 import dash_bootstrap_components as dbc
 from dash import html, callback, Output, Input, ctx
 
-from dash_common import SIDEBAR_STYLE
-from dash_instruments import build_content_instruments
-from dash_portfolio import build_content_portfolio
+from dashboard.dash_common import SIDEBAR_STYLE
+from dashboard.dash_instruments import build_content_instruments
+from dashboard.dash_portfolio import build_content_portfolio
 from dash_strategies import build_content_strategies
 from definitions import Accounts
 

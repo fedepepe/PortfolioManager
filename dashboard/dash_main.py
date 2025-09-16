@@ -1,7 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import Dash, html
 
-from dash_common import CONTENT_STYLE
+from dashboard.dash_common import CONTENT_STYLE
 from dash_sidebar import sidebar
 
 app = Dash(__name__,

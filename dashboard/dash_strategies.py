@@ -2,7 +2,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import html, dcc
 
-from dash_portfolio_data import get_portfolio_data
+from dashboard.dash_portfolio_data import get_portfolio_data
 from definitions import Accounts
 
 

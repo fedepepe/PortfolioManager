@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.wsgi import WSGIMiddleware
 from fastapi.responses import RedirectResponse
 
-from dash_main import app
+from dashboard.dash_main import app
 
 # Define the FastAPI server
 server = FastAPI()

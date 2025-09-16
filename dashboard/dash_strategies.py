@@ -2,7 +2,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import html, dcc
 
-from dashboard.dash_portfolio_data import get_portfolio_data
+from dashboard.dash_portfolio_data import PortfolioData
 from definitions import Accounts
 
 
@@ -10,7 +10,8 @@ from definitions import Accounts
 
 # DASHBOARD
 def build_content_strategies(account: Accounts):
-	build_content_strategies.pf_data = get_portfolio_data(account=account)
+	if not hasattr(build_content_strategies, 'pf_data'):
+		build_content_strategies.pf_data = PortfolioData(account=account)
 	return html.Div(
 		dbc.Card(
 			dbc.CardBody([

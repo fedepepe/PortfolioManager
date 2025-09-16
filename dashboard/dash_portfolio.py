@@ -5,10 +5,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
-import dash_sidebar
-from dash_portfolio_data import get_portfolio_data, get_benchmark_data
+import dashboard.dash_sidebar as dash_sidebar
+from dashboard.dash_portfolio_data import PortfolioData
 from definitions import Accounts
 from instruments_performance import prices_to_base_curr
+from portfolio_history import compute_hist_benchmark_data
 from reporting import OutDataTabs
 from sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
 from yfinance_api import YFinHistCols, YFinInfoCols
@@ -16,9 +17,11 @@ from yfinance_api import YFinHistCols, YFinInfoCols
 
 # DASHBOARD
 def build_content_portfolio(account: Accounts):
-	build_content_portfolio.pf_data = get_portfolio_data(account=account)
+	if not hasattr(build_content_portfolio, 'pf_data'):
+		build_content_portfolio.pf_data = PortfolioData(account=account)
 	index = build_content_portfolio.pf_data.hist_data.nav_eff.index
-	build_content_portfolio.bm_data = get_benchmark_data(account=account, index=index)
+	if not hasattr(build_content_portfolio, 'bm_data'):
+		build_content_portfolio.bm_data = compute_hist_benchmark_data(account=account, index=index)
 	return html.Div(
 		dbc.Card(
 			dbc.CardBody([

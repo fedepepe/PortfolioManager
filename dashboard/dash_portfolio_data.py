@@ -21,7 +21,6 @@ class PortfolioData:
 
     def update(self):
         update_data(account=self.account)
-        compute_hist_portfolio_data(account=self.account)
         compute_portfolio_performance(account=self.account)
         self.__init__(account=self.account)
 
@@ -41,15 +40,3 @@ class PortfolioData:
         row_cash = alloc_risk_df.iloc[alloc_risk_df.index == 'Cash', :]
         alloc_risk_df = alloc_risk_df.drop('Cash', axis=0)
         return pd.concat([alloc_risk_df, row_cash])
-
-
-def get_portfolio_data(account: Accounts) -> PortfolioData:
-    if not hasattr(get_portfolio_data, 'portfolio_data'):
-            get_portfolio_data.portfolio_data = PortfolioData(account=account)
-    return get_portfolio_data.portfolio_data
-
-
-def get_benchmark_data(account: Accounts, index: pd.DatetimeIndex) -> HistPortfolioData:
-    if not hasattr(get_benchmark_data, 'portfolio_data'):
-            get_benchmark_data.portfolio_data = compute_hist_benchmark_data(account=account, index=index)
-    return get_benchmark_data.portfolio_data

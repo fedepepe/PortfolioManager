@@ -224,6 +224,7 @@ def fetch_etf_catalog_data():
                                     Product.name.name
                                     ]]
     etf_info_df = etf_info_df.drop_duplicates(subset=['isin', 'symbol'], keep='first')
+    etf_info_df = etf_info_df.iloc[1199:, :]
     isin_lst = etf_info_df[Product.isin.name].to_list()
     ticker_lst = etf_info_df[Product.symbol.name].to_list()
     name_lst = etf_info_df[Product.name.name].to_list()

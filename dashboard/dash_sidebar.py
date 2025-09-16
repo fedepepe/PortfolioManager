@@ -4,7 +4,7 @@ from dash import html, callback, Output, Input, ctx
 from dashboard.dash_common import SIDEBAR_STYLE
 from dashboard.dash_instruments import build_content_instruments
 from dashboard.dash_portfolio import build_content_portfolio
-from dash_strategies import build_content_strategies
+from dashboard.dash_strategies import build_content_strategies
 from definitions import Accounts
 
 # Sidebar
@@ -36,7 +36,7 @@ def switch_content(n1, n2, n3):
     if ctx.triggered_id == "button-portfolio":
         return build_content_portfolio(account=account)
     elif ctx.triggered_id == "button-instruments":
-        return build_content_instruments()
+        return build_content_instruments(account=account)
     elif ctx.triggered_id == "button-strategies":
         return build_content_strategies(account=account)
     else:

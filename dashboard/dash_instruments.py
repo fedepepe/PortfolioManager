@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
+from dashboard.dash_common import loading_wrapper
 from dashboard.dash_instruments_data import InstrumentsData
 from definitions import Accounts
 from instruments_performance import InstrPerfTableCols
@@ -88,7 +89,10 @@ def build_content_instruments(account: Accounts) -> html.Div:
             dbc.CardBody([
                 get_table_perf(),
                 html.Br(),
-                dcc.Graph(id='fig_corr_instr', figure=get_fig_corr_instr(), style={'height': 1000}, responsive=True)
+                loading_wrapper(dcc.Graph(id='fig_corr_instr',
+                                          figure=get_fig_corr_instr(),
+                                          style={'height': 1000},
+                                          responsive=True))
             ]), color='dark'
         )],
     )
@@ -101,6 +105,5 @@ def build_content_instruments(account: Accounts) -> html.Div:
 )
 def update_corr_heatmap_fig(virtual_data) -> go.Figure:
     df = pd.DataFrame(virtual_data)
-    time.sleep(1)
     ticker_lst = df['Ticker'].to_list()
     return get_fig_corr_instr(ticker_lst=ticker_lst)

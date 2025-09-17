@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
+from dashboard.dash_common import loading_wrapper
 import dashboard.dash_sidebar as dash_sidebar
 from dashboard.dash_portfolio_data import PortfolioData
 from definitions import Accounts
@@ -33,23 +34,25 @@ def build_content_portfolio(account: Accounts):
 				], align='center'),
 				html.Br(),
 				dbc.Row([
-					dbc.Col([dcc.Graph(id='fig_nav', figure=get_fig_navs())], style={"width": "15%"}),
-					dbc.Col([dcc.Graph(id='fig_comp', figure=get_fig_comp())], style={"width": "10%"}),
-					dbc.Col([dcc.Graph(id='fig_perf', figure=get_fig_perf())], style={"width": "10%"}),
-					dbc.Col([dcc.Graph(id='fig_corr', figure=get_fig_corr())], style={"width": "10%"}),
+					dbc.Col([loading_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_navs()))], style={"width": "15%"}),
+					dbc.Col([loading_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_comp()))], style={"width": "10%"}),
+					dbc.Col([loading_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_perf()))], style={"width": "10%"}),
+					dbc.Col([loading_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_corr()))], style={"width": "10%"}),
 				], align='center'),
 				html.Br(),
 				dbc.Row([
-					dbc.Col([dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_pf_instr_adj_close())],
+					dbc.Col([loading_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_pf_instr_adj_close()))],
 					        style={"width": "15%"}),
-					dbc.Col([dcc.Graph(id='fig_risk_contrib', figure=get_fig_risk_contrib())], style={"width": "10%"}),
-					dbc.Col([dcc.Graph(id='fig_monthly_ret', figure=get_fig_monthly_ret())], style={"width": "10%"}),
+					dbc.Col(loading_wrapper([dcc.Graph(id='fig_risk_contrib', figure=get_fig_risk_contrib())]),
+					        style={"width": "10%"}),
+					dbc.Col(loading_wrapper([dcc.Graph(id='fig_monthly_ret', figure=get_fig_monthly_ret())]),
+					        style={"width": "10%"}),
 				], align='center'),
 				html.Br(),
 				dbc.Row([
 					dbc.Col([
 						dbc.Row([dbc.Input(id='input_isin', placeholder="Enter ISIN or ticker...", size="sm"),
-						         dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close()),
+						         loading_wrapper(dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())),
 						         ], align='center')
 					], style={"width": "15%"}),
 				], align='center'),
@@ -213,7 +216,7 @@ def draw_text(text: str):
 
 # update portfolio data charts
 @callback(
-	Output('fig_nav', 'figure'),
+	Output('fig_navs', 'figure'),
 	Output('fig_comp', 'figure'),
 	Output('fig_perf', 'figure'),
 	Output('fig_corr', 'figure'),
@@ -223,7 +226,7 @@ def draw_text(text: str):
 	Input('button-update', 'n_clicks'),
 	prevent_initial_call=True
 )
-def update(n_clicks) -> (go.Figure, go.Figure):
+def update(n_clicks) -> (go.Figure, go.Figure, go.Figure, go.Figure, go.Figure, go.Figure, go.Figure):
 	build_content_portfolio.pf_data.update()
 	return (get_fig_navs(),
 	        get_fig_comp(),

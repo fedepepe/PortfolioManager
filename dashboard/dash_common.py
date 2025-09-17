@@ -1,3 +1,6 @@
+from dash import dcc
+
+
 # Styling
 SIDEBAR_STYLE = {
     "position": "fixed",
@@ -12,3 +15,7 @@ CONTENT_STYLE = {
     # "margin-right": "2rem",
     "padding": "2rem 0rem",
 }
+
+
+def loading_wrapper(children) -> dcc.Loading:
+    return dcc.Loading(type="default", children=children)

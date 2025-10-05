@@ -24,8 +24,6 @@ sidebar = html.Div(
     style=SIDEBAR_STYLE
 )
 
-account = Accounts.CHF
-
 
 @callback(Output("page-content", "children"),
           Input("button-portfolio", "n_clicks"),
@@ -34,10 +32,10 @@ account = Accounts.CHF
           )
 def switch_content(n1, n2, n3):
     if ctx.triggered_id == "button-portfolio":
-        return build_content_portfolio(account=account)
+        return build_content_portfolio(account=Accounts.get_default_account())
     elif ctx.triggered_id == "button-instruments":
-        return build_content_instruments(account=account)
+        return build_content_instruments(account=Accounts.get_default_account())
     elif ctx.triggered_id == "button-strategies":
-        return build_content_strategies(account=account)
+        return build_content_strategies(account=Accounts.get_default_account())
     else:
-        return build_content_portfolio(account=account)
+        return build_content_portfolio(account=Accounts.get_default_account())

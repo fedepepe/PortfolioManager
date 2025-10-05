@@ -9,7 +9,7 @@ from file_utils import save_df_to_excel, load_df_from_excel
 from definitions import Accounts, DATA_DIR
 from degiro_connection import get_degiro_connection
 from product_definitions import ProductTypes
-from sql import insert_product, query_products
+from database.sql import insert_product, query_products
 from transactions import load_tx_history
 
 logging.basicConfig(level=logging.DEBUG)

@@ -1,7 +1,7 @@
 import pandas as pd
 
 from product_definitions import ProductTypes, Exchanges
-from sql import query_products
+from database.sql import query_products
 
 
 if __name__ == '__main__':

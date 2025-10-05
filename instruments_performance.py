@@ -14,10 +14,12 @@ from file_utils import PD_DATA_TYPES
 from file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
 from product_definitions import ProductTypes
 from reporting import compute_portfolio_metrics, OutDataTabs
-from sql import query_products, query_tradable_products, insert_yahoo_finance_data
-from sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
-from table_definitions import Product
-from yfinance_api import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL, Exchanges
+from database.sql import query_products, query_tradable_products, insert_yahoo_finance_data
+from database.sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
+from product_definitions import Exchanges
+from database.table_definitions import Product
+from yfinance_api import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL
+from yfinance_api import Exchanges as ExchangesYF
 
 
 class InstrPerfTableCols:
@@ -32,6 +34,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                           ticker_lst: Optional[str | List[str]] = None,
                           name_lst: Optional[str | List[str]] = None,
                           freq: str = DEFAULT_DATA_FREQ,
+                          to_portfolio_instr_table: bool = False,
                           ) -> Dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
@@ -84,7 +87,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                     data_single[col] = data_single[col].iloc[:, 0]
                 else:
                     is_in_x_dct = {f'{ticker_lst[n]}.{x.code}': f'{ticker_lst[n]}.{x.code}' in data_single[col].columns
-                                   for x in Exchanges}
+                                   for x in ExchangesYF}
                     data_single[col] = data_single[col].loc[:, max(is_in_x_dct, key=is_in_x_dct.get)]
         if ticker_lst[n] not in [None, np.nan]:
             data_single[YF_PROD_INFO_LABEL].loc['symbol_ext'] = ticker_lst[n]
@@ -97,7 +100,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
     for col in columns_ext:
         data_dict[col] = data_dict[col].loc[:, ~data_dict[col].columns.duplicated()].copy()
     # dump collected data into the database
-    insert_yahoo_finance_data(data_dict=data_dict)
+    insert_yahoo_finance_data(data_dict=data_dict, to_portfolio_instr_table=to_portfolio_instr_table)
     return data_dict
 
 
@@ -156,7 +159,8 @@ def fetch_instr_adj_prices(account: Accounts,
     data = fetch_instr_hist_data(isin_lst=isin_lst,
                                  columns=YFinHistCols.adj_close,
                                  ticker_lst=tick_lst,
-                                 name_lst=name_lst)
+                                 name_lst=name_lst,
+                                 to_portfolio_instr_table=True)
     close_adj_base_curr_df = prices_to_base_curr(account=account,
                                                  price_df=data[YFinHistCols.adj_close],
                                                  curr_info=data[YF_PROD_INFO_LABEL].loc[YFinInfoCols.currency.value])
@@ -221,10 +225,13 @@ def fetch_etf_catalog_data():
                                  tradable=True
                                  )[[Product.isin.name,
                                     Product.symbol.name,
-                                    Product.name.name
+                                    Product.name.name,
+                                    Product.exchange_id.name
                                     ]]
+    exchange_ids = [x.value for x in [Exchanges.XET, Exchanges.SWX, Exchanges.MIL, Exchanges.EAM]]
+    etf_info_df = etf_info_df[etf_info_df[Product.exchange_id.name].isin(exchange_ids)]
     etf_info_df = etf_info_df.drop_duplicates(subset=['isin', 'symbol'], keep='first')
-    etf_info_df = etf_info_df.iloc[4803:, :]
+    # etf_info_df = etf_info_df.iloc[:, :]
     isin_lst = etf_info_df[Product.isin.name].to_list()
     ticker_lst = etf_info_df[Product.symbol.name].to_list()
     name_lst = etf_info_df[Product.name.name].to_list()
@@ -237,7 +244,8 @@ def fetch_etf_catalog_data():
                                                YFinHistCols.close,
                                                YFinHistCols.volume],
                                       ticker_lst=ticker,
-                                      name_lst=name)
+                                      name_lst=name,
+                                      to_portfolio_instr_table=False)
                 break
             except ConnectionError:
                 time.sleep(0.5)

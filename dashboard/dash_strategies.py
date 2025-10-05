@@ -6,8 +6,6 @@ from dashboard.dash_portfolio_data import PortfolioData
 from definitions import Accounts
 
 
-# TODO: add benchmark(s)
-
 # DASHBOARD
 def build_content_strategies(account: Accounts):
 	if not hasattr(build_content_strategies, 'pf_data'):

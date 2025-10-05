@@ -223,19 +223,15 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
 
 
 def compute_hist_benchmark_data(account: Accounts,
-                                index: pd.DatetimeIndex,
-                                freq_rebalancing: str = 'M') -> HistPortfolioData:
-    instr_dct = {'IWDC': 'IE00B8BVCK12',
-                 'IBC9': 'IBC9.DE',
-                 'IGLA': 'IE00BYZ28V50', }
+                                index: pd.DatetimeIndex) -> HistPortfolioData:
     prices_adj_df = fetch_instr_adj_prices(account=account,
-                                           isin_lst=list(instr_dct.values()),
-                                           tick_lst=list(instr_dct.keys()))
+                                           isin_lst=[v[2] for v in account.benchmark.values()],
+                                           tick_lst=list(account.benchmark.keys()))
     hist_benchmark_data = compute_hist_nav(name=f'{account.name}_benchmark',
                                            prices_df=prices_adj_df.reindex(index=index).ffill(),
-                                           target_exp=[0.6, 0.2, 0.2],
+                                           target_exp=[v[0] for v in account.benchmark.values()],
                                            curr_base=account.currency,
-                                           freq_rebalancing=freq_rebalancing)
+                                           freq_rebalancing=[v[1] for v in account.benchmark.values()][0])
     save_hist_portfolio_data(hist_portfolio_data=hist_benchmark_data)
     return hist_benchmark_data
 

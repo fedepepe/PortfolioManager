@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, Float, Date, UniqueConstraint, Sequence
 
-from db_conn import Base, engine
+from database.db_conn import Base, engine
 
 
 class Product(Base):
@@ -68,6 +68,16 @@ class YahooFinanceProdInfo(Base):
 	quote_type = Column(String)
 	value = Column(String)
 	__table_args__ = (UniqueConstraint('ticker', 'quote_type', name='_ticker_quote_unique'), )
+
+
+class YahooFinanceHistDataPfInstr(Base):
+	__tablename__ = 'yahoo_finance_hist_pf_instr'
+	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
+	ticker = Column(String)
+	date = Column(Date)
+	quote_type = Column(String)
+	value = Column(Float)
+	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
 
 
 # Create the table in the database

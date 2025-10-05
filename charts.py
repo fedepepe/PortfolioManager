@@ -12,7 +12,7 @@ from definitions import Accounts
 from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
 from degiro_connection import get_degiro_connection
 from products import fetch_product_info, load_portfolio_products, query_products, ProductTypes
-from sql import insert_close
+from database.sql import insert_close
 
 
 class ChartType(str, Enum):

@@ -1,6 +1,6 @@
 import os
 from enum import Enum
-from typing import NamedTuple
+from typing import NamedTuple, Optional, Dict, Tuple
 
 from product_definitions import Currencies
 
@@ -30,11 +30,27 @@ class AccountDegiro(NamedTuple):
 	name: str
 	currency: Currencies
 	config_file: str
+	benchmark: Optional[Dict[str, Tuple[float, str, Optional[str]]]] = None
 
 
 class Accounts(AccountDegiro, Enum):
-	CHF = AccountDegiro('Portfolio CHF', Currencies.CHF, 'config')
-	EUR = AccountDegiro('Portfolio EUR', Currencies.EUR, 'config_2')
+	CHF = AccountDegiro(name='Portfolio CHF', currency=Currencies.CHF, config_file='config',
+	                    benchmark={'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
+	                               'IBC9': (0.2, 'M', 'IBC9.DE'),
+	                               'IGLA': (0.2, 'M', 'IE00BYZ28V50'), })
+	EUR = AccountDegiro(name='Portfolio EUR', currency=Currencies.EUR, config_file='config_2',
+	                    benchmark={'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
+	                               'IBC9': (0.2, 'M', 'IBC9.DE'),
+	                               'IGLA': (0.2, 'M', 'IE00BYZ28V50'), })
+
+	@classmethod
+	def get_default_account(cls):
+		return cls.CHF
+
+	@classmethod
+	def get_account_by_name(cls, name):
+		found = [e for e in cls if e.name == name]
+		return found[0] if found else None
 
 
 # financial math constants

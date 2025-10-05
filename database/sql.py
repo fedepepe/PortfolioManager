@@ -3,14 +3,15 @@ from typing import Optional, Dict, List
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
-from sqlalchemy import select, func
 from sqlalchemy import or_
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError, PendingRollbackError
 
-from db_conn import engine, conn
+from database.db_conn import engine, conn
+from database.sql_utils import list_to_str, str_to_date
+from database.table_definitions import Product, Close, YahooFinanceHistData, YahooFinanceProdInfo
+from database.table_definitions import YahooFinanceHistDataPfInstr
 from product_definitions import ProductTypes, Exchanges
-from sql_utils import list_to_str, str_to_date
-from table_definitions import Product, Close, YahooFinanceHistData, YahooFinanceProdInfo
 from yfinance_api import YF_PROD_INFO_LABEL, YFinInfoCols, YFinHistCols
 
 YAHOO_FINANCE_DATA_OVERWRITE_DICT = {YFinHistCols.adj_close: True}
@@ -67,7 +68,8 @@ def insert_close(series: pd.Series):
 	db_commit(message=f'Added closing prices of product {series.name}')
 
 
-def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame]):
+def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
+                              to_portfolio_instr_table: bool = True):
 	if data_dict[YF_PROD_INFO_LABEL].empty:
 		return
 	for col, df in data_dict.items():
@@ -93,19 +95,22 @@ def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame]):
 				conn.add_all(data)
 		else:
 			# write into historical data table
+			if to_portfolio_instr_table:
+				table = YahooFinanceHistDataPfInstr
+			else:
+				table = YahooFinanceHistData
 			for ticker in df.columns:
 				df_melt = pd.melt(df[ticker].reset_index(), id_vars='index', value_vars=ticker)
-				cond = YahooFinanceHistData.ticker == data_dict[YF_PROD_INFO_LABEL].loc[
-					YFinInfoCols.symbol.value, ticker]
-				cond = cond & (YahooFinanceHistData.quote_type == str(col))
-				query = conn.query(YahooFinanceHistData).where(cond)
+				cond = table.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
+				cond = cond & (table.quote_type == str(col))
+				query = conn.query(table).where(cond)
 				if query.count() and not overwrite:
 					continue
 				query.delete()
 				conn.flush()
 				data = []
 				for t in range(df_melt.shape[0]):
-					data.append(YahooFinanceHistData(
+					data.append(table(
 						ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
 						date=df_melt['index'].iloc[t],
 						quote_type=str(col),

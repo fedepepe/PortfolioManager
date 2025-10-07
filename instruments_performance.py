@@ -34,7 +34,7 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                           ticker_lst: Optional[str | List[str]] = None,
                           name_lst: Optional[str | List[str]] = None,
                           freq: str = DEFAULT_DATA_FREQ,
-                          to_portfolio_instr_table: bool = False,
+                          to_portfolio_instr_table: Optional[bool] = False,
                           ) -> Dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
@@ -100,7 +100,8 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
     for col in columns_ext:
         data_dict[col] = data_dict[col].loc[:, ~data_dict[col].columns.duplicated()].copy()
     # dump collected data into the database
-    insert_yahoo_finance_data(data_dict=data_dict, to_portfolio_instr_table=to_portfolio_instr_table)
+    if to_portfolio_instr_table is not None:
+        insert_yahoo_finance_data(data_dict=data_dict, to_portfolio_instr_table=to_portfolio_instr_table)
     return data_dict
 
 
@@ -155,7 +156,7 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
 def fetch_instr_adj_prices(account: Accounts,
                            isin_lst: List,
                            name_lst: Optional[List] = None,
-                           tick_lst: Optional[List] = None):
+                           tick_lst: Optional[List] = None) -> pd.DataFrame:
     data = fetch_instr_hist_data(isin_lst=isin_lst,
                                  columns=YFinHistCols.adj_close,
                                  ticker_lst=tick_lst,
@@ -299,7 +300,10 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.COMPUTE_SINGLE_ETF_PERFORMANCE:
         compute_single_etf_performance(isin='IE00B7N3YW49')
     elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
-        data = fetch_instr_hist_data(isin_lst='CH0183136065', columns=YFinHistCols.adj_close)
+        data = fetch_instr_hist_data(isin_lst='IE00BWC52G65',
+                                     # ticker_lst='STHC.SW',
+                                     columns=YFinHistCols.adj_close,
+                                     to_portfolio_instr_table=None)
         print(data)
     elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
         df = load_etf_catalog_data(account=Accounts.CHF)
@@ -311,5 +315,5 @@ def run_unit_test(unit_test: UnitTests):
 
 
 if __name__ == '__main__':
-    unit_test = UnitTests.FETCH_ETF_CATALOG_DATA
+    unit_test = UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE
     run_unit_test(unit_test=unit_test)

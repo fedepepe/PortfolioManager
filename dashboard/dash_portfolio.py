@@ -258,8 +258,8 @@ def update_instr_adj_close_fig(isin) -> go.Figure:
                                    columns=YFinHistCols.adj_close,
                                    ticker_lst=ticker,
                                    name_lst=name,
-                                   to_portfolio_instr_table=True)[YFinHistCols.adj_close]
-        df_base = prices_to_base_curr(account=dash_sidebar.account,
+                                   to_portfolio_instr_table=None)[YFinHistCols.adj_close]
+        df_base = prices_to_base_curr(account=build_content_portfolio.account,
                                       price_df=df,
                                       curr_info=[currency])
         fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
@@ -275,7 +275,7 @@ def update_instr_adj_close_fig(isin) -> go.Figure:
         if not df_base.empty:
             fig.add_trace(go.Scatter(x=df_base.index,
                                      y=df_base.iloc[:, 0],
-                                     name=f'{df.columns[0]} [{dash_sidebar.account.currency}]',
+                                     name=f'{df.columns[0]} [{build_content_portfolio.account.currency}]',
                                      mode='lines',
                                      hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
     else:

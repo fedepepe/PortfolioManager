@@ -36,8 +36,8 @@ class AccountDegiro(NamedTuple):
 class Accounts(AccountDegiro, Enum):
 	CHF = AccountDegiro(name='Portfolio CHF', currency=Currencies.CHF, config_file='config',
 	                    benchmark={'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
-	                               'IBC9': (0.2, 'M', 'IBC9.DE'),
-	                               'IGLA': (0.2, 'M', 'IE00BYZ28V50'), })
+	                               'HYLD': (0.2, 'M', 'HYLD.L'),
+	                               'STHC': (0.2, 'M', 'STHC.SW'), })
 	EUR = AccountDegiro(name='Portfolio EUR', currency=Currencies.EUR, config_file='config_2',
 	                    benchmark={'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
 	                               'IBC9': (0.2, 'M', 'IBC9.DE'),

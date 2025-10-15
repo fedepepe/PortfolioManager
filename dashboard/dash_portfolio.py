@@ -5,14 +5,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback, ctx
 
-import dashboard.dash_sidebar as dash_sidebar
 from dashboard.dash_common import loading_wrapper
 from dashboard.dash_portfolio_data import PortfolioData
+from database.sql import query_yahoo_finance_prod_info
 from definitions import Accounts
 from instruments_performance import prices_to_base_curr, fetch_instr_hist_data
 from portfolio_history import compute_hist_benchmark_data
 from reporting import OutDataTabs
-from database.sql import query_yahoo_finance_prod_info
 from yfinance_api import YFinHistCols, YFinInfoCols
 
 
@@ -222,15 +221,13 @@ def get_fig_instr_adj_close() -> go.Figure:
 )
 def update_switch_portfolio(n_clicks, value
                             ) -> (go.Figure, go.Figure, go.Figure, go.Figure, go.Figure, go.Figure, go.Figure):
-    if ctx.triggered_id == 'button-update':
-        build_content_portfolio.pf_data.update()
-    elif ctx.triggered_id == 'dropdown-portfolio':
+    if ctx.triggered_id == 'dropdown-portfolio':
         build_content_portfolio.account = Accounts.get_account_by_name(name=value)
         build_content_portfolio.pf_data = PortfolioData(account=build_content_portfolio.account)
-        index = build_content_portfolio.pf_data.hist_data.nav_eff.index
-        build_content_portfolio.bm_data = compute_hist_benchmark_data(account=build_content_portfolio.account,
-                                                                      index=index)
-        build_content_portfolio.pf_data.update()
+    build_content_portfolio.pf_data.update()
+    index = build_content_portfolio.pf_data.hist_data.nav_eff.index
+    build_content_portfolio.bm_data = compute_hist_benchmark_data(account=build_content_portfolio.account,
+                                                                  index=index)
     return (get_fig_navs(),
             get_fig_comp(),
             get_fig_perf(),

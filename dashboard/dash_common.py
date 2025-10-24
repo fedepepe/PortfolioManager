@@ -7,7 +7,7 @@ SIDEBAR_STYLE = {
     "top": 0,
     # "left": 0,
     "bottom": 0,
-    "width": "11rem",
+    "width": "10rem",
     "padding": "2rem 0rem",
 }
 CONTENT_STYLE = {

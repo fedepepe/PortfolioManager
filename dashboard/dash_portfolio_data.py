@@ -4,7 +4,8 @@ import pandas as pd
 from definitions import Accounts
 from portfolio_analysis_funcs import vol_risk_contr
 from portfolio_history import load_hist_portfolio_data, update_data
-from portfolio_performance import load_portfolio_performance, compute_portfolio_performance
+from portfolio_performance import load_portfolio_performance, load_benchmark_performance
+from portfolio_performance import compute_portfolio_performance
 from products import load_portfolio_products
 
 
@@ -13,6 +14,7 @@ class PortfolioData:
         self.account = account
         self.hist_data = load_hist_portfolio_data(account=self.account)
         self.perf_dct = load_portfolio_performance(account=self.account)
+        self.perf_bm_dct = load_benchmark_performance(account=self.account)
         self.prod_df = load_portfolio_products(account=self.account)
         self.returns_adj_weekly_df = self.hist_data.close_adj.resample('W-WED').last().pct_change()
         self.alloc_risk_df = self.get_alloc_risk()

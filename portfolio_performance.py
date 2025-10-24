@@ -6,7 +6,7 @@ import pandas as pd
 from definitions import RESULTS_DIR, Accounts
 from file_utils import save_df_dict_to_excel, load_df_dict_from_excel
 from portfolio_history import update_data, compute_hist_portfolio_data, compute_hist_benchmark_data
-from reporting import compute_portfolio_metrics
+from reporting import compute_portfolio_metrics, OutDataTabs
 
 
 class UnitTests(Enum):
@@ -21,13 +21,24 @@ def compute_portfolio_performance(account: Accounts):
     hist_benchmark_data = compute_hist_benchmark_data(account=account, index=hist_portfolio_data.nav.index)
     results_dict = compute_portfolio_metrics(hist_portfolio_data=hist_portfolio_data,
                                              strategy_benchmark=hist_benchmark_data.nav)
+    results_bm_dict = compute_portfolio_metrics(nav=hist_benchmark_data.nav_eff)
     save_df_dict_to_excel(df_dict=results_dict,
                           folder_name=RESULTS_DIR,
                           file_name=account.name)
+    save_df_dict_to_excel(df_dict=results_bm_dict,
+                          folder_name=RESULTS_DIR,
+                          file_name=f'{account.name}_benchmark')
 
 
 def load_portfolio_performance(account: Accounts) -> Dict[str, pd.DataFrame]:
     return load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=account.name)
+
+
+def load_benchmark_performance(account: Accounts) -> Dict[str, pd.DataFrame]:
+    try:
+        return load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=f'{account.name}_benchmark')
+    except FileNotFoundError:
+        return {OutDataTabs.RISK_METRICS: pd.DataFrame()}
 
 
 def run_unit_test(unit_test: UnitTests):

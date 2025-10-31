@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import sys
 
 from definitions import Accounts
 from portfolio_analysis_funcs import vol_risk_contr
@@ -39,4 +40,5 @@ class PortfolioData:
         alloc_risk_df['name'] = alloc_risk_df['name'].fillna(alloc_risk_df.index.to_series())
         row_cash = alloc_risk_df.iloc[alloc_risk_df.index == 'Cash', :]
         alloc_risk_df = alloc_risk_df.drop('Cash', axis=0)
+        alloc_risk_df = alloc_risk_df[alloc_risk_df['Allocation'] > sys.float_info.epsilon]
         return pd.concat([alloc_risk_df, row_cash])

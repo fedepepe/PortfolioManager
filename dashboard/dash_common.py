@@ -1,5 +1,6 @@
+import dash_bootstrap_components as dbc
+import plotly.io as pio
 from dash import dcc
-
 
 # Styling
 SIDEBAR_STYLE = {
@@ -19,3 +20,7 @@ CONTENT_STYLE = {
 
 def loading_wrapper(children) -> dcc.Loading:
     return dcc.Loading(type="default", children=children)
+
+
+def card_wrapper(children) -> dbc.Card:
+    return dbc.Card(children=children, body=True, color=pio.templates["plotly_dark"].layout.plot_bgcolor)

@@ -1,3 +1,5 @@
+from typing import Optional, List
+
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
@@ -5,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback, ctx
 
-from dashboard.dash_common import loading_wrapper
+from dashboard.dash_common import loading_wrapper, card_wrapper
 from dashboard.dash_portfolio_data import PortfolioData
 from database.sql import query_yahoo_finance_prod_info
 from definitions import Accounts
@@ -25,44 +27,42 @@ def build_content_portfolio(account: Accounts):
 	if not hasattr(build_content_portfolio, 'bm_data'):
 		build_content_portfolio.bm_data = compute_hist_benchmark_data(account=account, index=index)
 	return html.Div(
-		dbc.Card(
-			dbc.CardBody([
-				dbc.Row([
-					dbc.Col([dcc.Dropdown([acc.name for acc in Accounts], account.name,
-					                      id='dropdown-portfolio', clearable=False)],
-					        style={"width": "15%"}),
-					dbc.Col([dbc.Button("Update", id="button-update", className="me-2", n_clicks=0)],
-					        style={"width": "10%"}),
-					dbc.Col([], style={"width": "10%"}),
-					dbc.Col([], style={"width": "10%"}),
-				], align='center'),
-				html.Br(),
-				dbc.Row([
-					dbc.Col([loading_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_navs()))], style={"width": "15%"}),
-					dbc.Col([loading_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_comp()))], style={"width": "10%"}),
-					dbc.Col([loading_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_perf()))], style={"width": "10%"}),
-					dbc.Col([loading_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_corr()))], style={"width": "10%"}),
-				], align='center'),
-				html.Br(),
-				dbc.Row([
-					dbc.Col(
-						[loading_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_pf_instr_adj_close()))],
-						style={"width": "15%"}),
-					dbc.Col(loading_wrapper([dcc.Graph(id='fig_risk_contrib', figure=get_fig_risk_contrib())]),
-					        style={"width": "10%"}),
-					dbc.Col(loading_wrapper([dcc.Graph(id='fig_monthly_ret', figure=get_fig_monthly_ret())]),
-					        style={"width": "10%"}),
-				], align='center'),
-				html.Br(),
-				dbc.Row([
-					dbc.Col([
-						dbc.Row([dbc.Input(id='input_isin', placeholder="Enter ISIN or ticker...", size="sm"),
-						         loading_wrapper(dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())),
-						         ], align='center')
-					], style={"width": "15%"}),
-				], align='center'),
-				html.Br(),
-			]), color='dark'
+		dbc.Card([
+			dbc.Row([
+				dbc.Col([dcc.Dropdown([acc.name for acc in Accounts], account.name,
+				                      id='dropdown-portfolio', clearable=False)],
+				        style={"width": "15%"}),
+				dbc.Col([dbc.Button("Update", id="button-update", className="me-2", n_clicks=0)],
+				        style={"width": "10%"}),
+				dbc.Col([], style={"width": "10%"}),
+				dbc.Col([], style={"width": "10%"}),
+			], align='center'),
+			html.Br(),
+			dbc.Row([
+				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_navs())))], style={"width": "15%"}),
+				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_comp())))], style={"width": "10%"}),
+				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_perf())))], style={"width": "10%"}),
+				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_corr())))], style={"width": "10%"}),
+			], align='center'),
+			html.Br(),
+			dbc.Row([
+				dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_pf_instr_adj_close()))),
+				        style={"width": "15%"}),
+				dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_risk_contrib', figure=get_fig_risk_contrib()))),
+				        style={"width": "10%"}),
+				dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_monthly_ret', figure=get_fig_monthly_ret()))),
+				        style={"width": "10%"}),
+			], align='center'),
+			html.Br(),
+			dbc.Row([
+				dbc.Col([
+					dbc.Row([dbc.Input(id='input_isin', placeholder="Enter ISIN or ticker...", size="sm"),
+					         loading_wrapper(dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())),
+					         ], align='center')
+				], style={"width": "15%"}),
+			], align='center'),
+			html.Br()
+		], body=True, color='dark'
 		),
 	)
 
@@ -76,7 +76,12 @@ def get_fig_navs() -> go.Figure:
 	                                      hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>')],
 	                     layout=go.Layout(xaxis_title=dict(text='Date'),
 	                                      yaxis_title=dict(text='NAV (adjusted)'),
-	                                      template='plotly_dark')
+	                                      template='plotly_dark',
+	                                      legend=dict(orientation="h",
+	                                                  yanchor="bottom",
+	                                                  y=1.0,
+	                                                  xanchor="right",
+	                                                  x=1))
 	                     )
 	fig_navs.add_trace(go.Scatter(x=build_content_portfolio.bm_data.nav_eff.index,
 	                              y=build_content_portfolio.bm_data.nav_eff.values,
@@ -185,20 +190,35 @@ def get_fig_monthly_ret() -> go.Figure:
 
 
 # PORTFOLIO INSTRUMENTS ADJUSTED CLOSE
-def get_fig_pf_instr_adj_close() -> go.Figure:
-	currency = build_content_portfolio.account.currency
-	fig_pf_instr_adj_close = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
-	                                                    yaxis_title=dict(
-		                                                    text=f'Adjusted Closing Price [{currency}]'),
-	                                                    template='plotly_dark')
-	                                   )
-	for col in build_content_portfolio.pf_data.alloc_risk_df.index.drop('Cash'):
-		fig_pf_instr_adj_close.add_trace(go.Scatter(x=build_content_portfolio.pf_data.hist_data.close_adj.index,
-		                                            y=build_content_portfolio.pf_data.hist_data.close_adj[col].ffill(),
-		                                            name=col,
-		                                            mode='lines',
-		                                            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
-	return fig_pf_instr_adj_close
+def get_fig_pf_instr_adj_close(is_visible: Optional[List[bool]] = None) -> go.Figure:
+	if is_visible is None:
+		currency = build_content_portfolio.account.currency
+		fig_pf_instr_adj_close = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
+		                                                    yaxis_title=dict(
+			                                                    text=f'Adjusted Closing Price [{currency}]'),
+		                                                    template='plotly_dark'))
+		for col in build_content_portfolio.pf_data.alloc_risk_df.index.drop('Cash'):
+			fig_pf_instr_adj_close.add_trace(go.Scatter(x=build_content_portfolio.pf_data.hist_data.close_adj.index,
+			                                            y=build_content_portfolio.pf_data.hist_data.close_adj[
+				                                            col].ffill(),
+			                                            name=col,
+			                                            mode='lines',
+			                                            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+		get_fig_pf_instr_adj_close.fig_pf_instr_adj_close = fig_pf_instr_adj_close
+	else:
+		df = build_content_portfolio.pf_data.hist_data.close_adj.copy()
+		df = df.reindex(columns=build_content_portfolio.pf_data.alloc_risk_df.index.drop('Cash'))
+		df = df.iloc[:, [v is True for v in is_visible]]
+		df = df.ffill().dropna(how='all')
+		df = df.apply(lambda x: x.div(x.dropna().iloc[0]).mul(100))
+		df = df.reindex(columns=build_content_portfolio.pf_data.alloc_risk_df.index.drop('Cash'))
+		trace_name_lst = [t.name for t in get_fig_pf_instr_adj_close.fig_pf_instr_adj_close.data]
+		for col, visible, name in zip(df.columns, is_visible, trace_name_lst):
+			if visible is True:
+				get_fig_pf_instr_adj_close.fig_pf_instr_adj_close.update_traces(x=df.index,
+				                                                                y=df[col],
+				                                                                selector=({'name': name}))
+	return get_fig_pf_instr_adj_close.fig_pf_instr_adj_close
 
 
 # INSTRUMENT ADJUSTED CLOSE
@@ -219,17 +239,23 @@ def get_fig_instr_adj_close() -> go.Figure:
 	Output('fig_monthly_ret', 'figure'),
 	Input('button-update', 'n_clicks'),
 	Input('dropdown-portfolio', 'value'),
+	Input('fig_pf_instr_adj_close', 'restyleData'),
 	prevent_initial_call=True
 )
-def update_switch_portfolio(n_clicks, value
+def update_switch_portfolio(n_clicks, portfolio_name, fig_pf_instr_adj_close_data
                             ) -> (go.Figure, go.Figure, go.Figure, go.Figure, go.Figure, go.Figure, go.Figure):
 	if ctx.triggered_id == 'dropdown-portfolio':
-		build_content_portfolio.account = Accounts.get_account_by_name(name=value)
+		build_content_portfolio.account = Accounts.get_account_by_name(name=portfolio_name)
 		build_content_portfolio.pf_data = PortfolioData(account=build_content_portfolio.account)
-	build_content_portfolio.pf_data.update()
-	index = build_content_portfolio.pf_data.hist_data.nav_eff.index
-	build_content_portfolio.bm_data = compute_hist_benchmark_data(account=build_content_portfolio.account,
-	                                                              index=index)
+	if ctx.triggered_id == 'button-update':
+		build_content_portfolio.pf_data.update()
+		index = build_content_portfolio.pf_data.hist_data.nav_eff.index
+		build_content_portfolio.bm_data = compute_hist_benchmark_data(account=build_content_portfolio.account,
+		                                                              index=index)
+	if ctx.triggered_id == 'fig_pf_instr_adj_close':
+		is_visible = fig_pf_instr_adj_close_data[0]['visible']
+	else:
+		is_visible = None
 	return (get_fig_navs(),
 	        get_fig_comp(),
 	        get_fig_perf(),

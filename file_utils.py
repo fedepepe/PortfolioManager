@@ -78,7 +78,7 @@ def load_df_from_excel(file_name: str,
 
 def load_df_dict_from_excel(file_name: str,
                             folder_name: str = None
-                            ) -> Dict[str, pd.DataFrame]:
+                            ) -> Dict[str, pd.DataFrame | str]:
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:

@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
 
-from dashboard.dash_common import loading_wrapper
+from dashboard.dash_common import loading_wrapper, compute_corr_mat
 from dashboard.dash_instruments_data import InstrumentsData
 from definitions import Accounts
 from instruments_performance import InstrPerfTableCols
@@ -55,14 +55,7 @@ def get_fig_corr_instr(ticker_lst: Optional[List] = None) -> go.Figure:
         adj_close_corr = build_content_instruments.instr_data.adj_close_df[ticker_lst].iloc[:, :MAX_INSTR_CORR].copy()
     else:
         adj_close_corr = build_content_instruments.instr_data.adj_close_df.iloc[:, :MAX_INSTR_CORR].copy()
-    corr_mat = adj_close_corr.resample('W-WED').last().pct_change().corr()
-    corr_mat = np.tril(corr_mat)
-    corr_mat[np.triu_indices(corr_mat.shape[0], 1)] = np.nan
-    corr_mat = pd.DataFrame(corr_mat,
-                            columns=adj_close_corr.columns,
-                            index=adj_close_corr.columns)
-    corr_mat = corr_mat.loc[list(reversed(adj_close_corr.columns)), :].values
-    return go.Figure(data=[go.Heatmap(z=corr_mat,
+    return go.Figure(data=[go.Heatmap(z=compute_corr_mat(adj_close_corr.resample('W-WED').last().pct_change()),
                                       x=adj_close_corr.columns,
                                       y=list(reversed(adj_close_corr.columns)),
                                       colorscale='RdBu_r',

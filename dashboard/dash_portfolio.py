@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback, ctx
 
-from dashboard.dash_common import loading_wrapper, card_wrapper
+from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat
 from dashboard.dash_portfolio_data import PortfolioData
 from database.sql import query_yahoo_finance_prod_info
 from definitions import Accounts
@@ -40,7 +40,7 @@ def build_content_portfolio(account: Accounts):
 			html.Br(),
 			dbc.Row([
 				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_navs())))], style={"width": "15%"}),
-				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_comp())))], style={"width": "10%"}),
+				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_allocation())))], style={"width": "10%"}),
 				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_perf())))], style={"width": "10%"}),
 				dbc.Col([loading_wrapper(card_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_corr())))], style={"width": "10%"}),
 			], align='center'),
@@ -92,8 +92,8 @@ def get_fig_navs() -> go.Figure:
 
 
 # PORTFOLIO ALLOCATION PIE CHART
-def get_fig_comp() -> go.Figure:
-	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df.index,
+def get_fig_allocation() -> go.Figure:
+	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df['symbol'],
 	                              values=build_content_portfolio.pf_data.alloc_risk_df['Allocation'],
 	                              customdata=build_content_portfolio.pf_data.alloc_risk_df[['name']],
 	                              hovertemplate="%{customdata[0]}<br>%{value:.2%}<br><extra></extra>",
@@ -109,15 +109,12 @@ def get_fig_comp() -> go.Figure:
 
 # ASSET CORRELATION MATRIX HEATMAP
 def get_fig_corr() -> go.Figure:
-	corr_mat = build_content_portfolio.pf_data.returns_adj_weekly_df.corr()
-	corr_mat = np.tril(corr_mat)
-	corr_mat[np.triu_indices(corr_mat.shape[0], 1)] = np.nan
-	corr_mat = pd.DataFrame(corr_mat, columns=build_content_portfolio.pf_data.hist_data.close_adj.columns,
-	                        index=build_content_portfolio.pf_data.hist_data.close_adj.columns)
-	corr_mat = corr_mat.loc[list(reversed(build_content_portfolio.pf_data.hist_data.close_adj.columns)), :].values
-	return go.Figure(data=[go.Heatmap(z=corr_mat,
-	                                  x=build_content_portfolio.pf_data.hist_data.close_adj.columns,
-	                                  y=list(reversed(build_content_portfolio.pf_data.hist_data.close_adj.columns)),
+	corr_df = compute_corr_mat(build_content_portfolio.pf_data.returns_adj_weekly_df)
+	col_name_dct = dict(build_content_portfolio.pf_data.prod_df['symbol'])
+	labels = corr_df.rename(columns=col_name_dct).columns.to_list()
+	return go.Figure(data=[go.Heatmap(z=corr_df.values,
+	                                  x=labels,
+	                                  y=list(reversed(labels)),
 	                                  colorscale='RdBu_r',
 	                                  zmin=-1,
 	                                  zmax=1,
@@ -133,7 +130,7 @@ def get_fig_corr() -> go.Figure:
 
 # RISK ALLOCATION PIE CHART
 def get_fig_risk_contrib() -> go.Figure:
-	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df.index,
+	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df['symbol'],
 	                              values=build_content_portfolio.pf_data.alloc_risk_df['Risk contrib.'],
 	                              customdata=build_content_portfolio.pf_data.alloc_risk_df[['name']],
 	                              hovertemplate="%{customdata[0]}<br>%{value:.2%}<br><extra></extra>",
@@ -257,7 +254,7 @@ def update_switch_portfolio(n_clicks, portfolio_name, fig_pf_instr_adj_close_dat
 	else:
 		is_visible = None
 	return (get_fig_navs(),
-	        get_fig_comp(),
+	        get_fig_allocation(),
 	        get_fig_perf(),
 	        get_fig_corr(),
 	        get_fig_pf_instr_adj_close(),

@@ -17,6 +17,10 @@ class PortfolioData:
         self.perf_dct = load_portfolio_performance(account=self.account)
         self.perf_bm_dct = load_benchmark_performance(account=self.account)
         self.prod_df = load_portfolio_products(account=self.account)
+        self.prod_df['symbol'] = self.prod_df['symbol'].fillna(self.prod_df['isin'])
+        self.prod_df['name'] = self.prod_df['name'].fillna(self.prod_df['isin'])
+        self.prod_df.loc[self.prod_df.duplicated('symbol', keep=False), 'symbol'] = self.prod_df.loc[
+            self.prod_df.duplicated('symbol', keep=False), ['symbol', 'currency']].agg('_'.join, axis=1)
         self.returns_adj_weekly_df = self.hist_data.close_adj.resample('W-WED').last().pct_change()
         self.alloc_risk_df = self.get_alloc_risk()
 
@@ -32,13 +36,9 @@ class PortfolioData:
         risk_contrib = pd.DataFrame(np.append(risk_contrib, 0.),
                                     columns=['Risk contrib.'],
                                     index=self.hist_data.effective_weights.columns)
-        prod_df = self.prod_df.copy()
-        prod_df.loc[:, 'symbol'] = prod_df['symbol'].fillna(self.prod_df['id'])
-        prod_df = prod_df.set_index('symbol')
-        alloc_risk_df = pd.concat([weights_last, risk_contrib, prod_df['name']], axis=1)
+        alloc_risk_df = pd.concat([weights_last, risk_contrib, self.prod_df[['name', 'symbol', 'isin']]], axis=1)
         alloc_risk_df = alloc_risk_df.sort_values(by='Allocation', ascending=False)
-        alloc_risk_df['name'] = alloc_risk_df['name'].fillna(alloc_risk_df.index.to_series())
-        row_cash = alloc_risk_df.iloc[alloc_risk_df.index == 'Cash', :]
+        row_cash = alloc_risk_df.iloc[alloc_risk_df.index == 'Cash', :].fillna('Cash')
         alloc_risk_df = alloc_risk_df.drop('Cash', axis=0)
         alloc_risk_df = alloc_risk_df[alloc_risk_df['Allocation'] > sys.float_info.epsilon]
         return pd.concat([alloc_risk_df, row_cash])

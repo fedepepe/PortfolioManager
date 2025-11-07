@@ -27,7 +27,6 @@ def fetch_charts(degiro_conn: Optional[API] = None,
                  chart_type: ChartType = ChartType.PRICE,
                  period: Optional[Interval] = Interval.P10Y,
                  resolution: Optional[Interval] = Interval.P1D,
-                 rename_columns_to: str = 'symbols',
                  ) -> pd.DataFrame:
 	if degiro_conn is None:
 		degiro_conn = get_degiro_connection()
@@ -60,8 +59,7 @@ def fetch_charts(degiro_conn: Optional[API] = None,
 	product_info_df = product_info_df[product_info_df['vwd_id'].notna()]
 	product_ids = product_info_df['id'].astype(int).to_list()
 	vwd_ids = [product_info_df.loc[prod_id, 'vwd_id'] for prod_id in product_ids]
-	symbols = [product_info_df.loc[prod_id, 'symbol'] for prod_id in product_ids]
-	for vwd_id, product_id, symbol in zip(vwd_ids, product_ids, symbols):
+	for vwd_id, product_id in zip(vwd_ids, product_ids):
 		chart_request = ChartRequest(
 			culture="en-US",
 			period=period,
@@ -76,22 +74,15 @@ def fetch_charts(degiro_conn: Optional[API] = None,
 		)
 		if data is None:
 			continue
-		df = SeriesFormatter.format(series=data.series[0]).to_pandas()
-		if rename_columns_to == 'ids':
-			df = df.rename(columns={chart_type.value: product_id})
-		elif rename_columns_to == 'symbols':
-			if symbol is not None:
-				df = df.rename(columns={chart_type.value: symbol})
-			else:
-				df = df.rename(columns={chart_type.value: product_id})
-		else:
-			raise NotImplementedError
-		df = df.set_index('timestamp')
+		ser = SeriesFormatter.format(series=data.series[0]).to_pandas()
+		ser = ser.set_index('timestamp')
+		ser = ser[chart_type.value].rename(product_id)
+
 		if len(product_ids) < 100:  # use pandas
-			chart_df = pd.concat([chart_df, df], axis=1)
+			chart_df = pd.concat([chart_df, ser], axis=1)
 		else:  # dump data directly to database
-			insert_close(series=df[product_id])
-	chart_df = chart_df.T.groupby(by=chart_df.columns).mean().T
+			insert_close(series=ser[product_id])
+		chart_df = chart_df.sort_index()
 	return chart_df
 
 
@@ -133,7 +124,10 @@ def load_fx_rates(account: Accounts,
                   curr_foreign_lst: List[str],
                   index: pd.DatetimeIndex,
                   ) -> pd.DataFrame:
+	results_df = query_products(product_type=ProductTypes.CURRENCY)
 	fx_rates_df_tmp = load_portfolio_charts(account=account, chart_name=FX_RATES_CHART_FILE_NAME)
+	fx_rates_df_tmp = fx_rates_df_tmp.rename(columns=dict(results_df.loc[fx_rates_df_tmp.columns, 'name']))
+	fx_rates_df_tmp.columns = [c.split(' X-RATE')[0].replace('-', '/') for c in fx_rates_df_tmp.columns]
 	# additional fx
 	if 'CHF/GBP' not in fx_rates_df_tmp and 'GBP/CHF' not in fx_rates_df_tmp:
 		fx_rates_df_tmp.loc[:, 'GBP/CHF'] = fx_rates_df_tmp['EUR/CHF'].div(fx_rates_df_tmp['EUR/GBP'])

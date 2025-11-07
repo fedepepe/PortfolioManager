@@ -57,10 +57,7 @@ class Portfolio:
             self.txn_value = - np.nansum(change_units * current_prices)
         elif tx_hist_df is not None:
             for n in range(len(tx_hist_df)):
-                if tx_hist_df.iloc[n, :][TxHistFields.symbol] is np.nan:
-                    idx = self.tickers.index(tx_hist_df.iloc[n, :][TxHistFields.product_id])
-                else:
-                    idx = self.tickers.index(tx_hist_df.iloc[n, :][TxHistFields.symbol])
+                idx = self.tickers.index(tx_hist_df.iloc[n, :][TxHistFields.product_id])
                 # check that units reflect price directly
                 quantity = tx_hist_df.iloc[n, :][TxHistFields.quantity]
                 price = tx_hist_df.iloc[n, :][TxHistFields.price]

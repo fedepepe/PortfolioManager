@@ -76,7 +76,7 @@ def compute_hist_nav(name: str,
                 div_hist_t = div_hist_df.loc[div_hist_df['Date'] == prices_df.index[t], :]
                 portfolio.add_cash(div_hist_t['amount_base_currency'].sum())
                 for n in range(len(div_hist_t)):
-                    idx = prices_df.columns.to_list().index(div_hist_t.iloc[n, :][TxHistFields.symbol])
+                    idx = prices_df.columns.to_list().index(div_hist_t.iloc[n, :][TxHistFields.product_id])
                     dividends[t, idx] = div_hist_t.iloc[n, :]['amount_base_currency']
 
         # add deposits and subtract withdrawals
@@ -174,7 +174,6 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
                                 index=prices_df.index)
 
     product_ids = list(set(tx_hist_df[TxHistFields.product_id].to_list()))
-    product_symbols = products_df.loc[product_ids, 'symbol'].fillna(products_df.loc[product_ids, 'id']).to_list()
     product_curr = products_df.loc[product_ids, 'currency'].to_list()
 
     # compute initial cash balance
@@ -189,7 +188,7 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
     dividends_df.loc[:, 'Date'] = [reset_time(ts) for ts in dividends_df['value_date']]
     deposits_df.loc[:, 'Date'] = [reset_time(ts) for ts in deposits_df['value_date']]
     ts_start = tx_hist_df['Date'].iloc[0] - pd.tseries.offsets.BDay(1)
-    prices_df = prices_df.loc[prices_df.index >= ts_start, product_symbols].ffill()
+    prices_df = prices_df.loc[prices_df.index >= ts_start, product_ids].ffill()
     fx_rates_df = fx_rates_df.loc[fx_rates_df.index >= ts_start, :].reindex(prices_df.index).ffill()
     deposits_df = deposits_df.loc[deposits_df.index >= ts_start, :]
 
@@ -198,8 +197,8 @@ def compute_hist_portfolio_data(account: Accounts) -> HistPortfolioData:
     assert all([d in prices_df.index for d in deposits_df['Date']])
 
     # currency conversion to base currency
-    for symbol, curr in zip(product_symbols, product_curr):
-        prices_df.loc[:, symbol] = prices_df[symbol].mul(fx_rates_df.loc[prices_df.index, f'{curr}/{account.currency}'])
+    for prod_id, curr in zip(product_ids, product_curr):
+        prices_df.loc[:, prod_id] = prices_df[prod_id].mul(fx_rates_df.loc[prices_df.index, f'{curr}/{account.currency}'])
     fx_rates = [fx_rates_df.loc[dividends_df.iloc[n]['Date'], f'{curr}/{account.currency}']
                 for n, curr in enumerate(dividends_df['currency'])]
     dividends_df.loc[:, 'fx_rate'] = fx_rates

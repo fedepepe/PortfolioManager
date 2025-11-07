@@ -21,6 +21,8 @@ from database.table_definitions import Product
 from yfinance_api import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL
 from yfinance_api import Exchanges as ExchangesYF
 
+MAX_ETF_CATALOG_SIZE = 250
+
 
 class InstrPerfTableCols:
     ticker = 'Ticker'
@@ -264,7 +266,7 @@ def build_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame
     curr_info = query_yahoo_finance_prod_info().loc[YFinInfoCols.currency.value, volume_3m_df.columns]
     volume_3m_base_df = prices_to_base_curr(account=account, price_df=volume_3m_df, curr_info=curr_info)
     volume_3m_base = volume_3m_base_df.apply(lambda x: x[x.notnull()].values[-1])
-    most_liquid_3m = volume_3m_base.sort_values(ascending=False).index[:250].to_list()
+    most_liquid_3m = volume_3m_base.sort_values(ascending=False).index[:MAX_ETF_CATALOG_SIZE].to_list()
     close_adj_df = query_yahoo_finance_hist_data(columns=YFinHistCols.adj_close, tickers=list(most_liquid_3m))
     close_adj_df = prices_to_base_curr(account=account, price_df=close_adj_df, curr_info=curr_info)
     most_liquid_3m = [e for e in most_liquid_3m if e in close_adj_df.columns]

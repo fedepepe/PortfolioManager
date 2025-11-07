@@ -1,4 +1,6 @@
 import dash_bootstrap_components as dbc
+import numpy as np
+import pandas as pd
 import plotly.io as pio
 from dash import dcc
 
@@ -24,3 +26,12 @@ def loading_wrapper(children) -> dcc.Loading:
 
 def card_wrapper(children) -> dbc.Card:
     return dbc.Card(children=children, body=True, color=pio.templates["plotly_dark"].layout.plot_bgcolor)
+
+
+def compute_corr_mat(df) -> pd.DataFrame:
+    corr_mat = df.corr()
+    corr_mat = np.tril(corr_mat)
+    corr_mat[np.triu_indices(corr_mat.shape[0], 1)] = np.nan
+    corr_df = pd.DataFrame(corr_mat, columns=df.columns, index=df.columns)
+    corr_df = corr_df.loc[list(reversed(df.columns)), :]
+    return corr_df

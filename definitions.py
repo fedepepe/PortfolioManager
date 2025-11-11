@@ -17,6 +17,7 @@ for path in [DATA_DIR, CONFIG_DIR, RESULTS_DIR, FIGURES_DIR]:
 
 # data properties
 DEFAULT_DATA_FREQ = 'B'
+DEFAULT_CORR_DATA_FREQ = 'W-WED'
 
 # product data
 PRODUCTS_CHART_FILE_NAME = 'prod'

@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Boolean, Float, Date, UniqueCons
 from database.db_conn import Base, engine
 
 
+# Degiro product catalog table
 class Product(Base):
 	__tablename__ = 'products'
 	active = Column(Boolean)
@@ -43,6 +44,7 @@ class Product(Base):
 	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
 
 
+# Degiro product closing price table
 class Close(Base):
 	__tablename__ = 'close'
 	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
@@ -51,6 +53,7 @@ class Close(Base):
 	close = Column(Float)
 
 
+# Yahoo Finance historical price table
 class YahooFinanceHistData(Base):
 	__tablename__ = 'yahoo_finance_hist'
 	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
@@ -61,6 +64,7 @@ class YahooFinanceHistData(Base):
 	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
 
 
+# Yahoo Finance instruments catalog table
 class YahooFinanceProdInfo(Base):
 	__tablename__ = 'yahoo_finance_info'
 	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
@@ -70,6 +74,7 @@ class YahooFinanceProdInfo(Base):
 	__table_args__ = (UniqueConstraint('ticker', 'quote_type', name='_ticker_quote_unique'), )
 
 
+# Yahoo Finance portfolio instruments historical price table
 class YahooFinanceHistDataPfInstr(Base):
 	__tablename__ = 'yahoo_finance_hist_pf_instr'
 	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)

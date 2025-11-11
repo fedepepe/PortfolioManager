@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback, ctx
 
 from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat
-from dashboard.dash_portfolio_data import PortfolioData
+from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
 from database.sql import query_yahoo_finance_prod_info
 from definitions import Accounts
 from instruments_performance import prices_to_base_curr, fetch_instr_hist_data
@@ -93,9 +93,9 @@ def get_fig_navs() -> go.Figure:
 
 # PORTFOLIO ALLOCATION PIE CHART
 def get_fig_allocation() -> go.Figure:
-	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df['symbol'],
-	                              values=build_content_portfolio.pf_data.alloc_risk_df['Allocation'],
-	                              customdata=build_content_portfolio.pf_data.alloc_risk_df[['name']],
+	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df[AllocationRiskLabels.SYMBOL],
+	                              values=build_content_portfolio.pf_data.alloc_risk_df[AllocationRiskLabels.ALLOCATION],
+	                              customdata=build_content_portfolio.pf_data.alloc_risk_df[[AllocationRiskLabels.NAME]],
 	                              hovertemplate="%{customdata[0]}<br>%{value:.2%}<br><extra></extra>",
 	                              direction='clockwise',
 	                              hole=.4,
@@ -130,9 +130,9 @@ def get_fig_corr() -> go.Figure:
 
 # RISK ALLOCATION PIE CHART
 def get_fig_risk_contrib() -> go.Figure:
-	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df['symbol'],
-	                              values=build_content_portfolio.pf_data.alloc_risk_df['Risk contrib.'],
-	                              customdata=build_content_portfolio.pf_data.alloc_risk_df[['name']],
+	return go.Figure(data=[go.Pie(labels=build_content_portfolio.pf_data.alloc_risk_df[AllocationRiskLabels.SYMBOL],
+	                              values=build_content_portfolio.pf_data.alloc_risk_df[AllocationRiskLabels.RISK_CONTRIB],
+	                              customdata=build_content_portfolio.pf_data.alloc_risk_df[[AllocationRiskLabels.NAME]],
 	                              hovertemplate="%{customdata[0]}<br>%{value:.2%}<br><extra></extra>",
 	                              direction='clockwise',
 	                              hole=.4,

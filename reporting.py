@@ -136,7 +136,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 		return nav.iloc[-1] / nav.iloc[0] - 1
 
 	def compute_n_years(nav: pd.Series) -> float:
-		return (nav.index.to_period(freq).nunique() - 1) / ANN_FACTOR_DICT[freq]
+		return (len(nav.resample(freq).last()) - 1) / ANN_FACTOR_DICT[freq]
 
 	def compute_pa_return(nav: pd.Series) -> float:
 		n_years = compute_n_years(nav)

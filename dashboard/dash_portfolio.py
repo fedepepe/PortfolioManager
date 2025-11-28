@@ -13,7 +13,7 @@ from database.sql import query_yahoo_finance_prod_info
 from definitions import Accounts
 from instruments_performance import prices_to_base_curr, fetch_instr_hist_data
 from portfolio_history import compute_hist_benchmark_data
-from reporting import OutDataTabs
+from reporting import OutDataTabs, Metrics
 from yfinance_api import YFinHistCols, YFinInfoCols
 
 
@@ -151,6 +151,7 @@ def get_fig_perf() -> go.Figure:
 	perf_df = build_content_portfolio.pf_data.perf_dct[OutDataTabs.RISK_METRICS]
 	perf_bm_df = build_content_portfolio.pf_data.perf_bm_dct[OutDataTabs.RISK_METRICS]
 	perf_df = pd.concat([perf_df, perf_bm_df], axis=1)
+	perf_df = perf_df.drop([Metrics.BETA_OVERALL.name, Metrics.SKEWNESS.name], errors='ignore')
 	return go.Figure(data=[go.Table(
 		columnwidth=[120, 50],
 		header=dict(
@@ -246,9 +247,9 @@ def update_switch_portfolio(n_clicks, portfolio_name, fig_pf_instr_adj_close_dat
 		build_content_portfolio.pf_data = PortfolioData(account=build_content_portfolio.account)
 	if ctx.triggered_id == 'button-update':
 		build_content_portfolio.pf_data.update()
-		index = build_content_portfolio.pf_data.hist_data.nav_eff.index
-		build_content_portfolio.bm_data = compute_hist_benchmark_data(account=build_content_portfolio.account,
-		                                                              index=index)
+	index = build_content_portfolio.pf_data.hist_data.nav_eff.index
+	build_content_portfolio.bm_data = compute_hist_benchmark_data(account=build_content_portfolio.account,
+	                                                              index=index)
 	if ctx.triggered_id == 'fig_pf_instr_adj_close':
 		is_visible = fig_pf_instr_adj_close_data[0]['visible']
 	else:

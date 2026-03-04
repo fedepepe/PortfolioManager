@@ -2,7 +2,7 @@ import os
 from enum import Enum
 from typing import NamedTuple, Optional, Dict, Tuple
 
-from product_definitions import Currencies
+from degiro.product_definitions import Currencies
 
 # directories
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,7 +41,7 @@ class Accounts(AccountDegiro, Enum):
 	                               'STHC': (0.2, 'M', 'STHC.SW'), })
 	EUR = AccountDegiro(name='Portfolio EUR', currency=Currencies.EUR, config_file='config_2',
 	                    benchmark={'SPYI': (0.6, 'M', 'IE00B3YLTY66'),
-	                               'IBC9': (0.2, 'M', 'IBC9.DE'),
+	                               'HYLE': (0.2, 'M', 'HYLE.DE'),
 	                               'IGLA': (0.2, 'M', 'IE00BYZ28V50'), })
 
 	@classmethod
@@ -56,3 +56,10 @@ class Accounts(AccountDegiro, Enum):
 
 # financial math constants
 RISK_FREE_RATE = 0.0
+
+
+class PortfolioAllocationStrats(Enum):
+	MAX_RET = 'max_ret'
+	MIN_VAR = 'min_var'
+	MAX_SHARPE = 'max_sharpe'
+	RISK_PARITY = 'risk_parity'

@@ -5,11 +5,11 @@ import pandas as pd
 
 from database.table_definitions import Product
 from definitions import Accounts, DEFAULT_CORR_DATA_FREQ
-from portfolio_analysis_funcs import vol_risk_contr
-from portfolio_history import load_hist_portfolio_data, update_data
-from portfolio_performance import compute_portfolio_performance
-from portfolio_performance import load_portfolio_performance, load_benchmark_performance
-from products import load_portfolio_products
+from portfolio.portfolio_analysis_funcs import vol_risk_contr
+from portfolio.portfolio_history import load_hist_portfolio_data, update_data
+from portfolio.portfolio_performance import compute_portfolio_performance
+from portfolio.portfolio_performance import load_portfolio_performance, load_benchmark_performance
+from degiro.products import load_portfolio_products
 
 
 class AllocationRiskLabels:

@@ -5,12 +5,12 @@ from typing import List, Optional
 import pandas as pd
 from degiro_connector.trading.api import API
 
-from file_utils import save_df_to_excel, load_df_from_excel
+from utils.file_utils import save_df_to_excel, load_df_from_excel
 from definitions import Accounts, DATA_DIR
-from degiro_connection import get_degiro_connection
-from product_definitions import ProductTypes
+from degiro.degiro_connection import get_degiro_connection
+from degiro.product_definitions import ProductTypes
 from database.sql import insert_product, query_products
-from transactions import load_tx_history
+from degiro.transactions import load_tx_history
 
 logging.basicConfig(level=logging.DEBUG)
 

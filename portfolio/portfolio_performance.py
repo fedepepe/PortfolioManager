@@ -4,9 +4,9 @@ from typing import Dict
 import pandas as pd
 
 from definitions import RESULTS_DIR, Accounts
-from file_utils import save_df_dict_to_excel, load_df_dict_from_excel
-from portfolio_history import update_data, compute_hist_portfolio_data, compute_hist_benchmark_data
-from reporting import compute_portfolio_metrics, OutDataTabs
+from utils.file_utils import save_df_dict_to_excel, load_df_dict_from_excel
+from portfolio.portfolio_history import update_data, compute_hist_portfolio_data_account, compute_hist_portfolio_data_benchmark
+from engines.reporting import compute_portfolio_metrics, OutDataTabs
 
 
 class UnitTests(Enum):
@@ -17,8 +17,8 @@ class UnitTests(Enum):
 
 
 def compute_portfolio_performance(account: Accounts):
-    hist_portfolio_data = compute_hist_portfolio_data(account=account)
-    hist_benchmark_data = compute_hist_benchmark_data(account=account, index=hist_portfolio_data.nav.index)
+    hist_portfolio_data = compute_hist_portfolio_data_account(account=account)
+    hist_benchmark_data = compute_hist_portfolio_data_benchmark(account=account, index=hist_portfolio_data.nav.index)
     results_dict = compute_portfolio_metrics(hist_portfolio_data=hist_portfolio_data,
                                              strategy_benchmark=hist_benchmark_data.nav)
     results_bm_dict = compute_portfolio_metrics(nav=hist_benchmark_data.nav_eff)

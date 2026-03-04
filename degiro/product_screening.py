@@ -1,6 +1,6 @@
 import pandas as pd
 
-from product_definitions import ProductTypes, Exchanges
+from degiro.product_definitions import ProductTypes, Exchanges
 from database.sql import query_products
 
 

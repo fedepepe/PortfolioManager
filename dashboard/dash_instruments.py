@@ -1,9 +1,7 @@
-import time
 from typing import Optional, List
 
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback
@@ -11,8 +9,8 @@ from dash import html, dcc, Input, Output, callback
 from dashboard.dash_common import loading_wrapper, compute_corr_mat
 from dashboard.dash_instruments_data import InstrumentsData
 from definitions import Accounts
-from instruments_performance import InstrPerfTableCols
-from reporting import Metrics
+from portfolio.instruments_performance import InstrPerfTableCols
+from engines.reporting import Metrics
 
 MAX_INSTR_CORR = 50
 COLS_INFO_TABLE = [InstrPerfTableCols.ticker,

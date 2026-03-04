@@ -8,9 +8,9 @@ from degiro_connector.trading.api import API
 from degiro_connector.trading.models.account import OverviewRequest
 from degiro_connector.trading.models.transaction import HistoryRequest
 
-import file_utils as fu
+from utils import file_utils as fu
 from definitions import Accounts, DATA_DIR
-from degiro_connection import get_degiro_connection
+from degiro.degiro_connection import get_degiro_connection
 
 logging.basicConfig(level=logging.DEBUG)
 

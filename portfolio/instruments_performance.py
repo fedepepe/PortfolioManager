@@ -7,19 +7,19 @@ from typing import List, Dict, Optional
 import numpy as np
 import pandas as pd
 
-from charts import load_portfolio_products, load_fx_rates
+from degiro.charts import load_portfolio_products, load_fx_rates
 from definitions import Accounts, DEFAULT_DATA_FREQ
 from definitions import RESULTS_DIR
-from file_utils import PD_DATA_TYPES
-from file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
-from product_definitions import ProductTypes
-from reporting import compute_portfolio_metrics, OutDataTabs
+from utils.file_utils import PD_DATA_TYPES
+from utils.file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
+from degiro.product_definitions import ProductTypes
+from engines.reporting import compute_portfolio_metrics, OutDataTabs
 from database.sql import query_products, query_tradable_products, insert_yahoo_finance_data
 from database.sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
-from product_definitions import Exchanges
+from degiro.product_definitions import Exchanges
 from database.table_definitions import Product
-from yfinance_api import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL
-from yfinance_api import Exchanges as ExchangesYF
+from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL
+from yahoo_finance.yahoo_finance import Exchanges as ExchangesYF
 
 MAX_ETF_CATALOG_SIZE = 250
 

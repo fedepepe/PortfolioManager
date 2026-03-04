@@ -1,6 +1,6 @@
 from definitions import Accounts
-from instruments_performance import load_etf_catalog_data, compute_product_performance
-from yfinance_api import YFinHistCols, YF_PROD_INFO_LABEL
+from portfolio.instruments_performance import load_etf_catalog_data, compute_product_performance
+from yahoo_finance.yahoo_finance import YFinHistCols, YF_PROD_INFO_LABEL
 
 
 class InstrumentsData:

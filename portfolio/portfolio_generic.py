@@ -3,9 +3,9 @@ from typing import NamedTuple, Optional, List
 import numpy as np
 import pandas as pd
 
-from file_utils import PD_DATA_TYPES
-from product_definitions import Currencies
-from transactions import TxHistFields
+from utils.file_utils import PD_DATA_TYPES
+from degiro.product_definitions import Currencies
+from degiro.transactions import TxHistFields
 
 
 class Portfolio:

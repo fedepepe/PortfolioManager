@@ -7,14 +7,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback, ctx
 
-from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat
+from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat, LAYOUT_TEMPLATE
 from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
 from database.sql import query_yahoo_finance_prod_info
 from definitions import Accounts
-from instruments_performance import prices_to_base_curr, fetch_instr_hist_data
-from portfolio_history import compute_hist_benchmark_data
-from reporting import OutDataTabs, Metrics
-from yfinance_api import YFinHistCols, YFinInfoCols
+from portfolio.instruments_performance import prices_to_base_curr, fetch_instr_hist_data
+from portfolio.portfolio_history import compute_hist_portfolio_data_benchmark
+from engines.reporting import OutDataTabs, Metrics
+from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols
 
 
 # DASHBOARD
@@ -25,7 +25,7 @@ def build_content_portfolio(account: Accounts):
 		build_content_portfolio.pf_data = PortfolioData(account=account)
 	index = build_content_portfolio.pf_data.hist_data.nav_eff.index
 	if not hasattr(build_content_portfolio, 'bm_data'):
-		build_content_portfolio.bm_data = compute_hist_benchmark_data(account=account, index=index)
+		build_content_portfolio.bm_data = compute_hist_portfolio_data_benchmark(account=account, index=index)
 	return html.Div(
 		dbc.Card([
 			dbc.Row([
@@ -76,7 +76,7 @@ def get_fig_navs() -> go.Figure:
 	                                      hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>')],
 	                     layout=go.Layout(xaxis_title=dict(text='Date'),
 	                                      yaxis_title=dict(text='NAV (adjusted)'),
-	                                      template='plotly_dark',
+	                                      template=LAYOUT_TEMPLATE,
 	                                      legend=dict(orientation="h",
 	                                                  yanchor="bottom",
 	                                                  y=1.0,
@@ -103,7 +103,7 @@ def get_fig_allocation() -> go.Figure:
 	                 layout=go.Layout(
 		                 title=dict(text="Portfolio allocation"),
 		                 legend=dict(orientation='h', y=-0.1),
-		                 template="plotly_dark"
+		                 template=LAYOUT_TEMPLATE
 	                 ))
 
 
@@ -122,7 +122,7 @@ def get_fig_corr() -> go.Figure:
 	                                  ygap=1,
 	                                  hoverongaps=False)],
 	                 layout=go.Layout(title=dict(text="Asset correlation matrix"),
-	                                  template="plotly_dark",
+	                                  template=LAYOUT_TEMPLATE,
 	                                  xaxis=dict(side='top', scaleanchor="y", constrain="domain"),
 	                                  yaxis=dict(scaleanchor="x", constrain="domain")
 	                                  ))
@@ -140,7 +140,7 @@ def get_fig_risk_contrib() -> go.Figure:
 	                 layout=go.Layout(
 		                 title=dict(text="Risk allocation"),
 		                 legend=dict(orientation='h', y=-0.1),
-		                 template="plotly_dark"
+		                 template=LAYOUT_TEMPLATE
 	                 ))
 
 
@@ -166,7 +166,7 @@ def get_fig_perf() -> go.Figure:
 			align=['left', 'center'],
 			height=22
 		))],
-		layout=go.Layout(template="plotly_dark",
+		layout=go.Layout(template=LAYOUT_TEMPLATE,
 		                 margin={"l": 30, "r": 30, "t": 30, "b": 30}
 		                 )
 	)
@@ -183,7 +183,7 @@ def get_fig_monthly_ret() -> go.Figure:
 		                 xaxis_title=dict(text='Return'),
 		                 yaxis_title=dict(text='Frequency'),
 		                 bargap=0.1,
-		                 template="plotly_dark")
+		                 template=LAYOUT_TEMPLATE)
 	)
 
 
@@ -194,12 +194,13 @@ def get_fig_pf_instr_adj_close(is_visible: Optional[List[bool]] = None) -> go.Fi
 		fig_pf_instr_adj_close = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
 		                                                    yaxis_title=dict(
 			                                                    text=f'Adjusted Closing Price [{currency}]'),
-		                                                    template='plotly_dark'))
+		                                                    template=LAYOUT_TEMPLATE))
+		close_adj_df = build_content_portfolio.pf_data.hist_data.close_adj.dropna(how='all')
+		col_name_dct = dict(build_content_portfolio.pf_data.prod_df['symbol'])
 		for col in build_content_portfolio.pf_data.alloc_risk_df.index.drop('Cash'):
-			fig_pf_instr_adj_close.add_trace(go.Scatter(x=build_content_portfolio.pf_data.hist_data.close_adj.index,
-			                                            y=build_content_portfolio.pf_data.hist_data.close_adj[
-				                                            col].ffill(),
-			                                            name=col,
+			fig_pf_instr_adj_close.add_trace(go.Scatter(x=close_adj_df.index,
+			                                            y=close_adj_df[col].ffill(),
+			                                            name=col_name_dct[col],
 			                                            mode='lines',
 			                                            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
 		get_fig_pf_instr_adj_close.fig_pf_instr_adj_close = fig_pf_instr_adj_close
@@ -223,7 +224,7 @@ def get_fig_pf_instr_adj_close(is_visible: Optional[List[bool]] = None) -> go.Fi
 def get_fig_instr_adj_close() -> go.Figure:
 	return go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
 	                                  yaxis_title=dict(text='Adjusted Closing Price'),
-	                                  template='plotly_dark'))
+	                                  template=LAYOUT_TEMPLATE))
 
 
 # update portfolio data charts or switch portfolio
@@ -245,11 +246,14 @@ def update_switch_portfolio(n_clicks, portfolio_name, fig_pf_instr_adj_close_dat
 	if ctx.triggered_id == 'dropdown-portfolio':
 		build_content_portfolio.account = Accounts.get_account_by_name(name=portfolio_name)
 		build_content_portfolio.pf_data = PortfolioData(account=build_content_portfolio.account)
+		index = build_content_portfolio.pf_data.hist_data.nav_eff.index
+		build_content_portfolio.bm_data = compute_hist_portfolio_data_benchmark(account=build_content_portfolio.account,
+		                                                                        index=index)
 	if ctx.triggered_id == 'button-update':
 		build_content_portfolio.pf_data.update()
-	index = build_content_portfolio.pf_data.hist_data.nav_eff.index
-	build_content_portfolio.bm_data = compute_hist_benchmark_data(account=build_content_portfolio.account,
-	                                                              index=index)
+		index = build_content_portfolio.pf_data.hist_data.nav_eff.index
+		build_content_portfolio.bm_data = compute_hist_portfolio_data_benchmark(account=build_content_portfolio.account,
+		                                                                        index=index)
 	if ctx.triggered_id == 'fig_pf_instr_adj_close':
 		is_visible = fig_pf_instr_adj_close_data[0]['visible']
 	else:
@@ -287,7 +291,7 @@ def update_instr_adj_close_fig(isin) -> go.Figure:
 		                              curr_info=[currency])
 		fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
 		                                 yaxis_title=dict(text=f'Adjusted Closing Price'),
-		                                 template='plotly_dark',
+		                                 template=LAYOUT_TEMPLATE,
 		                                 title=name,
 		                                 showlegend=True))
 		fig.add_trace(go.Scatter(x=df.index,
@@ -304,6 +308,6 @@ def update_instr_adj_close_fig(isin) -> go.Figure:
 	else:
 		fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
 		                                 yaxis_title=dict(text=f'Adjusted Closing Price'),
-		                                 template='plotly_dark',
+		                                 template=LAYOUT_TEMPLATE,
 		                                 showlegend=True))
 	return fig

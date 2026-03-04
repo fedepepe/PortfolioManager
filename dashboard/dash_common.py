@@ -19,6 +19,8 @@ CONTENT_STYLE = {
     "padding": "2rem 0rem",
 }
 
+LAYOUT_TEMPLATE = "plotly_dark"
+
 
 def loading_wrapper(children) -> dcc.Loading:
     return dcc.Loading(type="default", children=children)

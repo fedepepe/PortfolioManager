@@ -7,10 +7,10 @@ import pandas as pd
 import statsmodels.api as sm
 
 from definitions import RESULTS_DIR
-from date_utils import ANN_FACTOR_DICT
-from file_utils import PD_DATA_TYPES
-from file_utils import save_df_dict_to_excel
-from portfolio import HistPortfolioData
+from utils.date_utils import ANN_FACTOR_DICT
+from utils.file_utils import PD_DATA_TYPES
+from utils.file_utils import save_df_dict_to_excel
+from portfolio.portfolio_generic import HistPortfolioData
 
 
 class Metric(NamedTuple):
@@ -270,7 +270,7 @@ def compute_results_from_navs(navs: Union[pd.Series, pd.DataFrame],
 			results_dict[label] = pd.concat([results_dict[label], results_single[label].rename(nav.name)], axis=1)
 	results_dict[OutDataTabs.CORRELATION] = results_dict[OutDataTabs.RETURNS_MONTHLY].corr()
 	if file_name is None:
-		file_name = 'results'
+		file_name = '../results'
 	save_df_dict_to_excel(df_dict=results_dict,
 	                      folder_name=RESULTS_DIR,
 	                      file_name=file_name)

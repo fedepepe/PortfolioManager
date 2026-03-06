@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from definitions import RISK_FREE_RATE, PortfolioAllocationStrats
+from config.definitions import RISK_FREE_RATE
+from portfolio.portfolio_allocation_strats import PortfolioAllocationStrats
 from utils.date_utils import ANN_FACTOR_DICT
 
 

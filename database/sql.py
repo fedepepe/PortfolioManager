@@ -11,7 +11,7 @@ from database.db_conn import engine, conn
 from database.sql_utils import list_to_str, str_to_date
 from database.table_definitions import Product, Close, YahooFinanceHistData, YahooFinanceProdInfo
 from database.table_definitions import YahooFinanceHistDataPfInstr
-from degiro.product_definitions import ProductTypes, Exchanges
+from degiro.degiro_definitions import ProductTypes, Exchanges
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinInfoCols, YFinHistCols
 
 YAHOO_FINANCE_DATA_OVERWRITE_DICT = {YFinHistCols.adj_close: True}

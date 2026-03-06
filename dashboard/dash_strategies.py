@@ -4,7 +4,7 @@ from dash import html, dcc
 
 from dashboard.dash_common import LAYOUT_TEMPLATE
 from dashboard.dash_portfolio_data import PortfolioData
-from definitions import Accounts
+from config.accounts import Accounts
 from portfolio.portfolio_history import compute_hist_portfolio_data_optimized
 
 

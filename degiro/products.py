@@ -6,9 +6,10 @@ import pandas as pd
 from degiro_connector.trading.api import API
 
 from utils.file_utils import save_df_to_excel, load_df_from_excel
-from definitions import Accounts, DATA_DIR
+from config.definitions import DATA_DIR
+from config.accounts import Accounts
 from degiro.degiro_connection import get_degiro_connection
-from degiro.product_definitions import ProductTypes
+from degiro.degiro_definitions import ProductTypes
 from database.sql import insert_product, query_products
 from degiro.transactions import load_tx_history
 

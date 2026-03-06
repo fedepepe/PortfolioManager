@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 
 from database.table_definitions import Product
-from definitions import Accounts, DEFAULT_CORR_DATA_FREQ
+from config.definitions import DEFAULT_CORR_DATA_FREQ
+from config.accounts import Accounts
 from portfolio.portfolio_analysis_funcs import vol_risk_contr
 from portfolio.portfolio_history import load_hist_portfolio_data, update_data
 from portfolio.portfolio_performance import compute_portfolio_performance

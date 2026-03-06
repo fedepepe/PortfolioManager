@@ -1,27 +1,30 @@
+from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 
 import numpy as np
 import pandas as pd
 
-from utils import file_utils as fu
+from config.accounts import Accounts, Brokers
+from config.definitions import DATA_DIR
+from config.definitions import DEFAULT_DATA_FREQ
 from degiro.charts import fetch_portfolio_charts, load_portfolio_charts, fetch_fx_charts, load_fx_rates
-from utils.date_utils import reset_time
-from definitions import Accounts, PortfolioAllocationStrats
-from definitions import DATA_DIR
-from definitions import DEFAULT_DATA_FREQ
 from degiro.degiro_connection import get_degiro_connection
-from portfolio.instruments_performance import fetch_portfolio_instr_adj_prices, fetch_instr_adj_prices
-from portfolio.portfolio_generic import Portfolio, HistPortfolioData
-from degiro.product_definitions import Currencies
+from degiro.degiro_definitions import PortfolioDegiro
 from degiro.products import fetch_portfolio_products_info, load_portfolio_products
 from degiro.transactions import fetch_account_movements, load_account_movements
 from degiro.transactions import fetch_tx_history, load_tx_history, TxHistFields
 from engines.portfolio_optimization import compute_weights_optim_portfolio
+from portfolio.instruments_performance import fetch_portfolio_instr_adj_prices, fetch_instr_adj_prices
+from portfolio.portfolio_allocation_strats import PortfolioAllocationStrats
+from portfolio.portfolio_generic import Portfolio, HistPortfolioData, Currencies
+from utils import file_utils as fu
+from utils.date_utils import reset_time
 
 
-def compute_hist_portfolio_data(name: str,
-                                prices_df: pd.DataFrame,
+def compute_hist_portfolio_data(prices_df: pd.DataFrame,
+                                name: Optional[str] = None,
+                                account: Optional[Accounts] = None,
                                 target_exp: Optional[pd.DataFrame | List] = None,
                                 target_units: Optional[pd.DataFrame] = None,
                                 tx_hist_df: Optional[pd.DataFrame] = None,
@@ -33,6 +36,11 @@ def compute_hist_portfolio_data(name: str,
                                 close_adj_df: Optional[pd.DataFrame] = None,
                                 freq_rebalancing: Optional[str] = None,
                                 ) -> HistPortfolioData:
+    if name is None and account is None:
+        raise AttributeError
+    if account is not None:
+        name = account.name
+
     # initialize
     units = np.zeros_like(prices_df)
     effective_weights = np.zeros_like(prices_df)
@@ -49,9 +57,17 @@ def compute_hist_portfolio_data(name: str,
         rebalancing_dates = prices_df.resample(freq_rebalancing).last().index
 
     # build initial portfolio
-    portfolio = Portfolio(tickers=prices_df.columns.to_list(),
-                          base_currency=curr_base,
-                          initial_cash_balance=initial_cash_balance)
+    if account is not None:
+        if account.broker == Brokers.DEGIRO:
+            portfolio = PortfolioDegiro(tickers=prices_df.columns.to_list(),
+                                        base_currency=curr_base,
+                                        initial_cash_balance=initial_cash_balance)
+        else:
+            raise NotImplementedError
+    else:
+        portfolio = Portfolio(tickers=prices_df.columns.to_list(),
+                              base_currency=curr_base,
+                              initial_cash_balance=initial_cash_balance)
 
     # loop over t
     for t in np.arange(0, len(prices_df)):
@@ -152,6 +168,7 @@ def update_data(account: Accounts):
     fetch_account_movements(account=account, degiro_conn=conn)
     fetch_portfolio_charts(account=account, degiro_conn=conn)
     fetch_fx_charts(account=account, degiro_conn=conn)
+    account.state.set('last_data_update', datetime.now().strftime('%d%b%Y'))
 
 
 def compute_hist_portfolio_data_account(account: Accounts) -> HistPortfolioData:
@@ -202,7 +219,8 @@ def compute_hist_portfolio_data_account(account: Accounts) -> HistPortfolioData:
 
     # currency conversion to base currency
     for prod_id, curr in zip(product_ids, product_curr):
-        prices_df.loc[:, prod_id] = prices_df[prod_id].mul(fx_rates_df.loc[prices_df.index, f'{curr}/{account.currency}'])
+        prices_df.loc[:, prod_id] = prices_df[prod_id].mul(
+            fx_rates_df.loc[prices_df.index, f'{curr}/{account.currency}'])
     fx_rates = [fx_rates_df.loc[dividends_df.iloc[n]['Date'], f'{curr}/{account.currency}']
                 for n, curr in enumerate(dividends_df['currency'])]
     dividends_df.loc[:, 'fx_rate'] = fx_rates
@@ -212,7 +230,7 @@ def compute_hist_portfolio_data_account(account: Accounts) -> HistPortfolioData:
     close_adj_df = fetch_portfolio_instr_adj_prices(account=account)
 
     # compute historical portfolio data
-    hist_portfolio_data = compute_hist_portfolio_data(name=account.name,
+    hist_portfolio_data = compute_hist_portfolio_data(account=account,
                                                       prices_df=prices_df,
                                                       tx_hist_df=tx_hist_df,
                                                       curr_base=account.currency,

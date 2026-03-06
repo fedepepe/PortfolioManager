@@ -10,7 +10,7 @@ from dash import html, dcc, Input, Output, callback, ctx
 from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat, LAYOUT_TEMPLATE
 from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
 from database.sql import query_yahoo_finance_prod_info
-from definitions import Accounts
+from config.accounts import Accounts
 from portfolio.instruments_performance import prices_to_base_curr, fetch_instr_hist_data
 from portfolio.portfolio_history import compute_hist_portfolio_data_benchmark
 from engines.reporting import OutDataTabs, Metrics
@@ -284,8 +284,7 @@ def update_instr_adj_close_fig(isin) -> go.Figure:
 		df = fetch_instr_hist_data(isin_lst=isin,
 		                           columns=YFinHistCols.adj_close,
 		                           ticker_lst=ticker,
-		                           name_lst=name,
-		                           to_portfolio_instr_table=None)[YFinHistCols.adj_close]
+		                           name_lst=name)[YFinHistCols.adj_close]
 		df_base = prices_to_base_curr(account=build_content_portfolio.account,
 		                              price_df=df,
 		                              curr_info=[currency])

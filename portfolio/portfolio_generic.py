@@ -1,14 +1,17 @@
+from abc import abstractmethod
 from typing import NamedTuple, Optional, List
 
 import numpy as np
 import pandas as pd
 
-from utils.file_utils import PD_DATA_TYPES
-from degiro.product_definitions import Currencies
-from degiro.transactions import TxHistFields
+
+class Currencies:
+    EUR = 'EUR'
+    USD = 'USD'
+    CHF = 'CHF'
 
 
-class Portfolio:
+class PortfolioGeneric:
     def __init__(self,
                  tickers: List[str],
                  base_currency: Currencies = Currencies.USD,
@@ -38,10 +41,15 @@ class Portfolio:
     def get_current_cash_balance(self):
         return self.__current_cash_balance
 
+    @abstractmethod
+    def rebalance(self):
+        pass
+
+
+class Portfolio(PortfolioGeneric):
     def rebalance(self,
                   target_exp: Optional[np.ndarray | pd.Series] = None,
                   units: Optional[np.ndarray | pd.Series] = None,
-                  tx_hist_df: Optional[PD_DATA_TYPES] = None,
                   current_prices: Optional[np.ndarray | pd.Series] = None):
         self.txn_value = np.zeros(len(self.tickers))
         self.txn_costs = np.zeros(len(self.tickers))
@@ -55,19 +63,6 @@ class Portfolio:
             self.current_units = units.values
             change_units = self.current_units - self.previous_units
             self.txn_value = - np.nansum(change_units * current_prices)
-        elif tx_hist_df is not None:
-            for n in range(len(tx_hist_df)):
-                idx = self.tickers.index(tx_hist_df.iloc[n, :][TxHistFields.product_id])
-                # check that units reflect price directly
-                quantity = tx_hist_df.iloc[n, :][TxHistFields.quantity]
-                price = tx_hist_df.iloc[n, :][TxHistFields.price]
-                total = tx_hist_df.iloc[n, :][TxHistFields.total]
-                if quantity * price == - total:
-                    self.current_units[idx] += quantity
-                else:
-                    self.current_units[idx] += - total / price
-                self.txn_value[idx] += tx_hist_df.iloc[n, :][TxHistFields.total_in_base_currency]
-                self.txn_costs[idx] += tx_hist_df.iloc[n, :][TxHistFields.total_fees_in_base_currency]
         self.add_cash(self.txn_value.sum() + self.txn_costs.sum())
         self.previous_units = self.current_units.copy()
 

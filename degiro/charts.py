@@ -8,8 +8,8 @@ from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher, SeriesF
 from degiro_connector.trading.api import API
 
 from utils.file_utils import load_df_from_excel, save_df_to_excel
-from definitions import Accounts
-from definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
+from config.accounts import Accounts
+from config.definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
 from degiro.degiro_connection import get_degiro_connection
 from degiro.products import fetch_product_info, load_portfolio_products, query_products, ProductTypes
 from database.sql import insert_close

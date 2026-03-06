@@ -8,15 +8,16 @@ import numpy as np
 import pandas as pd
 
 from degiro.charts import load_portfolio_products, load_fx_rates
-from definitions import Accounts, DEFAULT_DATA_FREQ
-from definitions import RESULTS_DIR
+from config.definitions import DEFAULT_DATA_FREQ
+from config.accounts import Accounts
+from config.definitions import RESULTS_DIR
 from utils.file_utils import PD_DATA_TYPES
 from utils.file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
-from degiro.product_definitions import ProductTypes
+from degiro.degiro_definitions import ProductTypes
 from engines.reporting import compute_portfolio_metrics, OutDataTabs
 from database.sql import query_products, query_tradable_products, insert_yahoo_finance_data
 from database.sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
-from degiro.product_definitions import Exchanges
+from degiro.degiro_definitions import Exchanges
 from database.table_definitions import Product
 from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL
 from yahoo_finance.yahoo_finance import Exchanges as ExchangesYF
@@ -36,7 +37,6 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
                           ticker_lst: Optional[str | List[str]] = None,
                           name_lst: Optional[str | List[str]] = None,
                           freq: str = DEFAULT_DATA_FREQ,
-                          to_portfolio_instr_table: Optional[bool] = False,
                           ) -> Dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
@@ -101,9 +101,6 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         data_dict[col] = data_dict[col].resample(freq).last()
     for col in columns_ext:
         data_dict[col] = data_dict[col].loc[:, ~data_dict[col].columns.duplicated()].copy()
-    # dump collected data into the database
-    if to_portfolio_instr_table is not None:
-        insert_yahoo_finance_data(data_dict=data_dict, to_portfolio_instr_table=to_portfolio_instr_table)
     return data_dict
 
 
@@ -116,7 +113,8 @@ def remove_duplicated_tickers(col, data_single):
 
 def prices_to_base_curr(account: Accounts,
                         price_df: pd.DataFrame,
-                        curr_info: PD_DATA_TYPES | List[str]):
+                        curr_info: PD_DATA_TYPES | List[str]
+                        ) -> pd.DataFrame:
     if isinstance(curr_info, pd.Series):
         curr_lst = curr_info.str.upper().to_list()
     elif isinstance(curr_info, List):
@@ -158,12 +156,16 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
 def fetch_instr_adj_prices(account: Accounts,
                            isin_lst: List,
                            name_lst: Optional[List] = None,
-                           tick_lst: Optional[List] = None) -> pd.DataFrame:
+                           tick_lst: Optional[List] = None,
+                           to_portfolio_instr_table: bool = True) -> pd.DataFrame:
     data = fetch_instr_hist_data(isin_lst=isin_lst,
                                  columns=YFinHistCols.adj_close,
                                  ticker_lst=tick_lst,
-                                 name_lst=name_lst,
-                                 to_portfolio_instr_table=True)
+                                 name_lst=name_lst)
+    # dump collected data into the database
+    if to_portfolio_instr_table:  # and datetime.strptime(account.state.get('last_data_update'), '%d%b%Y') < datetime.now():
+        insert_yahoo_finance_data(data_dict=data, to_portfolio_instr_table=to_portfolio_instr_table)
+    # convert prices to domestic currency
     close_adj_base_curr_df = prices_to_base_curr(account=account,
                                                  price_df=data[YFinHistCols.adj_close],
                                                  curr_info=data[YF_PROD_INFO_LABEL].loc[YFinInfoCols.currency.value])
@@ -247,8 +249,7 @@ def fetch_etf_catalog_data():
                                                YFinHistCols.close,
                                                YFinHistCols.volume],
                                       ticker_lst=ticker,
-                                      name_lst=name,
-                                      to_portfolio_instr_table=False)
+                                      name_lst=name)
                 break
             except ConnectionError:
                 time.sleep(0.5)
@@ -304,14 +305,13 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
         data = fetch_instr_hist_data(isin_lst='IE00BWC52G65',
                                      # ticker_lst='STHC.SW',
-                                     columns=YFinHistCols.adj_close,
-                                     to_portfolio_instr_table=None)
+                                     columns=YFinHistCols.adj_close)
         print(data)
     elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
-        df = load_etf_catalog_data(account=Accounts.CHF)
+        df = load_etf_catalog_data(account=Accounts.DEGIRO_CHF)
         print(df)
     elif unit_test == UnitTests.BUILD_ETF_CATALOG_DATA:
-        build_etf_catalog_data(account=Accounts.CHF)
+        build_etf_catalog_data(account=Accounts.DEGIRO_CHF)
     else:
         raise NotImplementedError
 

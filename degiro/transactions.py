@@ -9,7 +9,8 @@ from degiro_connector.trading.models.account import OverviewRequest
 from degiro_connector.trading.models.transaction import HistoryRequest
 
 from utils import file_utils as fu
-from definitions import Accounts, DATA_DIR
+from config.definitions import DATA_DIR
+from config.accounts import Accounts
 from degiro.degiro_connection import get_degiro_connection
 
 logging.basicConfig(level=logging.DEBUG)

@@ -3,7 +3,8 @@ from typing import Dict
 
 import pandas as pd
 
-from definitions import RESULTS_DIR, Accounts
+from config.definitions import RESULTS_DIR
+from config.accounts import Accounts
 from utils.file_utils import save_df_dict_to_excel, load_df_dict_from_excel
 from portfolio.portfolio_history import update_data, compute_hist_portfolio_data_account, compute_hist_portfolio_data_benchmark
 from engines.reporting import compute_portfolio_metrics, OutDataTabs
@@ -49,7 +50,7 @@ def run_unit_test(unit_test: UnitTests):
         for account in Accounts:
             compute_portfolio_performance(account=account)
     elif unit_test == UnitTests.LOAD_PORTFOLIO_PERFORMANCE:
-        print(load_portfolio_performance(account=Accounts.CHF))
+        print(load_portfolio_performance(account=Accounts.DEGIRO_CHF))
     elif unit_test == UnitTests.UPDATE_DATA_NAV_PERFORMANCE:
         for account in Accounts:
             update_data(account=account)

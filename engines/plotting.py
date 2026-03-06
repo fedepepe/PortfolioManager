@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from definitions import FIGURES_DIR
+from config.definitions import FIGURES_DIR
 from reporting import lin_reg, poly_reg
 
 DATE_FORMAT = mdates.DateFormatter('%b%y')

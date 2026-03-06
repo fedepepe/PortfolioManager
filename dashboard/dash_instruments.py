@@ -8,7 +8,7 @@ from dash import html, dcc, Input, Output, callback
 
 from dashboard.dash_common import loading_wrapper, compute_corr_mat
 from dashboard.dash_instruments_data import InstrumentsData
-from definitions import Accounts
+from config.accounts import Accounts
 from portfolio.instruments_performance import InstrPerfTableCols
 from engines.reporting import Metrics
 

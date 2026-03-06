@@ -5,7 +5,7 @@ from dashboard.dash_common import SIDEBAR_STYLE
 from dashboard.dash_instruments import build_content_instruments
 from dashboard.dash_portfolio import build_content_portfolio
 from dashboard.dash_strategies import build_content_strategies
-from definitions import Accounts
+from config.accounts import Accounts
 
 # Sidebar
 sidebar = html.Div(

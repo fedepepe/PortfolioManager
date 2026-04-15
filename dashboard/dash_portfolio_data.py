@@ -1,16 +1,20 @@
 import sys
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 
-from database.table_definitions import Product
-from config.definitions import DEFAULT_CORR_DATA_FREQ
 from config.accounts import Accounts
-from portfolio.portfolio_analysis_funcs import vol_risk_contr
-from portfolio.portfolio_history import load_hist_portfolio_data, update_data
-from portfolio.portfolio_performance import compute_portfolio_performance
-from portfolio.portfolio_performance import load_portfolio_performance, load_benchmark_performance
+from config.definitions import DEFAULT_CORR_DATA_FREQ
+from database.table_definitions import Product
 from degiro.products import load_portfolio_products
+from engines.reporting import compute_portfolio_metrics
+from engines.portfolio_optimization_obj_funcs import vol_risk_contr
+from portfolio.portfolio import PortfolioBacktestData
+from portfolio.portfolio_backtest import load_backtest_data, update_data
+from portfolio.portfolio_backtest import backtest_portfolio_account, backtest_portfolio_benchmark
+from portfolio.portfolio_performance import load_performance_data_portfolio, load_performance_data_benchmark
+from portfolio.portfolio_performance import save_performance_data
 
 
 class AllocationRiskLabels:
@@ -19,26 +23,39 @@ class AllocationRiskLabels:
     NAME = Product.name.name
     SYMBOL = Product.symbol.name
     ISIN = Product.isin.name
-    
 
+
+# TODO: this class needs to be reviewed
 class PortfolioData:
-    def __init__(self, account: Accounts):
-        self.account = account
-        self.hist_data = load_hist_portfolio_data(account=self.account)
-        self.perf_dct = load_portfolio_performance(account=self.account)
-        self.perf_bm_dct = load_benchmark_performance(account=self.account)
-        self.prod_df = load_portfolio_products(account=self.account)
-        self.prod_df[Product.symbol.name] = self.prod_df[Product.symbol.name].fillna(self.prod_df[Product.isin.name])
-        self.prod_df[Product.name.name] = self.prod_df[Product.name.name].fillna(self.prod_df[Product.isin.name])
-        prod_duplicate = self.prod_df.duplicated(Product.symbol.name, keep=False)
-        self.prod_df.loc[prod_duplicate, Product.symbol.name] = self.prod_df.loc[
-            prod_duplicate, [Product.symbol.name, Product.currency.name]].agg('_'.join, axis=1)
+    def __init__(self,
+                 account: Optional[Accounts] = None,
+                 hist_data: Optional[PortfolioBacktestData] = None):
+        if account is not None:
+            self.account = account
+            self.hist_data = load_backtest_data(account=self.account)
+            self.perf_dct = load_performance_data_portfolio(account=self.account)
+            self.perf_bm_dct = load_performance_data_benchmark(account=self.account)
+            self.prod_df = self.adjust_prod_column_labels(load_portfolio_products(account=self.account))
+        elif hist_data is not None:
+            self.account = None
+            self.hist_data = hist_data
+            self.perf_dct = compute_portfolio_metrics(nav=hist_data.nav_eff)
+            self.perf_bm_dct = None
+            self.prod_df = self.adjust_prod_column_labels(hist_data.prices)
+        else:
+            raise ValueError
         self.returns_adj_weekly_df = self.hist_data.close_adj.resample(DEFAULT_CORR_DATA_FREQ).last().pct_change()
         self.alloc_risk_df = self.get_alloc_risk()
 
     def update(self):
         update_data(account=self.account)
-        compute_portfolio_performance(account=self.account)
+        hist_portfolio_data = backtest_portfolio_account(account=self.account)
+        hist_benchmark_data = backtest_portfolio_benchmark(account=self.account, index=hist_portfolio_data.nav.index)
+        results_dict = compute_portfolio_metrics(hist_portfolio_data=hist_portfolio_data,
+                                                 strategy_benchmark=hist_benchmark_data.nav)
+        results_bm_dict = compute_portfolio_metrics(nav=hist_benchmark_data.nav_eff)
+        save_performance_data(results_dict=results_dict, file_name=self.account.name)
+        save_performance_data(results_dict=results_bm_dict, file_name=f'{self.account.name}_benchmark')
         self.__init__(account=self.account)
 
     def get_alloc_risk(self) -> pd.DataFrame:
@@ -56,3 +73,12 @@ class PortfolioData:
         alloc_risk_df = alloc_risk_df.drop('Cash', axis=0)
         alloc_risk_df = alloc_risk_df[alloc_risk_df[AllocationRiskLabels.ALLOCATION] > sys.float_info.epsilon]
         return pd.concat([alloc_risk_df, row_cash])
+
+    @staticmethod
+    def adjust_prod_column_labels(prod_df: pd.DataFrame) -> pd.DataFrame:
+        prod_df[Product.symbol.name] = prod_df[Product.symbol.name].fillna(prod_df[Product.isin.name])
+        prod_df[Product.name.name] = prod_df[Product.name.name].fillna(prod_df[Product.isin.name])
+        prod_duplicate = prod_df.duplicated(Product.symbol.name, keep=False)
+        prod_df.loc[prod_duplicate, Product.symbol.name] = prod_df.loc[
+            prod_duplicate, [Product.symbol.name, Product.currency.name]].agg('_'.join, axis=1)
+        return prod_df

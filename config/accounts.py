@@ -2,7 +2,7 @@ from enum import Enum
 from typing import NamedTuple, Optional, Dict, Tuple
 
 from engines.settings import State
-from portfolio.portfolio_generic import Currencies
+from portfolio.portfolio import Currencies
 
 
 class Brokers(Enum):
@@ -33,7 +33,7 @@ class Accounts(Account, Enum):
 	                     broker=Brokers.DEGIRO,
 	                     config_file='config_2',
 	                     state=State('Portfolio EUR'),
-	                     benchmark={'SPYI': (0.6, 'M', 'IE00B3YLTY66'),
+	                     benchmark={'SPYI': (0.6, 'M', 'SPYI.DE'),
 	                                'HYLE': (0.2, 'M', 'HYLE.DE'),
 	                                'IGLA': (0.2, 'M', 'IE00BYZ28V50'), })
 

@@ -14,7 +14,7 @@ from config.definitions import RESULTS_DIR
 from utils.file_utils import PD_DATA_TYPES
 from utils.file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
 from degiro.degiro_definitions import ProductTypes
-from engines.reporting import compute_portfolio_metrics, OutDataTabs
+from engines.reporting import compute_portfolio_metrics, PerfDataTabs
 from database.sql import query_products, query_tradable_products, insert_yahoo_finance_data
 from database.sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
 from degiro.degiro_definitions import Exchanges
@@ -163,8 +163,8 @@ def fetch_instr_adj_prices(account: Accounts,
                                  ticker_lst=tick_lst,
                                  name_lst=name_lst)
     # dump collected data into the database
-    if to_portfolio_instr_table:  # and datetime.strptime(account.state.get('last_data_update'), '%d%b%Y') < datetime.now():
-        insert_yahoo_finance_data(data_dict=data, to_portfolio_instr_table=to_portfolio_instr_table)
+    # if to_portfolio_instr_table:  # and datetime.strptime(account.state.get('last_data_update'), '%d%b%Y') < datetime.now():
+    #     insert_yahoo_finance_data(data_dict=data, to_portfolio_instr_table=to_portfolio_instr_table)
     # convert prices to domestic currency
     close_adj_base_curr_df = prices_to_base_curr(account=account,
                                                  price_df=data[YFinHistCols.adj_close],
@@ -192,13 +192,13 @@ def compute_product_performance(adj_close_df: PD_DATA_TYPES,
         if volume_df is not None:
             if ticker in volume_df.columns:
                 volume_mean_90 = int(volume_df[ticker][volume_df[ticker].notnull()].values[-1])
-                results_dict[OutDataTabs.RISK_METRICS][InstrPerfTableCols.volume] = volume_mean_90
+                results_dict[PerfDataTabs.RISK_METRICS][InstrPerfTableCols.volume] = volume_mean_90
         if prod_info_df is not None:
             isin = prod_info_df.loc[YFinInfoCols.isin.value, ticker]
-            results_dict[OutDataTabs.RISK_METRICS][InstrPerfTableCols.isin] = isin
+            results_dict[PerfDataTabs.RISK_METRICS][InstrPerfTableCols.isin] = isin
             name = prod_info_df.loc[YFinInfoCols.name_long.value, ticker]
-            results_dict[OutDataTabs.RISK_METRICS][InstrPerfTableCols.name] = name
-        perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
+            results_dict[PerfDataTabs.RISK_METRICS][InstrPerfTableCols.name] = name
+        perf_metrics_df = pd.concat([perf_metrics_df, results_dict[PerfDataTabs.RISK_METRICS]], axis=1)
     perf_metrics_df = perf_metrics_df.T.copy()
     perf_metrics_df.index.name = InstrPerfTableCols.ticker
     perf_metrics_df = perf_metrics_df.reset_index().copy()
@@ -218,9 +218,9 @@ def compute_portfolio_instruments_performance():
         perf_metrics_df = pd.DataFrame()
         for instr in close_adj_df.columns:
             results_dict = compute_portfolio_metrics(nav=close_adj_df[instr])
-            perf_metrics_df = pd.concat([perf_metrics_df, results_dict[OutDataTabs.RISK_METRICS]], axis=1)
-        save_df_dict_to_excel(df_dict={OutDataTabs.RISK_METRICS: perf_metrics_df,
-                                       OutDataTabs.PRICES: close_adj_df},
+            perf_metrics_df = pd.concat([perf_metrics_df, results_dict[PerfDataTabs.RISK_METRICS]], axis=1)
+        save_df_dict_to_excel(df_dict={PerfDataTabs.RISK_METRICS: perf_metrics_df,
+                                       PerfDataTabs.PRICES: close_adj_df},
                               folder_name=RESULTS_DIR,
                               file_name=f'{account.name}_instr')
 

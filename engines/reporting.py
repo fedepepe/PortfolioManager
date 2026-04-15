@@ -10,7 +10,7 @@ from config.definitions import RESULTS_DIR
 from utils.date_utils import ANN_FACTOR_DICT
 from utils.file_utils import PD_DATA_TYPES
 from utils.file_utils import save_df_dict_to_excel
-from portfolio.portfolio_generic import HistPortfolioData
+from portfolio.portfolio import PortfolioBacktestData
 
 
 class Metric(NamedTuple):
@@ -79,10 +79,9 @@ def compute_pa_return_last_n_years(nav: pd.Series,
 
 
 def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
-                              hist_portfolio_data: Optional[HistPortfolioData] = None,
+                              hist_portfolio_data: Optional[PortfolioBacktestData] = None,
                               strategy_benchmark: Optional[pd.Series] = None,
                               compute_hist_metrics: bool = True,
-                              to_string: bool = False,
                               print_results: bool = True
                               ) -> Dict[str, PD_DATA_TYPES]:
 	if hist_portfolio_data is not None:
@@ -162,7 +161,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 	# turnover
 	if hist_portfolio_data is not None:
 		turnover = hist_portfolio_data.transaction_value.sum(axis=1).iloc[1:].abs().div(
-			hist_portfolio_data.nav.iloc[1:]).rename(OutDataTabs.TURNOVER)
+			hist_portfolio_data.nav.iloc[1:]).rename(PerfDataTabs.TURNOVER)
 		turnover_mean_daily = turnover.resample(freq).sum().mean() / 365 * ANN_FACTOR_DICT[freq]
 	else:
 		turnover = pd.Series()
@@ -204,29 +203,22 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 		Metrics.BETA.name: beta,
 		Metrics.PVAL_ALPHA.name: pval_alpha,
 	}, name=nav.name)
-	if to_string:
-		risk_metrics_str = pd.Series(name='Parameter', dtype=str)
-		for metric in Metrics:
-			if not np.isnan(risk_metrics[metric.name]):
-				risk_metrics_str[metric.name] = metric.format.format(risk_metrics[metric.name])
-		# risk_metrics.index.name = 'Parameter'
-		risk_metrics = risk_metrics_str.copy()
 	if print_results:
 		print(risk_metrics)
-	results = {OutDataTabs.RETURNS_YEARLY: returns_yearly,
-	           OutDataTabs.RETURNS_MONTHLY: returns_monthly,
-	           OutDataTabs.RISK_METRICS: risk_metrics,
-	           OutDataTabs.TURNOVER: turnover}
+	results_dict = {PerfDataTabs.RETURNS_YEARLY: returns_yearly,
+	                PerfDataTabs.RETURNS_MONTHLY: returns_monthly,
+	                PerfDataTabs.RISK_METRICS: risk_metrics,
+	                PerfDataTabs.TURNOVER: turnover}
 	if compute_hist_metrics:
-		results[OutDataTabs.HIST_PERF_METRICS] = pd.concat([pa_return_hist,
-		                                                    volatility_hist,
-		                                                    sharpe_ratio_hist,
-		                                                    sortino_ratio_hist], axis=1),
+		results_dict[PerfDataTabs.HIST_PERF_METRICS] = pd.concat([pa_return_hist,
+		                                                          volatility_hist,
+		                                                          sharpe_ratio_hist,
+		                                                          sortino_ratio_hist], axis=1),
 	# correlation of adjusted closing prices
 	if hist_portfolio_data is not None:
 		if hist_portfolio_data.close_adj is not None:
-			results[OutDataTabs.CORRELATION] = hist_portfolio_data.close_adj.corr()
-	return results
+			results_dict[PerfDataTabs.CORRELATION] = hist_portfolio_data.close_adj.corr()
+	return results_dict
 
 
 def regress_strat_vs_bm(nav: pd.Series,
@@ -259,25 +251,25 @@ def compute_results_from_navs(navs: Union[pd.Series, pd.DataFrame],
                               file_name: Optional[str] = None) -> Dict[str, pd.DataFrame]:
 	if isinstance(navs, pd.Series):
 		navs = navs.to_frame()
-	results_dict = {OutDataTabs.RETURNS_YEARLY: pd.DataFrame(),
-	                OutDataTabs.RETURNS_MONTHLY: pd.DataFrame(),
-	                OutDataTabs.RISK_METRICS: pd.DataFrame()}
+	results_dict = {PerfDataTabs.RETURNS_YEARLY: pd.DataFrame(),
+	                PerfDataTabs.RETURNS_MONTHLY: pd.DataFrame(),
+	                PerfDataTabs.RISK_METRICS: pd.DataFrame()}
 	for col in navs.columns.to_list():
 		nav = navs[col].copy()
 		results_single = compute_portfolio_metrics(nav=nav, strategy_benchmark=nav_benchmark)
 		for label in results_dict:
 			print(results_single[label])
 			results_dict[label] = pd.concat([results_dict[label], results_single[label].rename(nav.name)], axis=1)
-	results_dict[OutDataTabs.CORRELATION] = results_dict[OutDataTabs.RETURNS_MONTHLY].corr()
+	results_dict[PerfDataTabs.CORRELATION] = results_dict[PerfDataTabs.RETURNS_MONTHLY].corr()
 	if file_name is None:
-		file_name = '../results'
+		file_name = 'results'
 	save_df_dict_to_excel(df_dict=results_dict,
 	                      folder_name=RESULTS_DIR,
 	                      file_name=file_name)
 	return results_dict
 
 
-class OutDataTabs:
+class PerfDataTabs:
 	RETURNS_YEARLY = 'returns_yearly'
 	RETURNS_MONTHLY = 'returns_monthly'
 	RISK_METRICS = 'risk_metrics'

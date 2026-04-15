@@ -12,8 +12,8 @@ from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
 from database.sql import query_yahoo_finance_prod_info
 from config.accounts import Accounts
 from portfolio.instruments_performance import prices_to_base_curr, fetch_instr_hist_data
-from portfolio.portfolio_history import compute_hist_portfolio_data_benchmark
-from engines.reporting import OutDataTabs, Metrics
+from portfolio.portfolio_backtest import backtest_portfolio_benchmark
+from engines.reporting import PerfDataTabs, Metrics
 from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols
 
 
@@ -25,7 +25,7 @@ def build_content_portfolio(account: Accounts):
 		build_content_portfolio.pf_data = PortfolioData(account=account)
 	index = build_content_portfolio.pf_data.hist_data.nav_eff.index
 	if not hasattr(build_content_portfolio, 'bm_data'):
-		build_content_portfolio.bm_data = compute_hist_portfolio_data_benchmark(account=account, index=index)
+		build_content_portfolio.bm_data = backtest_portfolio_benchmark(account=account, index=index)
 	return html.Div(
 		dbc.Card([
 			dbc.Row([
@@ -148,8 +148,8 @@ def get_fig_risk_contrib() -> go.Figure:
 def get_fig_perf() -> go.Figure:
 	row_even_color = px.colors.qualitative.Plotly[2]
 	row_odd_color = px.colors.qualitative.Plotly[0]
-	perf_df = build_content_portfolio.pf_data.perf_dct[OutDataTabs.RISK_METRICS]
-	perf_bm_df = build_content_portfolio.pf_data.perf_bm_dct[OutDataTabs.RISK_METRICS]
+	perf_df = build_content_portfolio.pf_data.perf_dct[PerfDataTabs.RISK_METRICS]
+	perf_bm_df = build_content_portfolio.pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS]
 	perf_df = pd.concat([perf_df, perf_bm_df], axis=1)
 	perf_df = perf_df.drop([Metrics.BETA_OVERALL.name, Metrics.SKEWNESS.name], errors='ignore')
 	return go.Figure(data=[go.Table(
@@ -175,7 +175,7 @@ def get_fig_perf() -> go.Figure:
 # MONTHLY RETURNS HISTOGRAM CHART
 def get_fig_monthly_ret() -> go.Figure:
 	return go.Figure(
-		data=[go.Histogram(x=build_content_portfolio.pf_data.perf_dct[OutDataTabs.RETURNS_MONTHLY]['return'].values,
+		data=[go.Histogram(x=build_content_portfolio.pf_data.perf_dct[PerfDataTabs.RETURNS_MONTHLY]['return'].values,
 		                   histnorm='probability',
 		                   name='return'
 		                   )],
@@ -247,13 +247,13 @@ def update_switch_portfolio(n_clicks, portfolio_name, fig_pf_instr_adj_close_dat
 		build_content_portfolio.account = Accounts.get_account_by_name(name=portfolio_name)
 		build_content_portfolio.pf_data = PortfolioData(account=build_content_portfolio.account)
 		index = build_content_portfolio.pf_data.hist_data.nav_eff.index
-		build_content_portfolio.bm_data = compute_hist_portfolio_data_benchmark(account=build_content_portfolio.account,
-		                                                                        index=index)
+		build_content_portfolio.bm_data = backtest_portfolio_benchmark(account=build_content_portfolio.account,
+		                                                               index=index)
 	if ctx.triggered_id == 'button-update':
 		build_content_portfolio.pf_data.update()
 		index = build_content_portfolio.pf_data.hist_data.nav_eff.index
-		build_content_portfolio.bm_data = compute_hist_portfolio_data_benchmark(account=build_content_portfolio.account,
-		                                                                        index=index)
+		build_content_portfolio.bm_data = backtest_portfolio_benchmark(account=build_content_portfolio.account,
+		                                                               index=index)
 	if ctx.triggered_id == 'fig_pf_instr_adj_close':
 		is_visible = fig_pf_instr_adj_close_data[0]['visible']
 	else:

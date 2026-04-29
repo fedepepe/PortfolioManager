@@ -1,6 +1,7 @@
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import plotly.io as pio
 from dash import dcc
 
@@ -20,6 +21,9 @@ CONTENT_STYLE = {
 }
 
 LAYOUT_TEMPLATE = "plotly_dark"
+
+COLOR_ROW_EVEN = px.colors.qualitative.Plotly[2]
+COLOR_ROW_ODD = px.colors.qualitative.Plotly[0]
 
 
 def loading_wrapper(children) -> dcc.Loading:

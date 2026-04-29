@@ -3,17 +3,17 @@ from typing import Optional, List
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, callback, ctx
 
+from config.accounts import Accounts
+from dashboard.dash_common import COLOR_ROW_ODD, COLOR_ROW_EVEN
 from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat, LAYOUT_TEMPLATE
 from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
 from database.sql import query_yahoo_finance_prod_info
-from config.accounts import Accounts
+from engines.reporting import PerfDataTabs, Metrics, to_str_risk_metrics
 from portfolio.instruments_performance import prices_to_base_curr, fetch_instr_hist_data
 from portfolio.portfolio_backtest import backtest_portfolio_benchmark
-from engines.reporting import PerfDataTabs, Metrics
 from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols
 
 
@@ -146,10 +146,8 @@ def get_fig_risk_contrib() -> go.Figure:
 
 # PERFORMANCE METRICS TABLE
 def get_fig_perf() -> go.Figure:
-	row_even_color = px.colors.qualitative.Plotly[2]
-	row_odd_color = px.colors.qualitative.Plotly[0]
-	perf_df = build_content_portfolio.pf_data.perf_dct[PerfDataTabs.RISK_METRICS]
-	perf_bm_df = build_content_portfolio.pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS]
+	perf_df = to_str_risk_metrics(build_content_portfolio.pf_data.perf_dct[PerfDataTabs.RISK_METRICS])
+	perf_bm_df = to_str_risk_metrics(build_content_portfolio.pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS])
 	perf_df = pd.concat([perf_df, perf_bm_df], axis=1)
 	perf_df = perf_df.drop([Metrics.BETA_OVERALL.name, Metrics.SKEWNESS.name], errors='ignore')
 	return go.Figure(data=[go.Table(
@@ -162,7 +160,7 @@ def get_fig_perf() -> go.Figure:
 		cells=dict(
 			values=perf_df.round(3).replace(np.nan, "").reset_index().T.values.tolist(),
 			# 2-D list of colors for alternating rows
-			fill_color=[[row_odd_color, row_even_color] * 10],
+			fill_color=[[COLOR_ROW_ODD, COLOR_ROW_EVEN] * len(perf_df)],
 			align=['left', 'center'],
 			height=22
 		))],

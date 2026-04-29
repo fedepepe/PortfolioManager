@@ -221,6 +221,19 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
 	return results_dict
 
 
+def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES):
+	if isinstance(risk_metrics, pd.DataFrame):
+		risk_metrics = risk_metrics.iloc[:, 0]
+	risk_metrics_str = pd.Series(name='Parameter', dtype=str)
+	for metric in Metrics:
+		if metric.name not in risk_metrics:
+			continue
+		if np.isnan(risk_metrics[metric.name]):
+			continue
+		risk_metrics_str[metric.name] = metric.format.format(risk_metrics[metric.name])
+	return risk_metrics_str.copy()
+
+
 def regress_strat_vs_bm(nav: pd.Series,
                         strategy_benchmark: pd.Series,
                         freq: str = 'M',

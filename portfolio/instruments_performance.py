@@ -150,6 +150,7 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
     name_lst = products_df['name'].to_list()
     tick_lst = products_df['symbol'].to_list()
     close_adj_base_curr_df = fetch_instr_adj_prices(account, isin_lst, name_lst, tick_lst)
+    close_adj_base_curr_df = close_adj_base_curr_df.dropna(how='all')
     return close_adj_base_curr_df
 
 

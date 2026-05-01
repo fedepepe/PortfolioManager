@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,7 @@ def backtest_portfolio(prices_df: pd.DataFrame,
                        dep_hist_df: Optional[pd.DataFrame] = None,
                        close_adj_df: Optional[pd.DataFrame] = None,
                        freq_rebalancing: Optional[str] = None,
+                       id_symbol_map: Optional[Dict] = None
                        ) -> PortfolioBacktestData:
     if name is None and account is None:
         raise AttributeError
@@ -109,7 +110,7 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     txn_values = pd.DataFrame(txn_values, columns=prices_df.columns, index=prices_df.index)
     txn_costs = pd.DataFrame(txn_costs, columns=prices_df.columns, index=prices_df.index)
     dividends = pd.DataFrame(dividends, columns=prices_df.columns, index=prices_df.index)
-    div_yield = dividends.div(units * prices_df).resample('Y').sum()
+    div_yield = dividends.div(units.replace(0, np.nan).ffill() * prices_df).replace(np.inf, np.nan).resample('Y').sum()
     deposits = pd.Series(deposits, name='Deposits', index=prices_df.index)
     returns = (nav - deposits).div(nav.shift(1)).sub(1.).fillna(0.)
     nav_eff = 100. * returns.add(1.).cumprod().rename('NAV Effective')
@@ -135,5 +136,6 @@ def backtest_portfolio(prices_df: pd.DataFrame,
                                                 fx_rates=fx_rates_df,
                                                 deposits=deposits,
                                                 nav_eff=nav_eff,
-                                                close_adj=close_adj_df)
+                                                close_adj=close_adj_df,
+                                                id_symbol_map=id_symbol_map)
     return hist_portfolio_data

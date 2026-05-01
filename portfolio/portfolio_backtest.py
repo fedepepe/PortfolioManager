@@ -27,6 +27,12 @@ def save_backtest_data(hist_portfolio_data: PortfolioBacktestData):
 	fu.save_df_dict_to_excel(df_dict=asdict(hist_portfolio_data),
 	                         file_name=hist_portfolio_data.name,
 	                         folder_name=DATA_DIR)
+	if hist_portfolio_data.id_symbol_map is not None:
+		df_dict = {k: v.rename(columns=hist_portfolio_data.id_symbol_map) if isinstance(v, pd.DataFrame) else v
+		           for k, v in asdict(hist_portfolio_data).items()}
+		fu.save_df_dict_to_excel(df_dict=df_dict,
+		                         file_name=f'{hist_portfolio_data.name}_visual',
+		                         folder_name=DATA_DIR)
 
 
 def load_backtest_data(account: Accounts) -> PortfolioBacktestData:
@@ -66,6 +72,8 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
 	                            index=prices_df.index)
 
 	product_ids = list(set(tx_hist_df[TxHistFields.product_id].to_list()))
+	products_df['symbol'] = products_df['symbol'].fillna(products_df['name'])
+	product_symbols = products_df.loc[product_ids, 'symbol'].to_list()
 	product_curr = products_df.loc[product_ids, 'currency'].to_list()
 	tx_hist_df = tx_hist_df.dropna(subset=['order_type_id'])
 
@@ -143,7 +151,8 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
 	                                   div_hist_df=dividends_df,
 	                                   fx_rates_df=fx_rates_df,
 	                                   dep_hist_df=deposits_df,
-	                                   close_adj_df=close_adj_df)
+	                                   close_adj_df=close_adj_df,
+	                                   id_symbol_map={p_id: p_sym for p_id, p_sym in zip(product_ids, product_symbols)})
 	save_backtest_data(hist_portfolio_data=backtest_data)
 	return backtest_data
 

@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Dict
 from enum import Enum
 
 import numpy as np
@@ -135,3 +135,4 @@ class PortfolioBacktestData:
 	nav_eff: Optional[pd.Series] = None
 	close_adj: Optional[pd.DataFrame] = None
 	freq: Optional[str] = 'B'
+	id_symbol_map: Optional[Dict] = None

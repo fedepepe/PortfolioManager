@@ -121,13 +121,14 @@ class Portfolio(PortfolioGeneric):
 class PortfolioBacktestData:
 	name: str
 	nav: pd.Series
-	cum_pnl: pd.DataFrame
-	div_yield: pd.DataFrame
 	units: pd.DataFrame
+	cum_pnl: pd.DataFrame = None
+	yield_dividends: pd.DataFrame = None
+	yield_total: pd.DataFrame = None
 	target_weights: Optional[pd.DataFrame] = None
 	effective_weights: Optional[pd.DataFrame] = None
-	transaction_costs: Optional[pd.DataFrame] = None
 	transaction_value: Optional[pd.DataFrame] = None
+	transaction_costs: Optional[pd.DataFrame] = None
 	prices: Optional[pd.DataFrame] = None
 	dividends: Optional[pd.DataFrame] = None
 	fx_rates: Optional[pd.DataFrame] = None

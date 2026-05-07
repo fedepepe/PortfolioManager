@@ -5,6 +5,7 @@ from typing import List, Optional
 import pandas as pd
 from degiro_connector.trading.api import API
 
+from database.table_definitions import Product
 from utils.file_utils import save_df_to_excel, load_df_from_excel
 from config.definitions import DATA_DIR
 from config.accounts import Accounts
@@ -84,6 +85,15 @@ def get_product_info_from_isin(product_isin: str) -> pd.DataFrame:
 def load_portfolio_products(account: Accounts) -> pd.DataFrame:
     product_df = load_df_from_excel(file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
     return product_df
+
+
+def adjust_prod_column_labels(prod_df: pd.DataFrame) -> pd.DataFrame:
+    prod_df[Product.symbol.name] = prod_df[Product.symbol.name].fillna(prod_df[Product.isin.name])
+    prod_df[Product.name.name] = prod_df[Product.name.name].fillna(prod_df[Product.isin.name])
+    prod_duplicate = prod_df.duplicated(Product.symbol.name, keep=False)
+    prod_df.loc[prod_duplicate, Product.symbol.name] = prod_df.loc[
+        prod_duplicate, [Product.symbol.name, Product.currency.name]].agg('_'.join, axis=1)
+    return prod_df
 
 
 class UnitTests(Enum):

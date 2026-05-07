@@ -69,12 +69,18 @@ def backtest_portfolio(prices_df: pd.DataFrame,
             if isinstance(target_exp, pd.DataFrame):
                 if prices_df.index[t] in target_exp.index:
                     portfolio.rebalance(target_exp=target_exp.loc[prices_df.index[t], :], current_prices=current_prices)
+                    txn_values[t, :] = portfolio.txn_values
+                    txn_costs[t, :] = portfolio.txn_costs
             elif isinstance(target_exp, List):
                 if t == 0 or prices_df.index[t] in rebalancing_dates:
                     portfolio.rebalance(target_exp=np.array(target_exp), current_prices=current_prices)
+                    txn_values[t, :] = portfolio.txn_values
+                    txn_costs[t, :] = portfolio.txn_costs
         elif target_units is not None:
             if prices_df.index[t] in target_units.index:
                 portfolio.rebalance(units=target_units.loc[prices_df.index[t], :], current_prices=current_prices)
+                txn_values[t, :] = portfolio.txn_values
+                txn_costs[t, :] = portfolio.txn_costs
         elif tx_hist_df is not None:
             if prices_df.index[t] in tx_hist_df['Date'].to_list():
                 portfolio.rebalance(tx_hist_df=tx_hist_df.loc[tx_hist_df['Date'] == prices_df.index[t]])
@@ -110,11 +116,14 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     txn_values = pd.DataFrame(txn_values, columns=prices_df.columns, index=prices_df.index)
     txn_costs = pd.DataFrame(txn_costs, columns=prices_df.columns, index=prices_df.index)
     dividends = pd.DataFrame(dividends, columns=prices_df.columns, index=prices_df.index)
-    div_yield = dividends.div(units.replace(0, np.nan).ffill() * prices_df).replace(np.inf, np.nan).resample('Y').sum()
+    amounts_invested = - (txn_values + txn_costs).cumsum().shift(1).replace(0, np.nan).bfill(limit=1)
+    yield_dividends = dividends.div(amounts_invested).resample('Y').sum()
     deposits = pd.Series(deposits, name='Deposits', index=prices_df.index)
     returns = (nav - deposits).div(nav.shift(1)).sub(1.).fillna(0.)
     nav_eff = 100. * returns.add(1.).cumprod().rename('NAV Effective')
-    cum_pnl = prices_df.mul(units).diff().add(dividends).add(txn_values).add(txn_costs).cumsum()
+    pnl = prices_df.mul(units).diff().add(dividends).add(txn_values).add(txn_costs)
+    cum_pnl = pnl.cumsum()
+    yield_total = pnl.div(amounts_invested).add(1.).resample('Y').prod().sub(1.)
     units['Cash'] = cash_balance
 
     if close_adj_df is not None:
@@ -125,12 +134,13 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     hist_portfolio_data = PortfolioBacktestData(name=name,
                                                 nav=nav,
                                                 cum_pnl=cum_pnl,
-                                                div_yield=div_yield,
+                                                yield_dividends=yield_dividends,
+                                                yield_total=yield_total,
                                                 units=units,
                                                 target_weights=None,
                                                 effective_weights=effective_weights_df,
-                                                transaction_costs=txn_costs,
                                                 transaction_value=txn_values,
+                                                transaction_costs=txn_costs,
                                                 prices=prices_df,
                                                 dividends=dividends.resample('M').sum(),
                                                 fx_rates=fx_rates_df,

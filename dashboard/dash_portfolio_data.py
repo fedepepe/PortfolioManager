@@ -7,7 +7,7 @@ import pandas as pd
 from config.accounts import Accounts
 from config.definitions import DEFAULT_CORR_DATA_FREQ
 from database.table_definitions import Product
-from degiro.products import load_portfolio_products
+from degiro.products import load_portfolio_products, adjust_prod_column_labels
 from engines.reporting import compute_portfolio_metrics
 from engines.portfolio_optimization_obj_funcs import vol_risk_contr
 from portfolio.portfolio import PortfolioBacktestData
@@ -35,13 +35,13 @@ class PortfolioData:
             self.hist_data = load_backtest_data(account=self.account)
             self.perf_dct = load_performance_data_portfolio(account=self.account)
             self.perf_bm_dct = load_performance_data_benchmark(account=self.account)
-            self.prod_df = self.adjust_prod_column_labels(load_portfolio_products(account=self.account))
+            self.prod_df = adjust_prod_column_labels(load_portfolio_products(account=self.account))
         elif hist_data is not None:
             self.account = None
             self.hist_data = hist_data
             self.perf_dct = compute_portfolio_metrics(nav=hist_data.nav_eff)
             self.perf_bm_dct = None
-            self.prod_df = self.adjust_prod_column_labels(hist_data.prices)
+            self.prod_df = adjust_prod_column_labels(hist_data.prices)
         else:
             raise ValueError
         self.returns_adj_weekly_df = self.hist_data.close_adj.resample(DEFAULT_CORR_DATA_FREQ).last().pct_change()
@@ -73,12 +73,3 @@ class PortfolioData:
         alloc_risk_df = alloc_risk_df.drop('Cash', axis=0)
         alloc_risk_df = alloc_risk_df[alloc_risk_df[AllocationRiskLabels.ALLOCATION] > sys.float_info.epsilon]
         return pd.concat([alloc_risk_df, row_cash])
-
-    @staticmethod
-    def adjust_prod_column_labels(prod_df: pd.DataFrame) -> pd.DataFrame:
-        prod_df[Product.symbol.name] = prod_df[Product.symbol.name].fillna(prod_df[Product.isin.name])
-        prod_df[Product.name.name] = prod_df[Product.name.name].fillna(prod_df[Product.isin.name])
-        prod_duplicate = prod_df.duplicated(Product.symbol.name, keep=False)
-        prod_df.loc[prod_duplicate, Product.symbol.name] = prod_df.loc[
-            prod_duplicate, [Product.symbol.name, Product.currency.name]].agg('_'.join, axis=1)
-        return prod_df

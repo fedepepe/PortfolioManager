@@ -9,7 +9,7 @@ from config.accounts import Accounts
 from config.definitions import DATA_DIR, DEFAULT_DATA_FREQ
 from degiro.charts import fetch_portfolio_charts, fetch_fx_charts, load_portfolio_charts, load_fx_rates
 from degiro.degiro_connection import get_degiro_connection
-from degiro.products import fetch_portfolio_products_info, load_portfolio_products
+from degiro.products import fetch_portfolio_products_info, load_portfolio_products, adjust_prod_column_labels
 from degiro.transactions import fetch_tx_history, fetch_account_movements, load_tx_history, load_account_movements, \
 	TxHistFields
 from engines.portfolio_optimization import compute_weights_optim_portfolio
@@ -64,7 +64,7 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
 	account_mvmts_df = account_mvmts_df.loc[~account_mvmts_df['description'].str.contains('Credito FX|Prelievo FX'), :]
 	deposits_df = account_mvmts_df.loc[account_mvmts_df['description'].str.contains('Deposito|Prelievo'), :].copy()
 	# forex rates
-	products_df = load_portfolio_products(account=account)
+	products_df = adjust_prod_column_labels(load_portfolio_products(account=account))
 	curr_foreign_lst = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
 	curr_foreign_lst = [c for c in curr_foreign_lst if c != account.currency]
 	fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,

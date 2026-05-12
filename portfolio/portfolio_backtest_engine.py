@@ -6,7 +6,7 @@ import pandas as pd
 from config.accounts import Accounts, Brokers
 from degiro.portfolio_backtest import PortfolioDegiro
 from degiro.transactions import TxHistFields
-from portfolio.portfolio import Portfolio, PortfolioBacktestData, Currencies
+from portfolio.portfolio_definitions import Portfolio, PortfolioBacktestData, Currencies
 
 
 def backtest_portfolio(prices_df: pd.DataFrame,
@@ -116,14 +116,16 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     txn_values = pd.DataFrame(txn_values, columns=prices_df.columns, index=prices_df.index)
     txn_costs = pd.DataFrame(txn_costs, columns=prices_df.columns, index=prices_df.index)
     dividends = pd.DataFrame(dividends, columns=prices_df.columns, index=prices_df.index)
-    amounts_invested = - (txn_values + txn_costs).cumsum().shift(1).replace(0, np.nan).bfill(limit=1)
+    amounts_invested = - (txn_values + txn_costs).where(units > 0).cumsum().shift(1)
+    amounts_invested = amounts_invested.replace(0, np.nan).bfill(limit=1).ffill(limit=1)
     yield_dividends = dividends.div(amounts_invested).resample('Y').sum()
     deposits = pd.Series(deposits, name='Deposits', index=prices_df.index)
     returns = (nav - deposits).div(nav.shift(1)).sub(1.).fillna(0.)
     nav_eff = 100. * returns.add(1.).cumprod().rename('NAV Effective')
-    pnl = prices_df.mul(units).diff().add(dividends).add(txn_values).add(txn_costs)
-    cum_pnl = pnl.cumsum()
-    yield_total = pnl.div(amounts_invested).add(1.).resample('Y').prod().sub(1.)
+    cum_pnl = prices_df.mul(units).diff().add(dividends).add(txn_values).add(txn_costs).cumsum()
+    yield_total_tmp = cum_pnl.resample('Y').last().div(amounts_invested.resample('Y').mean())
+    yield_total = yield_total_tmp.diff().fillna(yield_total_tmp)
+    yield_total.loc['Total', :] = yield_total.sum()
     units['Cash'] = cash_balance
 
     if close_adj_df is not None:

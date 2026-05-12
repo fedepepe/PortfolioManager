@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from degiro.transactions import TxHistFields
-from portfolio.portfolio import PortfolioGeneric
+from portfolio.portfolio_definitions import PortfolioGeneric
 
 
 class PortfolioDegiro(PortfolioGeneric):

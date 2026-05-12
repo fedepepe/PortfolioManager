@@ -2,7 +2,7 @@ from enum import Enum
 from typing import NamedTuple, Optional, Dict, Tuple
 
 from engines.settings import State
-from portfolio.portfolio import Currencies
+from portfolio.portfolio_definitions import Currencies
 
 
 class Brokers(Enum):

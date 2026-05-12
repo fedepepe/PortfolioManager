@@ -10,7 +10,7 @@ from config.definitions import RESULTS_DIR
 from utils.date_utils import ANN_FACTOR_DICT
 from utils.file_utils import PD_DATA_TYPES
 from utils.file_utils import save_df_dict_to_excel
-from portfolio.portfolio import PortfolioBacktestData
+from portfolio.portfolio_definitions import PortfolioBacktestData
 
 
 class Metric(NamedTuple):

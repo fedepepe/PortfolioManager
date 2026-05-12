@@ -2,7 +2,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from portfolio.portfolio import Portfolio
+from portfolio.portfolio_definitions import Portfolio
 
 
 def compute_historical_portfolio(prices_df: pd.DataFrame,

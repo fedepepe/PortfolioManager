@@ -15,7 +15,7 @@ from degiro.transactions import fetch_tx_history, fetch_account_movements, load_
 from engines.portfolio_optimization import compute_weights_optim_portfolio
 from engines.reporting import compute_results_from_navs
 from portfolio.instruments_performance import fetch_portfolio_instr_adj_prices, fetch_instr_adj_prices
-from portfolio.portfolio import PortfolioBacktestData
+from portfolio.portfolio_definitions import PortfolioBacktestData
 from portfolio.portfolio_backtest_engine import backtest_portfolio
 from portfolio.portfolio_performance import save_performance_data
 from strategy.strategy_definitions import AllocationStrats
@@ -192,10 +192,27 @@ def backtest_portfolio_optimized(account: Accounts,
 	return backtest_data_optimized
 
 
+def backtest_equity_portfolio_strat():
+	import numpy as np
+	from utils.file_utils import load_df_from_excel
+	prices_df = load_df_from_excel(file_name='prices', folder_name=DATA_DIR)
+	units_df = load_df_from_excel(file_name='holdings', folder_name=DATA_DIR).drop(columns=['cash'])
+	portfolio_name = 'Equity Strategy'
+	backtest_data_optimized = backtest_portfolio(name=portfolio_name,
+	                                             prices_df=prices_df[units_df.columns],
+	                                             target_units=units_df.replace(np.nan, 0),
+	                                             initial_cash_balance=1e5)
+	results_dict = compute_results_from_navs(navs=backtest_data_optimized.nav,
+	                                         file_name=portfolio_name)
+	save_backtest_data(hist_portfolio_data=backtest_data_optimized)
+	save_performance_data(results_dict=results_dict, file_name=portfolio_name)
+
+
 class UnitTests(Enum):
 	UPDATE_DATA = 1
 	BACKTEST_PORTFOLIO_ACCOUNT = 2
 	BACKTEST_PORTFOLIO_OPTIMIZED = 3
+	BACKTEST_EQUITY_PORTFOLIO_STRAT = 4
 
 
 def run_unit_test(unit_test: UnitTests):
@@ -209,10 +226,12 @@ def run_unit_test(unit_test: UnitTests):
 		for account in Accounts:
 			index = load_backtest_data(account=account).nav_eff.index
 			backtest_portfolio_optimized(account=account, index=index)
+	elif unit_test == UnitTests.BACKTEST_EQUITY_PORTFOLIO_STRAT:
+		backtest_equity_portfolio_strat()
 	else:
 		raise NotImplementedError
 
 
 if __name__ == '__main__':
-	unit_test = UnitTests.BACKTEST_PORTFOLIO_OPTIMIZED
+	unit_test = UnitTests.BACKTEST_EQUITY_PORTFOLIO_STRAT
 	run_unit_test(unit_test=unit_test)

@@ -10,7 +10,7 @@ from database.table_definitions import Product
 from degiro.products import load_portfolio_products, adjust_prod_column_labels
 from engines.reporting import compute_portfolio_metrics
 from engines.portfolio_optimization_obj_funcs import vol_risk_contr
-from portfolio.portfolio import PortfolioBacktestData
+from portfolio.portfolio_definitions import PortfolioBacktestData
 from portfolio.portfolio_backtest import load_backtest_data, update_data
 from portfolio.portfolio_backtest import backtest_portfolio_account, backtest_portfolio_benchmark
 from portfolio.portfolio_performance import load_performance_data_portfolio, load_performance_data_benchmark

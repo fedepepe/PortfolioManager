@@ -248,10 +248,11 @@ def get_fig_pf_instr_adj_close(is_visible: Optional[List[bool]] = None) -> go.Fi
 
 
 # INSTRUMENT ADJUSTED CLOSE
-def get_fig_instr_adj_close() -> go.Figure:
+def get_fig_instr_adj_close(title: Optional[str] = None) -> go.Figure:
     return go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
                                       yaxis_title=dict(text='Adjusted Closing Price'),
-                                      template=LAYOUT_TEMPLATE))
+                                      template=LAYOUT_TEMPLATE,
+                                      title=title))
 
 
 # update portfolio data charts or switch portfolio
@@ -303,39 +304,43 @@ def update_switch_portfolio(n_clicks, portfolio_name, fig_pf_instr_adj_close_dat
     prevent_initial_call=True
 )
 def update_instr_adj_close_fig(isin) -> go.Figure:
+    # cleared or blank input: show the empty chart (an empty pattern would match every ticker)
+    isin = (isin or '').strip()
+    if not isin:
+        return get_fig_instr_adj_close()
     results_df = query_yahoo_finance_prod_info(ticker=isin)
     if len(isin) >= 4:
         results_df = pd.concat([results_df, query_yahoo_finance_prod_info(isin=isin)], axis=1)
-    if not results_df.empty:
-        ticker = results_df.iloc[:, 0][YFinInfoCols.symbol.value]
-        name = results_df.iloc[:, 0][YFinInfoCols.name_long.value]
-        currency = results_df.iloc[:, 0][YFinInfoCols.currency.value]
-        df = fetch_instr_hist_data(isin_lst=isin,
-                                   columns=YFinHistCols.adj_close,
-                                   ticker_lst=ticker,
-                                   name_lst=name)[YFinHistCols.adj_close]
-        df_base = prices_to_base_curr(account=build_content_portfolio.account,
-                                      price_df=df,
-                                      curr_info=[currency])
-        fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
-                                         yaxis_title=dict(text=f'Adjusted Closing Price'),
-                                         template=LAYOUT_TEMPLATE,
-                                         title=name,
-                                         showlegend=True))
-        fig.add_trace(go.Scatter(x=df.index,
-                                 y=df.iloc[:, 0],
-                                 name=f'{df.columns[0]} [{currency}]',
+    if results_df.empty:
+        return get_fig_instr_adj_close(title=f'No instrument found for "{isin}"')
+    ticker = results_df.iloc[:, 0][YFinInfoCols.symbol.value]
+    name = results_df.iloc[:, 0][YFinInfoCols.name_long.value]
+    currency = results_df.iloc[:, 0][YFinInfoCols.currency.value]
+    df = fetch_instr_hist_data(isin_lst=isin,
+                               columns=YFinHistCols.adj_close,
+                               ticker_lst=ticker,
+                               name_lst=name)[YFinHistCols.adj_close]
+    # Yahoo Finance may return no usable history for the matched instrument
+    df = df.dropna(axis=1, how='all')
+    if df.empty:
+        return get_fig_instr_adj_close(title=f'No price history found for {name} ({ticker})')
+    df_base = prices_to_base_curr(account=build_content_portfolio.account,
+                                  price_df=df,
+                                  curr_info=[currency])
+    fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
+                                     yaxis_title=dict(text=f'Adjusted Closing Price'),
+                                     template=LAYOUT_TEMPLATE,
+                                     title=name,
+                                     showlegend=True))
+    fig.add_trace(go.Scatter(x=df.index,
+                             y=df.iloc[:, 0],
+                             name=f'{df.columns[0]} [{currency}]',
+                             mode='lines',
+                             hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+    if not df_base.empty:
+        fig.add_trace(go.Scatter(x=df_base.index,
+                                 y=df_base.iloc[:, 0],
+                                 name=f'{df.columns[0]} [{build_content_portfolio.account.currency}]',
                                  mode='lines',
                                  hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
-        if not df_base.empty:
-            fig.add_trace(go.Scatter(x=df_base.index,
-                                     y=df_base.iloc[:, 0],
-                                     name=f'{df.columns[0]} [{build_content_portfolio.account.currency}]',
-                                     mode='lines',
-                                     hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
-    else:
-        fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
-                                         yaxis_title=dict(text=f'Adjusted Closing Price'),
-                                         template=LAYOUT_TEMPLATE,
-                                         showlegend=True))
     return fig

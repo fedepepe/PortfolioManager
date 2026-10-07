@@ -150,9 +150,11 @@ def query_products(product_name: Optional[str] = None,
                    product_symbol: Optional[str] = None,
                    product_type: Optional[ProductTypes] = None,
                    tradable: Optional[bool] = None,
-                   exchange: Optional[Exchanges] = None,
+                   exchange: Optional[Exchanges | int] = None,
                    ) -> pd.DataFrame:
     query = select(Product)
+    if isinstance(exchange, Exchanges):
+        exchange = exchange.value
     if product_name is not None:
         query = query.where(Product.name == product_name)
     if product_id is not None:
@@ -163,7 +165,7 @@ def query_products(product_name: Optional[str] = None,
         query = query.where(Product.symbol == product_symbol)
     if product_type is not None:
         query = query.where(Product.product_type == product_type)
-    if tradable:
+    if tradable is not None:
         query = query.where(Product.tradable == tradable)
     if exchange is not None:
         query = query.where(Product.exchange_id == exchange)

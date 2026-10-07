@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, State, callback, ctx
+from dash.exceptions import PreventUpdate
 
 from config.accounts import Accounts
 from dashboard.dash_common import COLOR_ROW_ODD, COLOR_ROW_EVEN
@@ -338,6 +339,10 @@ def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, fig
     prevent_initial_call=True
 )
 def run_update(n_clicks, account_name: str) -> Tuple:
+    # Dash also calls this when the page is built (prevent_initial_call does not apply, since
+    # store-data-version is outside the page): update only on an actual click
+    if not n_clicks:
+        raise PreventUpdate
     update_account(Accounts.get_account_by_name(name=account_name))
     return time.time(), f'Updated {time.strftime("%H:%M")}'
 

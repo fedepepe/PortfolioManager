@@ -5,9 +5,11 @@
 import os
 import threading
 from functools import lru_cache
+from typing import Optional
 
 from config.accounts import Accounts
 from config.definitions import DATA_DIR, RESULTS_DIR
+from dashboard.dash_instruments_data import InstrumentsData
 from dashboard.dash_portfolio_data import PortfolioData
 from portfolio.portfolio_backtest import load_backtest_data, backtest_portfolio_benchmark, refresh_account
 from portfolio.portfolio_definitions import PortfolioBacktestData
@@ -48,6 +50,23 @@ def _benchmark_data(account_name: str, version: str) -> PortfolioBacktestData:
         # no saved benchmark yet: compute it from Yahoo Finance data (this also saves it)
         index = get_portfolio_data(account).hist_data.nav_eff.index
         return backtest_portfolio_benchmark(account=account, index=index)
+
+
+def _catalog_file(account: Accounts) -> str:
+    return f'{RESULTS_DIR}/{to_file_name(account.name)}_catalog.xlsx'
+
+
+@lru_cache(maxsize=2)
+def _instruments_data(account_name: str, version: str) -> InstrumentsData:
+    return InstrumentsData(account=Accounts.get_account_by_name(account_name))
+
+
+def get_instruments_data(account: Accounts) -> Optional[InstrumentsData]:
+    # None if the account has no ETF catalog
+    file = _catalog_file(account)
+    if not os.path.isfile(file):
+        return None
+    return _instruments_data(account.name, str(os.path.getmtime(file)))
 
 
 def get_portfolio_data(account: Accounts) -> PortfolioData:

@@ -2,12 +2,13 @@ from typing import Optional, List
 
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.graph_objects as go
-from dash import html, dcc, Input, Output, callback
+from dash import html, dcc, Input, Output, State, callback
+from dash.exceptions import PreventUpdate
 
 from dashboard.dash_common import loading_wrapper, compute_corr_mat
 from dashboard.dash_instruments_data import InstrumentsData
+from dashboard.data_service import get_instruments_data
 from config.accounts import Accounts
 from portfolio.instruments_performance import InstrPerfTableCols
 from engines.reporting import Metrics
@@ -34,12 +35,12 @@ COLUMN_DEFS = [{"field": f} for f in COLS_INFO_TABLE] + COLUMN_DEFS
 
 
 # PERFORMANCE METRICS TABLE
-def get_table_perf() -> dag.AgGrid:
+def get_table_perf(instr_data: InstrumentsData) -> dag.AgGrid:
     return dag.AgGrid(
         id="table_perf",
         className='ag-theme-alpine-dark',
         columnDefs=COLUMN_DEFS,
-        rowData=build_content_instruments.instr_data.perf_df.reset_index()[LABELS_PERF_TABLE_EXT].to_dict("records"),
+        rowData=instr_data.perf_df.reset_index()[LABELS_PERF_TABLE_EXT].to_dict("records"),
         columnSize="responsiveSizeToFit",
         defaultColDef={"filter": "agTextColumnFilter"},
         dashGridOptions={"animateRows": False,
@@ -48,11 +49,13 @@ def get_table_perf() -> dag.AgGrid:
 
 
 # INSTRUMENTS CORRELATION MATRIX HEATMAP
-def get_fig_corr_instr(ticker_lst: Optional[List] = None) -> go.Figure:
+def get_fig_corr_instr(instr_data: InstrumentsData, ticker_lst: Optional[List] = None) -> go.Figure:
     if ticker_lst is not None:
-        adj_close_corr = build_content_instruments.instr_data.adj_close_df[ticker_lst].iloc[:, :MAX_INSTR_CORR].copy()
+        ticker_lst = [t for t in ticker_lst if t in instr_data.adj_close_df.columns]
+        adj_close_corr = instr_data.adj_close_df[ticker_lst].iloc[:, :MAX_INSTR_CORR].copy()
     else:
-        adj_close_corr = build_content_instruments.instr_data.adj_close_df.iloc[:, :MAX_INSTR_CORR].copy()
+        adj_close_corr = instr_data.adj_close_df.iloc[:, :MAX_INSTR_CORR].copy()
+    title = "Instruments correlation matrix" if not adj_close_corr.empty else "No instruments match the filter"
     return go.Figure(data=[go.Heatmap(z=compute_corr_mat(adj_close_corr.resample('W-WED').last().pct_change()),
                                       x=adj_close_corr.columns,
                                       y=list(reversed(adj_close_corr.columns)),
@@ -62,7 +65,7 @@ def get_fig_corr_instr(ticker_lst: Optional[List] = None) -> go.Figure:
                                       xgap=1,
                                       ygap=1,
                                       hoverongaps=False)],
-                     layout=go.Layout(title=dict(text="Instruments correlation matrix"),
+                     layout=go.Layout(title=dict(text=title),
                                       template="plotly_dark",
                                       xaxis=dict(side='top', scaleanchor="y", constrain="domain"),
                                       yaxis=dict(scaleanchor="x", constrain="domain"),
@@ -73,15 +76,17 @@ def get_fig_corr_instr(ticker_lst: Optional[List] = None) -> go.Figure:
 
 # DASHBOARD
 def build_content_instruments(account: Accounts) -> html.Div:
-    if not hasattr(build_content_instruments, 'instr_data'):
-        build_content_instruments.instr_data = InstrumentsData(account=account)
+    instr_data = get_instruments_data(account)
+    if instr_data is None:
+        return html.Div(dbc.Card(dbc.CardBody(html.H4(f'No ETF catalog available for {account.name}')),
+                                 color='dark'))
     return html.Div([
         dbc.Card(
             dbc.CardBody([
-                get_table_perf(),
+                get_table_perf(instr_data),
                 html.Br(),
                 loading_wrapper(dcc.Graph(id='fig_corr_instr',
-                                          figure=get_fig_corr_instr(),
+                                          figure=get_fig_corr_instr(instr_data),
                                           style={'height': 1000},
                                           responsive=True))
             ]), color='dark'
@@ -89,12 +94,19 @@ def build_content_instruments(account: Accounts) -> html.Div:
     )
 
 
-# update instrument correlation matrix
+# update instrument correlation matrix with the instruments shown in the table (after sorting and filtering)
 @callback(
     Output('fig_corr_instr', 'figure'),
     Input('table_perf', 'virtualRowData'),
+    State('store-account', 'data'),
 )
-def update_corr_heatmap_fig(virtual_data) -> go.Figure:
-    df = pd.DataFrame(virtual_data)
-    ticker_lst = df['Ticker'].to_list()
-    return get_fig_corr_instr(ticker_lst=ticker_lst)
+def update_corr_heatmap_fig(virtual_data, account_name) -> go.Figure:
+    # None until the table has rendered its rows: keep the heatmap built with the page
+    if virtual_data is None:
+        raise PreventUpdate
+    account = Accounts.get_account_by_name(name=account_name) or Accounts.get_default_account()
+    instr_data = get_instruments_data(account)
+    if instr_data is None:
+        raise PreventUpdate
+    ticker_lst = [row[InstrPerfTableCols.ticker] for row in virtual_data]
+    return get_fig_corr_instr(instr_data, ticker_lst=ticker_lst)

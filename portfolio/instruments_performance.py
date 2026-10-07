@@ -22,6 +22,7 @@ from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols, search_fetch
 from yahoo_finance.yahoo_finance import Exchanges as ExchangesYF
 
 MAX_ETF_CATALOG_SIZE = 250
+CATALOG_PERF_LABEL = 'Performance'
 
 
 class InstrPerfTableCols:
@@ -300,12 +301,32 @@ def build_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame
     data_dict = {YFinHistCols.adj_close: close_adj_df[most_liquid_3m],
                  YFinHistCols.volume: volume_3m_base_df[most_liquid_3m],
                  YF_PROD_INFO_LABEL: info_df[most_liquid_3m]}
-    data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
-    save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
+    data_dict[CATALOG_PERF_LABEL] = compute_catalog_performance_df(data_dict)
+    save_etf_catalog_data(account=account, data_dict=data_dict)
     return data_dict
 
 
-def load_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]:
+def compute_catalog_performance_df(data_dict: Dict[str | YFinHistCols, pd.DataFrame]) -> pd.DataFrame:
+    return compute_product_performance(adj_close_df=data_dict[YFinHistCols.adj_close],
+                                       volume_df=data_dict[YFinHistCols.volume],
+                                       prod_info_df=data_dict[YF_PROD_INFO_LABEL])
+
+
+def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
+    # add the performance metrics to an existing catalog, from its saved data only
+    data_dict = load_etf_catalog_data(account=account)
+    data_dict[CATALOG_PERF_LABEL] = compute_catalog_performance_df(data_dict)
+    save_etf_catalog_data(account=account, data_dict=data_dict)
+    return data_dict[CATALOG_PERF_LABEL]
+
+
+def save_etf_catalog_data(account: Accounts, data_dict: Dict[str | YFinHistCols, pd.DataFrame]):
+    data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
+    save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
+
+
+def load_etf_catalog_data(account: Accounts) -> Dict[str | YFinHistCols, pd.DataFrame]:
+    # keys: YFinHistCols for the price and volume sheets, YF_PROD_INFO_LABEL, and CATALOG_PERF_LABEL if computed
     data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
     data_dict_renamed = {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}
     return data_dict_renamed

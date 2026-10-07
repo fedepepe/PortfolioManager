@@ -13,7 +13,7 @@ def get_degiro_connection(file_name: Optional[str] = None) -> API:
 		# get file names in credentials folder
 		file_name = [f for f in listdir(CREDENTIALS_DIR) if isfile(join(CREDENTIALS_DIR, f))][0]
 	credentials = build_credentials(
-		location=f"{CREDENTIALS_DIR}/{file_name}.json",
+		location=f"{CREDENTIALS_DIR}/{file_name}",
 	)
 	conn = API(credentials=credentials)
 	conn.connect()

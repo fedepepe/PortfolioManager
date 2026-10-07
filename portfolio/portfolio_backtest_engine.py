@@ -9,6 +9,19 @@ from degiro.transactions import TxHistFields
 from portfolio.portfolio_definitions import Portfolio, PortfolioBacktestData, Currencies
 
 
+def align_to_index(dates: pd.DatetimeIndex, index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    # map each date to the last date in index on or before it (NaT if none)
+    pos = index.searchsorted(dates, side='right') - 1
+    return pd.DatetimeIndex([index[p] if p >= 0 else pd.NaT for p in pos])
+
+
+def align_df_to_index(df: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
+    df = df.copy()
+    df.index = align_to_index(pd.DatetimeIndex(df.index), index)
+    df = df[df.index.notna()]
+    return df[~df.index.duplicated(keep='last')]
+
+
 def backtest_portfolio(prices_df: pd.DataFrame,
                        name: Optional[str] = None,
                        account: Optional[Accounts] = None,
@@ -42,7 +55,14 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     if freq_rebalancing is None:
         rebalancing_dates = prices_df.index
     else:
-        rebalancing_dates = prices_df.resample(freq_rebalancing).last().index
+        # last available trading date of each period
+        rebalancing_dates = pd.DatetimeIndex(prices_df.index.to_series().resample(freq_rebalancing).last().dropna())
+
+    # align target dates to the price index (e.g. month-ends falling on weekends or holidays)
+    if isinstance(target_exp, pd.DataFrame):
+        target_exp = align_df_to_index(target_exp, prices_df.index)
+    if target_units is not None:
+        target_units = align_df_to_index(target_units, prices_df.index)
 
     # build initial portfolio
     if account is not None:

@@ -35,7 +35,7 @@ class PortfolioGeneric:
         self.txn_values: np.ndarray = np.zeros(len(tickers))
         self.txn_costs: np.ndarray = np.zeros(len(tickers))
         self.max_target_dev = max_target_dev
-        self.txn_costs_prop = txn_costs_prop_bp / 10e4
+        self.txn_costs_prop = txn_costs_prop_bp / 1e4
         self.txn_costs_fixed = txn_costs_fixed
         self.min_cash_amount = min_cash_amount
 

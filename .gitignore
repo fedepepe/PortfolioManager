@@ -4,3 +4,4 @@
 /venv
 /results
 /state/
+__pycache__/

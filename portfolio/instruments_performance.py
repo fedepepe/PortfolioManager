@@ -4,7 +4,6 @@ from difflib import SequenceMatcher
 from enum import Enum
 from typing import List, Dict, Optional
 
-import numpy as np
 import pandas as pd
 
 from degiro.charts import load_portfolio_products, load_fx_rates
@@ -15,7 +14,7 @@ from utils.file_utils import PD_DATA_TYPES
 from utils.file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
 from degiro.degiro_definitions import ProductTypes
 from engines.reporting import compute_portfolio_metrics, PerfDataTabs
-from database.sql import query_products, query_tradable_products, insert_yahoo_finance_data
+from database.sql import query_products, insert_yahoo_finance_data
 from database.sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
 from degiro.degiro_definitions import Exchanges
 from database.table_definitions import Product
@@ -30,6 +29,22 @@ class InstrPerfTableCols:
     isin = 'ISIN'
     name = 'Name'
     volume = 'Volume'
+
+
+def is_missing(value) -> bool:
+    if isinstance(value, str):
+        return not value.strip()
+    return value is None or pd.isna(value)
+
+
+def choose_ticker(tickers: List[str], ticker: Optional[str] = None) -> str:
+    # follow the priority order of exchanges: first {ticker}.{exchange}, then any ticker listed on an exchange
+    for prefix in ([ticker] if ticker is not None else []) + [None]:
+        for x in ExchangesYF:
+            for t in tickers:
+                if t.endswith(f'.{x.code}') and (prefix is None or t == f'{prefix}.{x.code}'):
+                    return t
+    return tickers[0]
 
 
 def fetch_instr_hist_data(isin_lst: str | List[str],
@@ -53,16 +68,18 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
     columns_ext = columns + [YF_PROD_INFO_LABEL]
     data_dict = {col: pd.DataFrame() for col in columns_ext}
     for n, isin in enumerate(isin_lst):
-        if ticker_lst[n] is None:
+        isin = None if is_missing(isin) else isin
+        ticker = None if is_missing(ticker_lst[n]) else ticker_lst[n]
+        name = None if is_missing(name_lst[n]) else name_lst[n]
+        if isin is None and ticker is None:
             continue
         # 1. try with isin
-        data_single = search_fetch_history(isin=isin, columns=columns)
+        data_single = search_fetch_history(isin=isin, columns=columns) if isin is not None else None
         # 2. if no results is given, try with ticker
-        if all([data_single[col].empty for col in columns]):
-            if ticker_lst[n] is not None:
-                data_single = search_fetch_history(ticker=ticker_lst[n], columns=columns)
-            else:
+        if data_single is None or all([data_single[col].empty for col in columns]):
+            if ticker is None:
                 continue
+            data_single = search_fetch_history(ticker=ticker, columns=columns)
         # 3. if still no results is given, give up
         if data_single is None or all([df.empty for df in data_single.values()]):
             continue
@@ -71,28 +88,24 @@ def fetch_instr_hist_data(isin_lst: str | List[str],
         for key in data_single:
             data_single[key] = data_single[key].loc[:, tickers_restrict]
         # 5. restrict to tickers with name matching
-        if len(tickers_restrict) > 1 and name_lst[n] is not None:
+        if len(tickers_restrict) > 1 and name is not None:
             names_long = data_single[YF_PROD_INFO_LABEL].loc[YFinInfoCols.name_long.value].values
-            name_match = [SequenceMatcher(None, name_lst[n], name).ratio() for name in names_long]
+            name_match = [SequenceMatcher(None, name, name_long).ratio() for name_long in names_long]
             ticker_match = data_single[YF_PROD_INFO_LABEL].columns[name_match.index(max(name_match))]
             for key in data_single:
                 data_single[key] = data_single[key].loc[:, [ticker_match]]
-        # at this point, just choose the ticker according to priority arbitrarily assigned to exchanges
         if all([df.empty for df in data_single.values()]):
             continue
+        # 6. choose one ticker for all columns according to the priority assigned to exchanges
         for col in columns_ext:
-            if data_single[col].shape[1] == 1:
-                data_single[col] = data_single[col].iloc[:, 0]
-            elif data_single[col].shape[1] > 1:
+            if data_single[col].shape[1] > 1:
                 remove_duplicated_tickers(col, data_single)
-                if data_single[col].shape[1] == 1:
-                    data_single[col] = data_single[col].iloc[:, 0]
-                else:
-                    is_in_x_dct = {f'{ticker_lst[n]}.{x.code}': f'{ticker_lst[n]}.{x.code}' in data_single[col].columns
-                                   for x in ExchangesYF}
-                    data_single[col] = data_single[col].loc[:, max(is_in_x_dct, key=is_in_x_dct.get)]
-        if ticker_lst[n] not in [None, np.nan]:
-            data_single[YF_PROD_INFO_LABEL].loc['symbol_ext'] = ticker_lst[n]
+        tickers = data_single[YF_PROD_INFO_LABEL].columns.to_list()
+        ticker_chosen = tickers[0] if len(tickers) == 1 else choose_ticker(tickers, ticker)
+        for col in columns_ext:
+            data_single[col] = data_single[col][ticker_chosen]
+        # Degiro ticker if known, otherwise the Yahoo symbol, so that renaming never produces NaN labels
+        data_single[YF_PROD_INFO_LABEL].loc['symbol_ext'] = ticker if ticker is not None else ticker_chosen
         for col in columns_ext:
             data_dict[col] = pd.concat([data_dict[col], data_single[col]], axis=1)
     for col in columns:
@@ -126,18 +139,20 @@ def prices_to_base_curr(account: Accounts,
                                 account=account,
                                 index=price_df.index)
     fx_rates_df = fx_rates_df.reindex(index=price_df.index).ffill()
-    # average prices across exchanges
+    # convert to base currency; a ticker appearing in several columns (e.g. several exchanges) is averaged
     price_base_df = pd.DataFrame()
     for ticker, curr in zip(price_df.columns, curr_lst):
+        if ticker in price_base_df:
+            continue
         try:
-            ser = (price_df[ticker].mul(fx_rates_df.loc[price_df.index, f'{curr}/{account.currency}'], axis=0))
-            ser = ser.rename(ticker)
-            if isinstance(ser, pd.DataFrame):
-                ser = ser.mean(axis=1)
-                breakpoint()
+            fx_rate = fx_rates_df.loc[price_df.index, f'{curr}/{account.currency}']
         except KeyError:
             warnings.warn(f'Warning! Missing foreign exchange historical time series for {curr}/{account.currency}')
             continue
+        ser = price_df[ticker]
+        if isinstance(ser, pd.DataFrame):
+            ser = ser.mean(axis=1)
+        ser = ser.mul(fx_rate, axis=0).rename(ticker)
         price_base_df = pd.concat([price_base_df, ser], axis=1)
     price_base_df.index = pd.to_datetime(price_base_df.index)
     price_base_df = price_base_df.sort_index()
@@ -181,7 +196,8 @@ def compute_product_performance(adj_close_df: PD_DATA_TYPES,
                                 prod_info_df: Optional[PD_DATA_TYPES] = None) -> pd.DataFrame:
     perf_metrics_df = pd.DataFrame()
     for ticker in adj_close_df.columns:
-        print(f"Computing performance metrics for {ticker} ({prod_info_df.loc['isin', ticker]})... ")
+        isin_str = f" ({prod_info_df.loc[YFinInfoCols.isin.value, ticker]})" if prod_info_df is not None else ''
+        print(f"Computing performance metrics for {ticker}{isin_str}... ")
         # compute performance metrics
         try:
             results_dict = compute_portfolio_metrics(nav=adj_close_df[ticker].dropna(),
@@ -206,11 +222,19 @@ def compute_product_performance(adj_close_df: PD_DATA_TYPES,
     return perf_metrics_df
 
 
-def compute_single_etf_performance(isin: str):
-    etf_info_df = query_tradable_products(product_type=ProductTypes.ETF)
-    df = compute_product_performance(isin=isin,
-                                     prod_info_df=etf_info_df.loc[etf_info_df['isin'] == isin, :])
+def compute_single_etf_performance(isin: str) -> pd.DataFrame:
+    # ticker and name from the Degiro catalog (if listed) help picking the right Yahoo Finance listing
+    prod_df = query_products(product_isin=isin, product_type=ProductTypes.ETF)
+    ticker = prod_df[Product.symbol.name].iloc[0] if not prod_df.empty else None
+    name = prod_df[Product.name.name].iloc[0] if not prod_df.empty else None
+    data = fetch_instr_hist_data(isin_lst=isin,
+                                 columns=YFinHistCols.adj_close,
+                                 ticker_lst=ticker,
+                                 name_lst=name)
+    df = compute_product_performance(adj_close_df=data[YFinHistCols.adj_close],
+                                     prod_info_df=data[YF_PROD_INFO_LABEL])
     print(df)
+    return df
 
 
 def compute_portfolio_instruments_performance():

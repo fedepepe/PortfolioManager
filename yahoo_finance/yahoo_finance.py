@@ -3,6 +3,7 @@ from enum import Enum
 from typing import List, NamedTuple, Optional, Dict
 
 import pandas as pd
+import requests
 import yfinance as yf
 from curl_cffi.requests.exceptions import HTTPError, DNSError, Timeout
 
@@ -58,6 +59,20 @@ class Exchanges(Exchange, Enum):
     SG = Exchange('SG', 'Singapore')
     XC = Exchange('XC')
     XD = Exchange('XD')
+
+
+YAHOO_FINANCE_HOST = 'query1.finance.yahoo.com'
+
+
+def is_yahoo_reachable(timeout: float = 3.) -> bool:
+    # quick connectivity check, to avoid long retries and timeouts per instrument when working offline.
+    # An HTTPS request, since a plain TCP connection may be accepted locally (e.g. by a VPN or firewall);
+    # any HTTP response means the server is reachable
+    try:
+        requests.head(f'https://{YAHOO_FINANCE_HOST}', timeout=timeout)
+        return True
+    except requests.RequestException:
+        return False
 
 
 def search_ticker(ticker: str) -> yf.search.Search:
@@ -116,15 +131,17 @@ def search_fetch_history(ticker: Optional[str] = None,
                          isin: Optional[str] = None,
                          columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
                          ) -> Optional[Dict[str | YFinHistCols, pd.DataFrame]]:
-    if ticker is not None:
-        search = search_ticker(ticker=ticker).all['quotes']
-        match = [e for e in search if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.code}' for x in Exchanges]]
-    elif isin is not None:
-        match = search_ticker(ticker=isin).all['quotes']
-    else:
+    if ticker is None and isin is None:
         raise ValueError('Ticker and ISIN both missing. At least one must be given.')
-    if match is None:
+    search = search_ticker(ticker=ticker if ticker is not None else isin)
+    if search is None:
+        # Yahoo Finance not reachable after several attempts
         return None
+    if ticker is not None:
+        match = [e for e in search.all['quotes']
+                 if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.code}' for x in Exchanges]]
+    else:
+        match = search.all['quotes']
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
         columns = [columns]
     columns_ext = columns + [YF_PROD_INFO_LABEL]
@@ -134,7 +151,7 @@ def search_fetch_history(ticker: Optional[str] = None,
         data_ticker = fetch_history(tickers=ticker, columns=columns)
         for col in data_ticker:
             data_ticker[col] = data_ticker[col].dropna(axis=1, how='all')
-        yf_info = get_ticker_info(ticker)
+        yf_info = get_ticker_info(ticker) or {}
         data_ticker[YF_PROD_INFO_LABEL] = pd.DataFrame(columns=[ticker])
         for field in YFinInfoCols:
             data_ticker[YF_PROD_INFO_LABEL].loc[field.value] = yf_info.get(field.value, '')

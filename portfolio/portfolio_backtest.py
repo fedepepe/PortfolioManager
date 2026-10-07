@@ -1,9 +1,8 @@
-import logging
 import re
 from dataclasses import asdict
 from datetime import datetime
 from enum import Enum
-from typing import List
+from typing import Optional, Tuple
 
 import pandas as pd
 
@@ -16,7 +15,8 @@ from degiro.transactions import fetch_tx_history, fetch_account_movements, load_
     TxHistFields
 from engines.portfolio_optimization import compute_weights_optim_portfolio
 from engines.reporting import compute_results_from_navs
-from portfolio.instruments_performance import fetch_portfolio_instr_adj_prices, fetch_instr_adj_prices
+from portfolio.instruments_performance import fetch_instr_adj_prices
+from portfolio.portfolio_adj_prices import get_portfolio_adj_prices
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from portfolio.portfolio_backtest_engine import backtest_portfolio
 from portfolio.portfolio_performance import save_performance_data, compute_portfolio_performance
@@ -58,24 +58,6 @@ def update_data(account: Accounts):
     fetch_portfolio_charts(account=account, degiro_conn=conn)
     fetch_fx_charts(account=account, degiro_conn=conn)
     account.state.set('last_data_update', datetime.now().strftime('%d%b%Y'))
-
-
-def adj_prices_by_product_id(account: Accounts,
-                             close_adj_df: pd.DataFrame,
-                             product_ids: List[int]) -> pd.DataFrame:
-    # Yahoo Finance prices are labelled with the Degiro symbol: relabel them with the product id
-    symbols = load_portfolio_products(account=account).set_index('id')['symbol']  # raw Degiro symbols
-    adj_df = pd.DataFrame(index=close_adj_df.index)
-    for prod_id in product_ids:
-        symbol = symbols.get(prod_id)
-        if isinstance(symbol, str) and symbol in close_adj_df.columns:
-            ser = close_adj_df[symbol]
-            # several series under the same symbol: keep the first one
-            adj_df[prod_id] = ser.iloc[:, 0] if isinstance(ser, pd.DataFrame) else ser
-    missing = [p for p in product_ids if p not in adj_df.columns]
-    if missing:
-        logging.info(f'{account.name}: no Yahoo Finance adjusted prices for products {missing}, Degiro prices used')
-    return adj_df
 
 
 def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
@@ -166,10 +148,8 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     dividends_df.loc[:, 'fx_rate'] = fx_rates
     dividends_df.loc[:, 'amount_base_currency'] = dividends_df['change'].mul(dividends_df['fx_rate'])
 
-    # adjusted closing prices from Yahoo Finance
-    close_adj_df = adj_prices_by_product_id(account=account,
-                                            close_adj_df=fetch_portfolio_instr_adj_prices(account=account),
-                                            product_ids=prices_df.columns.to_list())
+    # adjusted closing prices from Yahoo Finance (or the database when offline), labelled by product id
+    close_adj_df = get_portfolio_adj_prices(account=account).prices
 
     # compute historical portfolio data
     backtest_data = backtest_portfolio(account=account,
@@ -215,9 +195,34 @@ def optimized_portfolio_name(account: Accounts) -> str:
     return f'{account.name} Opt. (Tangency)'
 
 
+def optimization_prices(account: Accounts) -> Tuple[pd.DataFrame, str]:
+    # full history of adjusted prices (Yahoo Finance, or the database when offline) and where they come from;
+    # products without adjusted prices use the unadjusted Degiro prices of the saved backtest (portfolio period only).
+    # One column per instrument: products with the same ISIN (e.g. one ETF on two exchanges) have the same
+    # prices, so only one is kept, preferring the product held at the end of the backtest
+    adj_prices = get_portfolio_adj_prices(account=account)
+    hist_data = load_backtest_data(name=account.name)
+    prices_df = adj_prices.prices.reindex(index=adj_prices.prices.index.union(hist_data.prices.index))
+    for prod_id in hist_data.prices.columns:
+        if prod_id not in prices_df.columns:
+            prices_df[prod_id] = hist_data.prices[prod_id]
+    isin = load_portfolio_products(account=account).set_index('id')['isin']
+    units_last = hist_data.units.iloc[-1]
+    keep, seen = [], set()
+    for prod_id in sorted(prices_df.columns, key=lambda c: -units_last.get(c, 0.)):
+        key = isin.get(prod_id)
+        key = key if isinstance(key, str) else prod_id  # products without ISIN are always kept
+        if key not in seen:
+            seen.add(key)
+            keep.append(prod_id)
+    return prices_df[[c for c in prices_df.columns if c in keep]], adj_prices.summary
+
+
 def backtest_portfolio_optimized(account: Accounts,
-                                 index: pd.DatetimeIndex) -> PortfolioBacktestData:
-    prices_adj_df = fetch_portfolio_instr_adj_prices(account=account)
+                                 index: pd.DatetimeIndex,
+                                 prices_adj_df: Optional[pd.DataFrame] = None) -> PortfolioBacktestData:
+    if prices_adj_df is None:
+        prices_adj_df, _ = optimization_prices(account=account)
     target_exp_df = compute_weights_optim_portfolio(allocation_method=AllocationStrats.MAX_SHARPE,
                                                     prices=prices_adj_df,
                                                     sampling_freq=DEFAULT_DATA_FREQ,

@@ -14,7 +14,7 @@ from config.definitions import DATA_DIR, RESULTS_DIR
 from dashboard.dash_instruments_data import InstrumentsData
 from dashboard.dash_portfolio_data import PortfolioData
 from portfolio.portfolio_backtest import load_backtest_data, backtest_portfolio_benchmark, refresh_account
-from portfolio.portfolio_backtest import backtest_portfolio_optimized, optimized_portfolio_name
+from portfolio.portfolio_backtest import backtest_portfolio_optimized, optimized_portfolio_name, optimization_prices
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from utils.file_utils import to_file_name, load_df_dict_from_excel
 
@@ -120,8 +120,11 @@ def update_account(account: Accounts):
         refresh_account(account=account)
 
 
-def run_optimization(account: Accounts):
-    # backtest of the optimized portfolio over the dates of the saved portfolio (saves its files)
+def run_optimization(account: Accounts) -> str:
+    # backtest of the optimized portfolio over the dates of the saved portfolio (saves its files);
+    # returns where the prices come from (online / offline)
     with _UPDATE_LOCK:
         index = get_portfolio_data(account).hist_data.nav_eff.index
-        backtest_portfolio_optimized(account=account, index=index)
+        prices_df, prices_summary = optimization_prices(account=account)
+        backtest_portfolio_optimized(account=account, index=index, prices_adj_df=prices_df)
+    return prices_summary

@@ -94,6 +94,13 @@ class YahooFinanceHistDataPfInstr(Base):
 	                  Index('ix_yf_hist_pf_instr_ticker_quote_date', 'ticker', 'quote_type', 'date', unique=True), )
 
 
+# Yahoo Finance listing chosen for each Degiro product (several products may share a listing)
+class DegiroYahooMap(Base):
+	__tablename__ = 'degiro_yahoo_map'
+	product_id = Column(Integer, primary_key=True)
+	ticker = Column(String, nullable=False)
+
+
 # Create the table in the database
 Base.metadata.create_all(engine)
 # create_all does not add new indexes to existing tables

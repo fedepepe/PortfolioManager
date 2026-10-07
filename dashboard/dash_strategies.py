@@ -124,5 +124,5 @@ def run_optimization_callback(n_clicks, account_name: str) -> Tuple:
     # store-strategy-version is outside the page): optimize only on an actual click
     if not n_clicks:
         raise PreventUpdate
-    run_optimization(Accounts.get_account_by_name(name=account_name))
-    return time.time(), f'Optimized {time.strftime("%H:%M")}'
+    prices_summary = run_optimization(Accounts.get_account_by_name(name=account_name))
+    return time.time(), f'Optimized {time.strftime("%H:%M")} (prices {prices_summary})'

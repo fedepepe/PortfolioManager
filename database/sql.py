@@ -3,14 +3,14 @@ from typing import Optional, Dict, List
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
 from sqlalchemy import or_
-from sqlalchemy import select, func
+from sqlalchemy import select, func, insert, delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
 from database.db_conn import engine, conn
 from database.sql_utils import list_to_str, str_to_date
 from database.table_definitions import Product, DegiroHistData, YahooFinanceHistData, YahooFinanceProdInfo
-from database.table_definitions import YahooFinanceHistDataPfInstr
+from database.table_definitions import YahooFinanceHistDataPfInstr, DegiroYahooMap
 from degiro.degiro_definitions import ProductTypes, Exchanges
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinInfoCols, YFinHistCols
 
@@ -127,6 +127,63 @@ def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
                         value=df_melt['value'].iloc[t]))
                 conn.add_all(data)
     db_commit(message=f'Added Yahoo Finance data of product {data_dict[YF_PROD_INFO_LABEL]}.')
+
+
+def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
+    # adjusted prices are recomputed backwards at each dividend: replace the whole stored history of the ticker
+    ser = ser.dropna()
+    if ser.empty:
+        return
+    table = YahooFinanceHistDataPfInstr
+    quote_type = str(YFinHistCols.adj_close)
+    conn.execute(delete(table).where((table.ticker == ticker) & (table.quote_type == quote_type)))
+    conn.execute(insert(table), [{'ticker': ticker, 'date': pd.Timestamp(ts).date(), 'quote_type': quote_type,
+                                  'value': float(val)} for ts, val in ser.items()])
+    db_commit(message=f'Yahoo Finance adjusted prices of {ticker} ({len(ser)} rows)')
+
+
+def query_portfolio_instr_adj_close(tickers: List[str]) -> pd.DataFrame:
+    # stored adjusted prices: date x ticker (exact ticker match)
+    table = YahooFinanceHistDataPfInstr
+    stmt = select(table.ticker, table.date, table.value).where(
+        table.ticker.in_(tickers) & (table.quote_type == str(YFinHistCols.adj_close)))
+    df = pd.read_sql(stmt, engine)
+    if df.empty:
+        return pd.DataFrame()
+    df['date'] = pd.to_datetime(df['date'])
+    return df.pivot(index='date', columns='ticker', values='value').sort_index()
+
+
+def upsert_yahoo_finance_info(ticker: str, info: Dict[str, str]):
+    rows = [{'ticker': ticker, 'quote_type': field, 'value': str(value)}
+            for field, value in info.items() if value is not None and not pd.isna(value)]
+    if not rows:
+        return
+    stmt = sqlite_insert(YahooFinanceProdInfo)
+    stmt = stmt.on_conflict_do_update(index_elements=[YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.quote_type],
+                                      set_={'value': stmt.excluded.value})
+    conn.execute(stmt, rows)
+    db_commit()
+
+
+def query_yahoo_finance_info_field(tickers: List[str], field: str) -> Dict[str, str]:
+    # one info field per ticker (exact ticker match)
+    stmt = select(YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.value).where(
+        YahooFinanceProdInfo.ticker.in_(tickers) & (YahooFinanceProdInfo.quote_type == field))
+    return dict(conn.execute(stmt).all())
+
+
+def upsert_degiro_yahoo_map(product_ids: List[int], ticker: str):
+    stmt = sqlite_insert(DegiroYahooMap)
+    stmt = stmt.on_conflict_do_update(index_elements=[DegiroYahooMap.product_id], set_={'ticker': stmt.excluded.ticker})
+    conn.execute(stmt, [{'product_id': int(p), 'ticker': ticker} for p in product_ids])
+    db_commit()
+
+
+def query_degiro_yahoo_map(product_ids: List[int]) -> Dict[int, str]:
+    stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker).where(
+        DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
+    return dict(conn.execute(stmt).all())
 
 
 def db_commit(message: Optional[str] = None):

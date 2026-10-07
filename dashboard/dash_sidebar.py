@@ -1,5 +1,5 @@
 import dash_bootstrap_components as dbc
-from dash import html, callback, Output, Input, ctx
+from dash import html, callback, Output, Input, State, ctx
 
 from dashboard.dash_common import SIDEBAR_STYLE
 from dashboard.dash_instruments import build_content_instruments
@@ -31,13 +31,13 @@ sidebar = html.Div(
           Input("button-portfolio", "n_clicks"),
           Input("button-instruments", "n_clicks"),
           Input("button-strategies", "n_clicks"),
+          State("store-account", "data"),
           )
-def switch_content(n1, n2, n3):
-    if ctx.triggered_id == "button-portfolio":
-        return build_content_portfolio(account=Accounts.get_default_account())
-    elif ctx.triggered_id == "button-instruments":
-        return build_content_instruments(account=Accounts.get_default_account())
+def switch_content(n1, n2, n3, account_name):
+    account = Accounts.get_account_by_name(name=account_name) or Accounts.get_default_account()
+    if ctx.triggered_id == "button-instruments":
+        return build_content_instruments(account=account)
     elif ctx.triggered_id == "button-strategies":
-        return build_content_strategies(account=Accounts.get_default_account())
+        return build_content_strategies(account=account)
     else:
-        return build_content_portfolio(account=Accounts.get_default_account())
+        return build_content_portfolio(account=account)

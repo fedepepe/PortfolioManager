@@ -17,7 +17,7 @@ from engines.reporting import compute_results_from_navs
 from portfolio.instruments_performance import fetch_portfolio_instr_adj_prices, fetch_instr_adj_prices
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from portfolio.portfolio_backtest_engine import backtest_portfolio
-from portfolio.portfolio_performance import save_performance_data
+from portfolio.portfolio_performance import save_performance_data, compute_portfolio_performance
 from strategy.strategy_definitions import AllocationStrats
 from utils import file_utils as fu
 from utils.date_utils import reset_time
@@ -35,9 +35,16 @@ def save_backtest_data(hist_portfolio_data: PortfolioBacktestData):
                                  folder_name=DATA_DIR)
 
 
-def load_backtest_data(account: Accounts) -> PortfolioBacktestData:
-    data_dict = fu.load_df_dict_from_excel(file_name=account.name, folder_name=DATA_DIR)
-    data_dict['name'] = account.name
+BACKTEST_SERIES_FIELDS = ['nav', 'nav_eff', 'deposits']
+
+
+def load_backtest_data(name: str) -> PortfolioBacktestData:
+    data_dict = fu.load_df_dict_from_excel(file_name=name, folder_name=DATA_DIR)
+    # series are saved as one-column sheets: restore them as series
+    for field in BACKTEST_SERIES_FIELDS:
+        if isinstance(data_dict.get(field), pd.DataFrame) and data_dict[field].shape[1] == 1:
+            data_dict[field] = data_dict[field].iloc[:, 0]
+    data_dict['name'] = name
     return PortfolioBacktestData(**data_dict)
 
 
@@ -171,6 +178,16 @@ def backtest_portfolio_benchmark(account: Accounts,
     return backtest_data_benchmark
 
 
+def refresh_account(account: Accounts):
+    # fetch new data from Degiro, then recompute and save backtest and performance of portfolio and benchmark
+    update_data(account=account)
+    hist_portfolio_data = backtest_portfolio_account(account=account)
+    hist_benchmark_data = backtest_portfolio_benchmark(account=account, index=hist_portfolio_data.nav.index)
+    compute_portfolio_performance(account=account,
+                                  hist_portfolio_data=hist_portfolio_data,
+                                  hist_benchmark_data=hist_benchmark_data)
+
+
 def backtest_portfolio_optimized(account: Accounts,
                                  index: pd.DatetimeIndex) -> PortfolioBacktestData:
     prices_adj_df = fetch_portfolio_instr_adj_prices(account=account)
@@ -224,7 +241,7 @@ def run_unit_test(unit_test: UnitTests):
             backtest_portfolio_account(account=account)
     elif unit_test == UnitTests.BACKTEST_PORTFOLIO_OPTIMIZED:
         for account in Accounts:
-            index = load_backtest_data(account=account).nav_eff.index
+            index = load_backtest_data(name=account.name).nav_eff.index
             backtest_portfolio_optimized(account=account, index=index)
     elif unit_test == UnitTests.BACKTEST_EQUITY_PORTFOLIO_STRAT:
         backtest_equity_portfolio_strat()

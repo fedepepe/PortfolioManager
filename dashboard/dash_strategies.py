@@ -37,7 +37,7 @@ def build_content_strategies(account: Accounts):
 # NAV ADJUSTED LINE PLOT
 def get_fig_navs() -> go.Figure:
     fig_navs = go.Figure(data=[go.Scatter(x=build_content_strategies.pf_data.hist_data.nav_eff.index,
-                                          y=build_content_strategies.pf_data.hist_data.nav_eff["NAV Effective"],
+                                          y=build_content_strategies.pf_data.hist_data.nav_eff.values,
                                           name=build_content_strategies.pf_data.hist_data.name,
                                           mode='lines',
                                           hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>')],

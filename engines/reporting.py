@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from config.definitions import RESULTS_DIR
+from config.definitions import RESULTS_DIR, DEFAULT_CORR_DATA_FREQ
 from utils.date_utils import ANN_FACTOR_DICT
 from utils.file_utils import PD_DATA_TYPES
 from utils.file_utils import save_df_dict_to_excel
@@ -220,10 +220,11 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
                                                                   volatility_hist,
                                                                   sharpe_ratio_hist,
                                                                   sortino_ratio_hist], axis=1)
-    # correlation of adjusted closing prices
+    # correlation of the weekly returns of adjusted closing prices (as shown in the dashboard)
     if hist_portfolio_data is not None:
         if hist_portfolio_data.close_adj is not None:
-            results_dict[PerfDataTabs.CORRELATION] = hist_portfolio_data.close_adj.corr()
+            returns_weekly = hist_portfolio_data.close_adj.resample(DEFAULT_CORR_DATA_FREQ).last().pct_change()
+            results_dict[PerfDataTabs.CORRELATION] = returns_weekly.corr()
     return results_dict
 
 

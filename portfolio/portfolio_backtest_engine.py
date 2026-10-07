@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, List, Dict
 
 import numpy as np
@@ -149,7 +150,12 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     units['Cash'] = cash_balance
 
     if close_adj_df is not None:
+        # restrict to the backtest period; instruments without adjusted prices use the backtest prices
+        close_adj_df = close_adj_df.reindex(index=prices_df.index).ffill()
         missing_tickers = [t for t in prices_df if t not in close_adj_df]
+        if len(missing_tickers) == prices_df.shape[1]:
+            logging.warning(f'{name}: no adjusted prices match the instruments of the portfolio, '
+                            f'using unadjusted prices for all of them')
         close_adj_df[missing_tickers] = prices_df[missing_tickers]
         close_adj_df = close_adj_df[prices_df.columns]
 

@@ -1,7 +1,9 @@
+import logging
 import re
 from dataclasses import asdict
 from datetime import datetime
 from enum import Enum
+from typing import List
 
 import pandas as pd
 
@@ -56,6 +58,24 @@ def update_data(account: Accounts):
     fetch_portfolio_charts(account=account, degiro_conn=conn)
     fetch_fx_charts(account=account, degiro_conn=conn)
     account.state.set('last_data_update', datetime.now().strftime('%d%b%Y'))
+
+
+def adj_prices_by_product_id(account: Accounts,
+                             close_adj_df: pd.DataFrame,
+                             product_ids: List[int]) -> pd.DataFrame:
+    # Yahoo Finance prices are labelled with the Degiro symbol: relabel them with the product id
+    symbols = load_portfolio_products(account=account).set_index('id')['symbol']  # raw Degiro symbols
+    adj_df = pd.DataFrame(index=close_adj_df.index)
+    for prod_id in product_ids:
+        symbol = symbols.get(prod_id)
+        if isinstance(symbol, str) and symbol in close_adj_df.columns:
+            ser = close_adj_df[symbol]
+            # several series under the same symbol: keep the first one
+            adj_df[prod_id] = ser.iloc[:, 0] if isinstance(ser, pd.DataFrame) else ser
+    missing = [p for p in product_ids if p not in adj_df.columns]
+    if missing:
+        logging.info(f'{account.name}: no Yahoo Finance adjusted prices for products {missing}, Degiro prices used')
+    return adj_df
 
 
 def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
@@ -147,7 +167,9 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     dividends_df.loc[:, 'amount_base_currency'] = dividends_df['change'].mul(dividends_df['fx_rate'])
 
     # adjusted closing prices from Yahoo Finance
-    close_adj_df = fetch_portfolio_instr_adj_prices(account=account)
+    close_adj_df = adj_prices_by_product_id(account=account,
+                                            close_adj_df=fetch_portfolio_instr_adj_prices(account=account),
+                                            product_ids=prices_df.columns.to_list())
 
     # compute historical portfolio data
     backtest_data = backtest_portfolio(account=account,

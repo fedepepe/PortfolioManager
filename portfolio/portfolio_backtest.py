@@ -188,6 +188,11 @@ def refresh_account(account: Accounts):
                                   hist_benchmark_data=hist_benchmark_data)
 
 
+def optimized_portfolio_name(account: Accounts) -> str:
+    # name of the saved backtest and performance files of the optimized portfolio
+    return f'{account.name} Opt. (Tangency)'
+
+
 def backtest_portfolio_optimized(account: Accounts,
                                  index: pd.DatetimeIndex) -> PortfolioBacktestData:
     prices_adj_df = fetch_portfolio_instr_adj_prices(account=account)
@@ -197,15 +202,14 @@ def backtest_portfolio_optimized(account: Accounts,
                                                     optimization_freq='M',
                                                     extra_args={'max_asset_exposure': 0.3,
                                                                 'max_vol': 0.15})
-    portfolio_name = f'{account.name} Opt. (Tangency)'
+    portfolio_name = optimized_portfolio_name(account)
     backtest_data_optimized = backtest_portfolio(name=portfolio_name,
                                                  prices_df=prices_adj_df.reindex(index=index).ffill(),
                                                  target_exp=target_exp_df,
                                                  curr_base=account.currency)
-    results_dict = compute_results_from_navs(navs=backtest_data_optimized.nav,
-                                             file_name=portfolio_name)
+    # also saves the performance results under portfolio_name
+    compute_results_from_navs(navs=backtest_data_optimized.nav, file_name=portfolio_name)
     save_backtest_data(hist_portfolio_data=backtest_data_optimized)
-    save_performance_data(results_dict=results_dict, file_name=portfolio_name)
     return backtest_data_optimized
 
 

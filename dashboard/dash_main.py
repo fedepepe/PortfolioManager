@@ -20,6 +20,8 @@ app.layout = dbc.Container(
             dcc.Store(id='store-account', storage_type='local'),
             # changed by an update of the data, triggers a redraw of the figures
             dcc.Store(id='store-data-version'),
+            # changed by a new optimization, triggers a redraw of the strategies figures
+            dcc.Store(id='store-strategy-version'),
             sidebar,
             content,
         ]

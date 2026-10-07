@@ -2,19 +2,18 @@ import time
 from typing import Optional, List, Tuple
 
 import dash_bootstrap_components as dbc
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, State, callback, ctx
 from dash.exceptions import PreventUpdate
 
 from config.accounts import Accounts
-from dashboard.dash_common import COLOR_ROW_ODD, COLOR_ROW_EVEN
 from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat, LAYOUT_TEMPLATE
+from dashboard.dash_common import get_fig_empty, get_fig_metrics_table
 from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
 from dashboard.data_service import get_portfolio_data, get_benchmark_data, update_account
 from database.sql import query_yahoo_finance_prod_info
-from engines.reporting import PerfDataTabs, Metrics, to_str_risk_metrics
+from engines.reporting import PerfDataTabs, Metrics
 from portfolio.instruments_performance import prices_to_base_curr, fetch_instr_hist_data
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols
@@ -64,11 +63,6 @@ def build_content_portfolio(account: Accounts):
         ], body=True, color='dark'
         ),
     )
-
-
-# EMPTY PLACEHOLDER
-def get_fig_empty() -> go.Figure:
-    return go.Figure(layout=go.Layout(template=LAYOUT_TEMPLATE))
 
 
 # NAV ADJUSTED LINE PLOT
@@ -150,28 +144,8 @@ def get_fig_risk_contrib(pf_data: PortfolioData) -> go.Figure:
 
 # PERFORMANCE METRICS TABLE
 def get_fig_perf(pf_data: PortfolioData) -> go.Figure:
-    perf_df = to_str_risk_metrics(pf_data.perf_dct[PerfDataTabs.RISK_METRICS])
-    perf_bm_df = to_str_risk_metrics(pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS])
-    perf_df = pd.concat([perf_df, perf_bm_df], axis=1)
-    perf_df = perf_df.drop([Metrics.BETA_OVERALL.name, Metrics.SKEWNESS.name], errors='ignore')
-    return go.Figure(data=[go.Table(
-        columnwidth=[120, 50],
-        header=dict(
-            values=['<b>Performance Metric</b>', '<b>Portfolio</b>', '<b>Benchmark</b>'],
-            align=['left', 'center'],
-            height=25
-        ),
-        cells=dict(
-            values=perf_df.round(3).replace(np.nan, "").reset_index().T.values.tolist(),
-            # 2-D list of colors for alternating rows
-            fill_color=[[COLOR_ROW_ODD, COLOR_ROW_EVEN] * len(perf_df)],
-            align=['left', 'center'],
-            height=22
-        ))],
-        layout=go.Layout(template=LAYOUT_TEMPLATE,
-                         margin={"l": 30, "r": 30, "t": 30, "b": 30}
-                         )
-    )
+    return get_fig_metrics_table({'Portfolio': pf_data.perf_dct[PerfDataTabs.RISK_METRICS],
+                                  'Benchmark': pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS]})
 
 
 # HISTORICAL SHARPE RATIO LINE PLOT
@@ -275,10 +249,11 @@ def with_ui_revision(fig: go.Figure, account_name: str) -> go.Figure:
     return fig.update_layout(uirevision=account_name)
 
 
-# remember the selected account in the browser
+# remember the selected account in the browser (shared with the Strategies page)
 @callback(
-    Output('store-account', 'data'),
+    Output('store-account', 'data', allow_duplicate=True),
     Input('dropdown-portfolio', 'value'),
+    prevent_initial_call=True
 )
 def select_account(account_name: str) -> str:
     return account_name

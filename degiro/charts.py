@@ -12,7 +12,7 @@ from config.accounts import Accounts
 from config.definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
 from degiro.degiro_connection import get_degiro_connection
 from degiro.products import fetch_product_info, load_portfolio_products, query_products, ProductTypes
-from database.sql import insert_close
+from database.sql import insert_degiro_hist
 
 
 class ChartType(str, Enum):
@@ -21,13 +21,44 @@ class ChartType(str, Enum):
     VOLUME = 'volume'
 
 
+def fetch_hist_data_single(chart_fetcher: ChartFetcher,
+                           vwd_id: int,
+                           period: Interval = Interval.P10Y,
+                           resolution: Interval = Interval.P1D,
+                           ) -> pd.DataFrame:
+    # fetch price, ohlc and volume series of one product in a single request
+    chart_request = ChartRequest(
+        culture="en-US",
+        period=period,
+        requestid="1",
+        resolution=resolution,
+        series=[f"{chart_type.value}:issueid:{int(vwd_id)}" for chart_type in ChartType],
+        tz="Europe/Paris",
+    )
+    data = chart_fetcher.get_chart(chart_request=chart_request, raw=False)
+    hist_df = pd.DataFrame()
+    if data is None:
+        return hist_df
+    for series in data.series:
+        # some products return empty series, which the formatter cannot parse
+        if series.times is None or not series.data or not SeriesFormatter.is_timeseries(series=series):
+            continue
+        df = SeriesFormatter.format(series=series).to_pandas().set_index('timestamp')
+        hist_df = pd.concat([hist_df, df], axis=1)
+    if not hist_df.empty:
+        hist_df.index = pd.to_datetime(hist_df.index).normalize()
+    return hist_df
+
+
 def fetch_charts(degiro_conn: Optional[API] = None,
                  product_ids: Optional[int | List[int]] = None,
                  product_info_df: Optional[pd.DataFrame] = None,
                  chart_type: ChartType = ChartType.PRICE,
                  period: Optional[Interval] = Interval.P10Y,
                  resolution: Optional[Interval] = Interval.P1D,
+                 return_df: bool = True,
                  ) -> pd.DataFrame:
+    # all historical data is stored into the database; the chart_type column is returned if return_df is True
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     if product_info_df is None:
@@ -37,8 +68,6 @@ def fetch_charts(degiro_conn: Optional[API] = None,
         product_info_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)
     else:
         product_ids = product_info_df['id'].astype(int).to_list()
-    if len(product_ids) > 100:
-        rename_columns_to = 'ids'
     # ESTABLISH CONNECTION
     client_details_table = degiro_conn.get_client_details()
     # int_account = client_details_table['data']['intAccount']
@@ -60,43 +89,30 @@ def fetch_charts(degiro_conn: Optional[API] = None,
     product_ids = product_info_df['id'].astype(int).to_list()
     vwd_ids = [product_info_df.loc[prod_id, 'vwd_id'] for prod_id in product_ids]
     for vwd_id, product_id in zip(vwd_ids, product_ids):
-        chart_request = ChartRequest(
-            culture="en-US",
-            period=period,
-            requestid="1",
-            resolution=resolution,
-            series=[f"{chart_type.value}:issueid:{int(vwd_id)}"],
-            tz="Europe/Paris",
-        )
-        data = chart_fetcher.get_chart(
-            chart_request=chart_request,
-            raw=False,
-        )
-        if data is None:
+        hist_df = fetch_hist_data_single(chart_fetcher=chart_fetcher,
+                                         vwd_id=vwd_id,
+                                         period=period,
+                                         resolution=resolution)
+        if hist_df.empty:
             continue
-        ser = SeriesFormatter.format(series=data.series[0]).to_pandas()
-        ser = ser.set_index('timestamp')
-        ser = ser[chart_type.value].rename(product_id)
-
-        if len(product_ids) < 100:  # use pandas
-            chart_df = pd.concat([chart_df, ser], axis=1)
-        else:  # dump data directly to database
-            insert_close(series=ser[product_id])
-        chart_df = chart_df.sort_index()
-    return chart_df
+        insert_degiro_hist(product_id=product_id, df=hist_df)
+        if return_df and chart_type.value in hist_df:
+            chart_df = pd.concat([chart_df, hist_df[chart_type.value].rename(product_id)], axis=1)
+    return chart_df.sort_index()
 
 
 def save_charts(account: Accounts,
                 chart_df: pd.DataFrame,
                 chart_name: str = PRODUCTS_CHART_FILE_NAME,
                 chart_type: ChartType = ChartType.PRICE):
+    file_name = f'{account.name}_{chart_name}_{chart_type.value}'
     try:
-        df_old = load_df_from_excel(file_name=f'{chart_name}_{chart_type.value}', folder_name=DATA_DIR)
+        df_old = load_df_from_excel(file_name=file_name, folder_name=DATA_DIR)
     except FileNotFoundError:
         df_old = pd.DataFrame()
-    chart_df = pd.concat([df_old, chart_df], axis=1)
-    chart_df = chart_df.T.groupby(by=chart_df.columns).mean().T
-    save_df_to_excel(df=chart_df, file_name=f'{account.name}_{chart_name}_{chart_type.value}', folder_name=DATA_DIR)
+    # prefer freshly fetched values; keep older history and products missing from this fetch
+    chart_df = chart_df.combine_first(df_old).sort_index()
+    save_df_to_excel(df=chart_df, file_name=file_name, folder_name=DATA_DIR)
 
 
 def fetch_portfolio_charts(account: Accounts,

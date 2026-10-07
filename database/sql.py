@@ -1,20 +1,21 @@
-from sqlite3 import IntegrityError
 from typing import Optional, Dict, List
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
 from sqlalchemy import or_
 from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError, PendingRollbackError
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 
 from database.db_conn import engine, conn
 from database.sql_utils import list_to_str, str_to_date
-from database.table_definitions import Product, Close, YahooFinanceHistData, YahooFinanceProdInfo
+from database.table_definitions import Product, DegiroHistData, YahooFinanceHistData, YahooFinanceProdInfo
 from database.table_definitions import YahooFinanceHistDataPfInstr
 from degiro.degiro_definitions import ProductTypes, Exchanges
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinInfoCols, YFinHistCols
 
 YAHOO_FINANCE_DATA_OVERWRITE_DICT = {YFinHistCols.adj_close: True}
+DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
 
 
 def insert_product(product: ProductItem):
@@ -59,13 +60,22 @@ def insert_product(product: ProductItem):
     db_commit(message=f'{product.id} - {product.name}')
 
 
-def insert_close(series: pd.Series):
-    for date, close in series.items():
-        data = Close(product_id=series.name,
-                     date=date,
-                     close=close)
-        conn.add(data)
-    db_commit(message=f'Added closing prices of product {series.name}')
+def insert_degiro_hist(product_id: int, df: pd.DataFrame):
+    # upsert historical data of one product; new non-null values overwrite stored ones,
+    # while a field missing from this fetch keeps its stored value
+    df = df.reindex(columns=DEGIRO_HIST_COLS).dropna(how='all')
+    if df.empty:
+        return
+    rows = [{'product_id': int(product_id),
+             'date': pd.Timestamp(ts).date(),
+             **{col: (None if pd.isna(val) else float(val)) for col, val in row.items()}}
+            for ts, row in df.iterrows()]
+    stmt = sqlite_insert(DegiroHistData)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[DegiroHistData.product_id, DegiroHistData.date],
+        set_={col: func.coalesce(stmt.excluded[col], DegiroHistData.__table__.c[col]) for col in DEGIRO_HIST_COLS})
+    conn.execute(stmt, rows)
+    db_commit(message=f'Degiro historical data of product {product_id} ({len(rows)} rows)')
 
 
 def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
@@ -122,16 +132,16 @@ def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
 def db_commit(message: Optional[str] = None):
     try:
         conn.commit()
-        if message is not None:
-            print(f'Added entry {message}.')
     except IntegrityError as e:
-        if 'UNIQUE constraint failed' in e._message():
+        # always roll back, otherwise the session stays in a failed state and the next commit is lost
+        conn.rollback()
+        if 'UNIQUE constraint failed' in str(e.orig):
             if message is not None:
                 print(f'Entry {message} already exists. Skipped.')
-        else:
-            raise e
-    except PendingRollbackError:
-        conn.rollback()
+            return
+        raise
+    if message is not None:
+        print(f'Added entry {message}.')
 
 
 def query_products(product_name: Optional[str] = None,
@@ -170,21 +180,31 @@ def query_tradable_products(product_type: ProductTypes) -> pd.DataFrame:
     return etf_info_df
 
 
-def query_close(product_id: int,
-                date_start: Optional[pd.Timestamp] = None,
-                date_stop: Optional[pd.Timestamp] = None
-                ) -> pd.DataFrame:
-    cond = Close.product_id == product_id
+def query_degiro_hist(product_ids: int | List[int],
+                      columns: Optional[str | List[str]] = None,
+                      date_start: Optional[pd.Timestamp] = None,
+                      date_stop: Optional[pd.Timestamp] = None
+                      ) -> pd.DataFrame | Dict[str, pd.DataFrame]:
+    # returns a date x product_id dataframe per requested field (a single dataframe if one field is requested)
+    if isinstance(product_ids, int):
+        product_ids = [product_ids]
+    if columns is None:
+        columns = DEGIRO_HIST_COLS
+    elif isinstance(columns, str):
+        columns = [columns]
+    cond = DegiroHistData.product_id.in_(product_ids)
     if date_start is not None:
-        cond = cond & (Close.date >= date_start)
+        cond = cond & (DegiroHistData.date >= pd.Timestamp(date_start).date())
     if date_stop is not None:
-        cond = cond & (Close.date < date_stop)
-    stmt = select(Close).where(cond)
+        cond = cond & (DegiroHistData.date < pd.Timestamp(date_stop).date())
+    stmt = select(DegiroHistData.product_id, DegiroHistData.date,
+                  *[DegiroHistData.__table__.c[col] for col in columns]).where(cond)
     df = pd.read_sql(stmt, engine)
-    df = df.set_index('date', drop=False)
-    df = df.pivot(columns='product_id', index='date', values='close')
-    df.index = pd.to_datetime(df.index)
-    return df
+    df['date'] = pd.to_datetime(df['date'])
+    data = {col: df.pivot(columns='product_id', index='date', values=col).sort_index() for col in columns}
+    if len(columns) == 1:
+        return data[columns[0]]
+    return data
 
 
 def query_yahoo_finance_prod_info(isin: Optional[str | List[str]] = None,

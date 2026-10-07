@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, Date, UniqueConstraint, Sequence
+from sqlalchemy import Column, Integer, String, Boolean, Float, Date, UniqueConstraint, Sequence, Index
 
 from database.db_conn import Base, engine
 
@@ -44,13 +44,20 @@ class Product(Base):
 	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
 
 
-# Degiro product closing price table
-class Close(Base):
-	__tablename__ = 'close'
-	id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
-	product_id = Column(Integer)
-	date = Column(Date)
+# Degiro historical market data table (one row per product and day)
+# volume is stored as reported by Degiro's chart API (unit not verified)
+class DegiroHistData(Base):
+	__tablename__ = 'degiro_hist'
+	id = Column(Integer, primary_key=True)
+	product_id = Column(Integer, nullable=False)
+	date = Column(Date, nullable=False)
+	open = Column(Float)
+	high = Column(Float)
+	low = Column(Float)
 	close = Column(Float)
+	price = Column(Float)
+	volume = Column(Float)
+	__table_args__ = (Index('ix_degiro_hist_product_date', 'product_id', 'date', unique=True), )
 
 
 # Yahoo Finance historical price table
@@ -61,7 +68,8 @@ class YahooFinanceHistData(Base):
 	date = Column(Date)
 	quote_type = Column(String)
 	value = Column(Float)
-	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
+	__table_args__ = (UniqueConstraint('id', name='_id_unique'),
+	                  Index('ix_yf_hist_ticker_quote_date', 'ticker', 'quote_type', 'date', unique=True), )
 
 
 # Yahoo Finance instruments catalog table
@@ -82,8 +90,13 @@ class YahooFinanceHistDataPfInstr(Base):
 	date = Column(Date)
 	quote_type = Column(String)
 	value = Column(Float)
-	__table_args__ = (UniqueConstraint('id', name='_id_unique'), )
+	__table_args__ = (UniqueConstraint('id', name='_id_unique'),
+	                  Index('ix_yf_hist_pf_instr_ticker_quote_date', 'ticker', 'quote_type', 'date', unique=True), )
 
 
 # Create the table in the database
 Base.metadata.create_all(engine)
+# create_all does not add new indexes to existing tables
+for table in Base.metadata.sorted_tables:
+	for index in table.indexes:
+		index.create(engine, checkfirst=True)

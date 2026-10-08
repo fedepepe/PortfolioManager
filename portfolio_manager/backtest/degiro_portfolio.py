@@ -1,4 +1,4 @@
-"""Portfolio replaying the trades of a DeGiro account."""
+"""Portfolio replaying the trades of a Degiro account."""
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,7 @@ from portfolio_manager.degiro.transactions import TxHistFields
 
 
 class PortfolioDegiro(PortfolioGeneric):
-    """Portfolio whose positions follow the trades of a DeGiro account."""
+    """Portfolio whose positions follow the trades of a Degiro account."""
 
     def rebalance(self, tx_hist_df: pd.DataFrame | None = None):
         """Apply the trades of one day: units, trade values and fees."""

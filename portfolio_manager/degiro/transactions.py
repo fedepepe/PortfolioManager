@@ -1,4 +1,4 @@
-"""DeGiro transactions and cash movements of an account."""
+"""Degiro transactions and cash movements of an account."""
 
 from datetime import date
 from enum import Enum
@@ -58,7 +58,7 @@ class CashMovements(str, Enum):
 
 
 def field_list_to_df(data: Any) -> pd.DataFrame:
-    """Frame of DeGiro records (lists of field/value pairs); date columns without time zone."""
+    """Frame of Degiro records (lists of field/value pairs); date columns without time zone."""
     df = pd.DataFrame()
     for field in data:
         columns, values = zip(*field, strict=True)

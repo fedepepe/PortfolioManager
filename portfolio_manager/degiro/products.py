@@ -1,4 +1,4 @@
-"""DeGiro product information: full catalog in the database, portfolio products in Excel."""
+"""Degiro product information: full catalog in the database, portfolio products in Excel."""
 
 import pandas as pd
 from degiro_connector.trading.api import API
@@ -14,7 +14,7 @@ from portfolio_manager.storage.queries import insert_product
 
 
 def fetch_full_product_catalog(degiro_conn: API | None = None):
-    """Download the information of every DeGiro product into the database (long)."""
+    """Download the information of every Degiro product into the database (long)."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     # FETCH PRODUCT INFO
@@ -42,7 +42,7 @@ def fetch_full_product_catalog(degiro_conn: API | None = None):
 
 
 def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[int] = 11853206) -> pd.DataFrame:
-    """Information of the given products from DeGiro, one row per product."""
+    """Information of the given products from Degiro, one row per product."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     if isinstance(product_ids, int):

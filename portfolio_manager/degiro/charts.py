@@ -1,4 +1,4 @@
-"""DeGiro price charts of the portfolio products and of the exchange rates."""
+"""Degiro price charts of the portfolio products and of the exchange rates."""
 
 import logging
 from enum import Enum
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class ChartType(str, Enum):
-    """Chart series available from DeGiro."""
+    """Chart series available from Degiro."""
 
     PRICE = 'price'
     OHLC = 'ohlc'

@@ -6,10 +6,10 @@ from portfolio_manager.degiro.transactions import TxHistFields as F
 
 
 def movements(rows) -> pd.DataFrame:
-    # synthetic DeGiro cash movements (descriptions in Italian, as in the account)
+    # synthetic Degiro cash movements (descriptions in Italian, as in the account)
     df = pd.DataFrame(rows, columns=['date', 'product_id', 'change', 'description'])
     df['date'] = pd.to_datetime(df['date'])
-    df['value_date'] = df['date'].dt.normalize()  # DeGiro gives both movements of a change the same value date
+    df['value_date'] = df['date'].dt.normalize()  # Degiro gives both movements of a change the same value date
     return df.set_index('date')
 
 

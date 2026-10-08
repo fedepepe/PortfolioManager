@@ -1,10 +1,10 @@
-"""DeGiro product types and exchange identifiers."""
+"""Degiro product types and exchange identifiers."""
 
 from enum import Enum
 
 
 class ProductTypes:
-    """Product types of the DeGiro catalog."""
+    """Product types of the Degiro catalog."""
 
     STOCK = 'STOCK'
     ETF = 'ETF'
@@ -20,7 +20,7 @@ class ProductTypes:
 
 
 class Exchanges(Enum):
-    """DeGiro exchange ids."""
+    """Degiro exchange ids."""
 
     XET = 194
     TDG = 196

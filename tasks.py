@@ -25,7 +25,7 @@ def selected_accounts(args: argparse.Namespace) -> list[Accounts]:
 
 
 def update(args: argparse.Namespace):
-    """Download the account data from DeGiro, then recompute backtests and performance (like the Update button)."""
+    """Download the account data from Degiro, then recompute backtests and performance (like the Update button)."""
     from portfolio_manager.dashboard.data_service import update_account
 
     for account in selected_accounts(args):
@@ -34,7 +34,7 @@ def update(args: argparse.Namespace):
 
 
 def backtest(args: argparse.Namespace):
-    """Recompute backtests and performance of portfolio and benchmark from the saved DeGiro data."""
+    """Recompute backtests and performance of portfolio and benchmark from the saved Degiro data."""
     from portfolio_manager.analytics.performance import compute_portfolio_performance
     from portfolio_manager.backtest.workflows import backtest_portfolio_account, backtest_portfolio_benchmark
 
@@ -74,14 +74,14 @@ def etf_performance(args: argparse.Namespace):
 
 
 def fetch_product_catalog(args: argparse.Namespace):
-    """Download the full DeGiro product catalog into the database (long)."""
+    """Download the full Degiro product catalog into the database (long)."""
     from portfolio_manager.degiro.products import fetch_full_product_catalog
 
     fetch_full_product_catalog()
 
 
 def fetch_etf_catalog(args: argparse.Namespace):
-    """Download the Yahoo Finance history of every tradable ETF of the DeGiro catalog (long)."""
+    """Download the Yahoo Finance history of every tradable ETF of the Degiro catalog (long)."""
     from portfolio_manager.analytics.instruments import fetch_etf_catalog_data
 
     fetch_etf_catalog_data()

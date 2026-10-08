@@ -10,7 +10,7 @@ from portfolio_manager.storage.db import Base, engine
 
 # Degiro product catalog table
 class Product(Base):
-    """DeGiro product catalog."""
+    """Degiro product catalog."""
 
     __tablename__ = 'products'
     active = Column(Boolean)
@@ -54,7 +54,7 @@ class Product(Base):
 # Degiro historical market data table (one row per product and day)
 # volume is stored as reported by Degiro's chart API (unit not verified)
 class DegiroHistData(Base):
-    """DeGiro daily history (OHLC, price, volume) per product."""
+    """Degiro daily history (OHLC, price, volume) per product."""
 
     __tablename__ = 'degiro_hist'
     id = Column(Integer, primary_key=True)
@@ -115,7 +115,7 @@ class YahooFinanceHistDataPfInstr(Base):
 
 # Yahoo Finance listing chosen for each Degiro product (several products may share a listing)
 class DegiroYahooMap(Base):
-    """Yahoo Finance listing chosen for each DeGiro product."""
+    """Yahoo Finance listing chosen for each Degiro product."""
 
     __tablename__ = 'degiro_yahoo_map'
     product_id = Column(Integer, primary_key=True)

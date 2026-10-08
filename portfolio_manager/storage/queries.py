@@ -29,7 +29,7 @@ DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
 
 
 def insert_product(product: ProductItem):
-    """Insert a DeGiro product (skipped if already stored)."""
+    """Insert a Degiro product (skipped if already stored)."""
     data = Product(
         active=product.active,
         buy_order_types=list_to_str(product.buy_order_types),
@@ -218,7 +218,7 @@ def query_yahoo_finance_info_field(tickers: list[str], field: str) -> dict[str, 
 
 
 def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
-    """Map DeGiro products to a Yahoo Finance ticker."""
+    """Map Degiro products to a Yahoo Finance ticker."""
     stmt = sqlite_insert(DegiroYahooMap)
     stmt = stmt.on_conflict_do_update(index_elements=[DegiroYahooMap.product_id], set_={'ticker': stmt.excluded.ticker})
     with SessionLocal() as session:
@@ -259,7 +259,7 @@ def query_products(
     tradable: bool | None = None,
     exchange: Exchanges | int | None = None,
 ) -> pd.DataFrame:
-    """Products of the DeGiro catalog matching all the given filters."""
+    """Products of the Degiro catalog matching all the given filters."""
     query = select(Product)
     if isinstance(exchange, Exchanges):
         exchange = exchange.value

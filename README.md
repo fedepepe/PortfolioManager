@@ -1,8 +1,8 @@
 # Portfolio Manager
 
-A dashboard to track, backtest and optimize DeGiro portfolios.
+A dashboard to track, backtest and optimize Degiro portfolios.
 
-It downloads the trades, cash movements and prices of one or more DeGiro accounts, rebuilds the history of each
+It downloads the trades, cash movements and prices of one or more Degiro accounts, rebuilds the history of each
 portfolio, compares it with a benchmark, and computes optimized portfolios on the same instruments.
 
 - **Portfolio** page: NAV against the benchmark, allocation, performance and risk metrics, correlations, risk
@@ -67,13 +67,13 @@ Nothing in these folders is committed:
 
 | Folder | Content |
 |---|---|
-| `data/` | the SQLite database (`degiro.db`), the DeGiro downloads and the backtests (Excel) |
+| `data/` | the SQLite database (`degiro.db`), the Degiro downloads and the backtests (Excel) |
 | `results/` | performance results and the ETF catalogs (Excel) |
 | `state/` | per-account state |
-| `credentials/` | the DeGiro credentials |
+| `credentials/` | the Degiro credentials |
 
 Adjusted prices come from Yahoo Finance when it is reachable and are stored in the database, so that the backtests
-also work offline. DeGiro cash movements are recognized by their descriptions, which are in Italian (the language of
+also work offline. Degiro cash movements are recognized by their descriptions, which are in Italian (the language of
 the accounts): see `portfolio_manager/backtest/workflows.py`.
 
 ## Code layout
@@ -83,7 +83,7 @@ main.py                    web server (FastAPI) serving the dashboard
 tasks.py                   command-line maintenance tasks
 portfolio_manager/
 ├── config/                accounts, paths and constants, account state
-├── degiro/                DeGiro API: connection, products, transactions, price charts
+├── degiro/                Degiro API: connection, products, transactions, price charts
 ├── market_data/           Yahoo Finance
 ├── storage/               database (models, queries) and Excel files
 ├── backtest/              portfolio model, backtest engine, account/benchmark/optimized workflows

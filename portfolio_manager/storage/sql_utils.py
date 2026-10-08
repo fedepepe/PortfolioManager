@@ -1,4 +1,4 @@
-"""Conversions between DeGiro values and database columns."""
+"""Conversions between Degiro values and database columns."""
 
 from datetime import datetime
 

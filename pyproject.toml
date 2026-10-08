@@ -1,7 +1,7 @@
 [project]
 name = "portfolio-manager"
 version = "0.1.0"
-description = "Dashboard to track, backtest and optimize DeGiro portfolios"
+description = "Dashboard to track, backtest and optimize Degiro portfolios"
 requires-python = ">=3.10"
 
 [tool.pytest.ini_options]

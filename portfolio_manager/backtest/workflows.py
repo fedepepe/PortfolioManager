@@ -67,7 +67,7 @@ def load_backtest_data(name: str) -> PortfolioBacktestData:
 
 
 def update_data(account: Accounts):
-    """Download the transactions, products, cash movements and charts of an account from DeGiro."""
+    """Download the transactions, products, cash movements and charts of an account from Degiro."""
     conn = get_degiro_connection(account=account)
     fetch_tx_history(account=account, degiro_conn=conn)
     fetch_portfolio_products_info(account=account, degiro_conn=conn)
@@ -77,7 +77,7 @@ def update_data(account: Accounts):
     account.state.set('last_data_update', datetime.now().strftime('%d%b%Y'))
 
 
-# descriptions of the DeGiro cash movements (in the language of the account: Italian)
+# descriptions of the Degiro cash movements (in the language of the account: Italian)
 DIVIDEND_PATTERN = 'Dividendo|Cedola'  # dividends, coupons (and their taxes)
 FX_PATTERN = 'Credito FX|Prelievo FX'  # currency conversions of the cash account
 DEPOSIT_PATTERN = 'Deposito|Prelievo'  # deposits and withdrawals
@@ -86,7 +86,7 @@ PRODUCT_CHANGE_PATTERN = 'CAMBIO'  # product change: a sale of the old product a
 
 
 def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
-    """Backtest of the account from its saved DeGiro data (trades, cash movements, prices), saved to its file."""
+    """Backtest of the account from its saved Degiro data (trades, cash movements, prices), saved to its file."""
     prices_df = load_portfolio_charts(account=account)
     tx_hist_df = load_tx_history(account=account)
     movements_df = load_account_movements(account=account)

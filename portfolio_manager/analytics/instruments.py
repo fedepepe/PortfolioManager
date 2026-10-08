@@ -265,7 +265,7 @@ def compute_portfolio_instruments_performance():
 
 
 def fetch_etf_catalog_data():
-    """Download the Yahoo Finance history of the tradable ETFs of the DeGiro catalog."""
+    """Download the Yahoo Finance history of the tradable ETFs of the Degiro catalog."""
     etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)[
         [Product.isin.name, Product.symbol.name, Product.name.name, Product.exchange_id.name]
     ]

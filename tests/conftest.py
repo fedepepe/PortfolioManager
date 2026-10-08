@@ -1,4 +1,4 @@
-# Shared fixtures: synthetic market data only (no DeGiro, Yahoo Finance or saved portfolio data)
+# Shared fixtures: synthetic market data only (no Degiro, Yahoo Finance or saved portfolio data)
 import numpy as np
 import pandas as pd
 import pytest

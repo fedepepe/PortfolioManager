@@ -40,7 +40,7 @@ def get_settings_card() -> dbc.Card:
         dbc.Row([
             labelled('Method', dcc.Dropdown([{'label': v, 'value': k.value} for k, v in ALLOCATION_STRATS_LABELS.items()],
                                             id='strat-method', clearable=False), width=3),
-            labelled('Rebalancing', dcc.Dropdown([{'label': v, 'value': k} for k, v in OPTIMIZATION_FREQ_LABELS.items()],
+            labelled('Rebalancing interval', dcc.Dropdown([{'label': v, 'value': k} for k, v in OPTIMIZATION_FREQ_LABELS.items()],
                                                  id='strat-freq', clearable=False), width=2),
             labelled('Max assets', dbc.Input(id='strat-max-assets', type='number', min=1, step=1,
                                              placeholder='no limit', size='sm'), width=2),
@@ -55,7 +55,7 @@ def get_settings_card() -> dbc.Card:
                                                                       marks=PCT_MARKS, tooltip={'placement': 'bottom'}),
                      width=5),
         ]),
-    ]), color='dark', outline=True, className='mb-2')
+    ]), color='black', className='mb-4')
 
 
 # DASHBOARD
@@ -63,15 +63,15 @@ def build_content_strategies(account: Accounts):
     # layout only: the figures and the settings are filled by callbacks, which also run when the page is loaded
     return html.Div(
         dbc.Card([
+            # the status takes the width left by the dropdown and the button
             dbc.Row([
                 dbc.Col([dcc.Dropdown([acc.name for acc in Accounts], account.name,
-                                      id='dropdown-strategies', clearable=False)],
-                        style={"width": "15%"}),
+                                      id='dropdown-strategies', clearable=False)], width=4),
                 dbc.Col([dbc.Button("Run optimization", id="button-optimize", className="me-2", n_clicks=0)],
-                        style={"width": "10%"}),
-                dbc.Col([loading_wrapper(html.Div(id='optimize-status'))], style={"width": "30%"}),
-            ], align='center'),
-            html.Br(),
+                        width='auto'),
+                dbc.Col([loading_wrapper(html.Div(id='optimize-status'))]),
+            ], align='center', className='mb-4'),
+            # same space above and below the settings card
             get_settings_card(),
             dbc.Row([
                 dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_strat_navs', figure=get_fig_empty()))),

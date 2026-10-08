@@ -70,7 +70,7 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
 def fetch_tx_history(account: Accounts,
                      degiro_conn: Optional[API] = None) -> pd.DataFrame:
     if degiro_conn is None:
-        degiro_conn = get_degiro_connection()
+        degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW
     transactions_history = degiro_conn.get_transactions_history(
         transaction_request=HistoryRequest(
@@ -93,7 +93,7 @@ def load_tx_history(account: Accounts) -> pd.DataFrame:
 def fetch_account_movements(account: Accounts,
                             degiro_conn: Optional[API] = None):
     if degiro_conn is None:
-        degiro_conn = get_degiro_connection()
+        degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW
     overview_request = OverviewRequest(
         from_date=date(year=date.today().year - 10, month=1, day=1),

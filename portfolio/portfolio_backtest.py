@@ -51,7 +51,7 @@ def load_backtest_data(name: str) -> PortfolioBacktestData:
 
 
 def update_data(account: Accounts):
-    conn = get_degiro_connection(file_name=account.config_file)
+    conn = get_degiro_connection(account=account)
     fetch_tx_history(account=account, degiro_conn=conn)
     fetch_portfolio_products_info(account=account, degiro_conn=conn)
     fetch_account_movements(account=account, degiro_conn=conn)

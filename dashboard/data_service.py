@@ -15,6 +15,8 @@ from dashboard.dash_instruments_data import InstrumentsData
 from dashboard.dash_portfolio_data import PortfolioData
 from portfolio.portfolio_backtest import load_backtest_data, backtest_portfolio_benchmark, refresh_account
 from portfolio.portfolio_backtest import backtest_portfolio_optimized, optimized_portfolio_name, optimization_prices
+from portfolio.portfolio_backtest import OPTIMIZATION_SETTINGS_LABEL
+from strategy.strategy_definitions import OptimizationSettings
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from utils.file_utils import to_file_name, load_df_dict_from_excel
 
@@ -26,6 +28,7 @@ class OptimizedData(NamedTuple):
     hist_data: PortfolioBacktestData
     perf_dct: Optional[Dict[str, pd.DataFrame]]  # None if the performance results are missing
     computed_at: float  # modification time of the saved backtest file
+    settings: OptimizationSettings  # settings of the saved optimization (defaults for files saved without them)
 
 
 def _benchmark_name(account: Accounts) -> str:
@@ -92,9 +95,13 @@ def _optimized_data(account_name: str, version: str) -> OptimizedData:
         perf_dct = load_df_dict_from_excel(file_name=name, folder_name=RESULTS_DIR)
     except FileNotFoundError:
         perf_dct = None
+    settings = OptimizationSettings()
+    if perf_dct is not None and OPTIMIZATION_SETTINGS_LABEL in perf_dct:
+        settings = OptimizationSettings.from_series(perf_dct[OPTIMIZATION_SETTINGS_LABEL].iloc[:, 0])
     return OptimizedData(hist_data=load_backtest_data(name=name),
                          perf_dct=perf_dct,
-                         computed_at=os.path.getmtime(_optimized_files(account)[0]))
+                         computed_at=os.path.getmtime(_optimized_files(account)[0]),
+                         settings=settings)
 
 
 def get_optimized_data(account: Accounts) -> Optional[OptimizedData]:
@@ -120,11 +127,17 @@ def update_account(account: Accounts):
         refresh_account(account=account)
 
 
-def run_optimization(account: Accounts) -> str:
+def run_optimization(account: Accounts, settings: OptimizationSettings) -> str:
     # backtest of the optimized portfolio over the dates of the saved portfolio (saves its files);
-    # returns where the prices come from (online / offline)
+    # returns where the prices come from (online / offline). Raises ValueError if the settings cannot be satisfied
+    error = settings.validate()
+    if error:
+        raise ValueError(error)
     with _UPDATE_LOCK:
         index = get_portfolio_data(account).hist_data.nav_eff.index
         prices_df, prices_summary = optimization_prices(account=account)
-        backtest_portfolio_optimized(account=account, index=index, prices_adj_df=prices_df)
+        error = settings.validate(n_assets=prices_df.shape[1])
+        if error:
+            raise ValueError(error)
+        backtest_portfolio_optimized(account=account, index=index, prices_adj_df=prices_df, settings=settings)
     return prices_summary

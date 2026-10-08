@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import html, dcc, Input, Output, State, callback
+from dash import html, dcc, Input, Output, State, callback, no_update
 from dash.exceptions import PreventUpdate
 
 from config.accounts import Accounts
@@ -12,11 +12,55 @@ from dashboard.dash_common import LAYOUT_TEMPLATE, loading_wrapper, card_wrapper
 from dashboard.dash_portfolio_data import PortfolioData
 from dashboard.data_service import get_portfolio_data, get_optimized_data, run_optimization, OptimizedData
 from engines.reporting import PerfDataTabs
+from strategy.strategy_definitions import AllocationStrats, OptimizationSettings
+from strategy.strategy_definitions import ALLOCATION_STRATS_LABELS, OPTIMIZATION_FREQ_LABELS
+
+PCT_MARKS = {v: f'{v}%' for v in range(0, 101, 10)}
+# controls of the optimization settings, in the order of the callbacks' outputs and states
+SETTINGS_CONTROLS = [('strat-method', 'value'), ('strat-freq', 'value'), ('strat-max-assets', 'value'),
+                     ('strat-weight-range', 'value'), ('strat-min-position', 'value'),
+                     ('strat-invested-range', 'value'), ('strat-max-vol', 'value'), ('strat-target-vol', 'value')]
+
+
+def labelled(label: str, control, width: int) -> dbc.Col:
+    return dbc.Col([dbc.Label(label, className='small mb-1'), control], width=width)
+
+
+def pct_input(control_id: str, placeholder: str) -> dbc.InputGroup:
+    return dbc.InputGroup([dbc.Input(id=control_id, type='number', min=0, max=100, step=0.5, placeholder=placeholder,
+                                     size='sm'),
+                           dbc.InputGroupText('%')], size='sm')
+
+
+# OPTIMIZATION SETTINGS
+def get_settings_card() -> dbc.Card:
+    # control values are filled from the saved optimization of the selected account
+    return dbc.Card(dbc.CardBody([
+        html.H6('Optimization settings', className='mb-2'),
+        dbc.Row([
+            labelled('Method', dcc.Dropdown([{'label': v, 'value': k.value} for k, v in ALLOCATION_STRATS_LABELS.items()],
+                                            id='strat-method', clearable=False), width=3),
+            labelled('Rebalancing', dcc.Dropdown([{'label': v, 'value': k} for k, v in OPTIMIZATION_FREQ_LABELS.items()],
+                                                 id='strat-freq', clearable=False), width=2),
+            labelled('Max assets', dbc.Input(id='strat-max-assets', type='number', min=1, step=1,
+                                             placeholder='no limit', size='sm'), width=2),
+            labelled('Max volatility (Max Sharpe)', pct_input('strat-max-vol', 'no limit'), width=2),
+            labelled('Target volatility (Max return)', pct_input('strat-target-vol', 'none'), width=3),
+        ], className='mb-2'),
+        dbc.Row([
+            labelled('Weight per asset', dcc.RangeSlider(0, 100, 1, id='strat-weight-range', marks=PCT_MARKS,
+                                                         tooltip={'placement': 'bottom'}), width=5),
+            labelled('Min position size (smaller ones dropped)', pct_input('strat-min-position', '0 = off'), width=2),
+            labelled('Total invested (rest in cash)', dcc.RangeSlider(0, 100, 1, id='strat-invested-range',
+                                                                      marks=PCT_MARKS, tooltip={'placement': 'bottom'}),
+                     width=5),
+        ]),
+    ]), color='dark', outline=True, className='mb-2')
 
 
 # DASHBOARD
 def build_content_strategies(account: Accounts):
-    # layout only: the figures are filled by the render callback, which also runs when the page is loaded
+    # layout only: the figures and the settings are filled by callbacks, which also run when the page is loaded
     return html.Div(
         dbc.Card([
             dbc.Row([
@@ -25,10 +69,10 @@ def build_content_strategies(account: Accounts):
                         style={"width": "15%"}),
                 dbc.Col([dbc.Button("Run optimization", id="button-optimize", className="me-2", n_clicks=0)],
                         style={"width": "10%"}),
-                dbc.Col([loading_wrapper(html.Div(id='optimize-status'))], style={"width": "10%"}),
-                dbc.Col([], style={"width": "10%"}),
+                dbc.Col([loading_wrapper(html.Div(id='optimize-status'))], style={"width": "30%"}),
             ], align='center'),
             html.Br(),
+            get_settings_card(),
             dbc.Row([
                 dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_strat_navs', figure=get_fig_empty()))),
                         width=8),
@@ -39,6 +83,33 @@ def build_content_strategies(account: Accounts):
         ], body=True, color='dark'
         ),
     )
+
+
+def settings_to_controls(settings: OptimizationSettings) -> Tuple:
+    pct = lambda v: None if v is None else round(100 * v, 2)
+    return (settings.method.value,
+            settings.optimization_freq,
+            settings.max_asset_num,
+            [pct(settings.min_asset_exposure), pct(settings.max_asset_exposure)],
+            pct(settings.min_position_size),
+            [pct(settings.min_pf_exposure), pct(settings.max_pf_exposure)],
+            pct(settings.max_vol),
+            pct(settings.target_vol))
+
+
+def controls_to_settings(method, freq, max_assets, weight_range, min_position, invested_range, max_vol, target_vol
+                         ) -> OptimizationSettings:
+    frac = lambda v: None if v in (None, '') else float(v) / 100.
+    return OptimizationSettings(method=AllocationStrats(method),
+                                optimization_freq=freq,
+                                min_asset_exposure=frac(weight_range[0]),
+                                max_asset_exposure=frac(weight_range[1]),
+                                min_position_size=frac(min_position) or 0.,
+                                min_pf_exposure=frac(invested_range[0]),
+                                max_pf_exposure=frac(invested_range[1]),
+                                max_vol=frac(max_vol),
+                                target_vol=frac(target_vol),
+                                max_asset_num=None if max_assets in (None, '') else int(max_assets))
 
 
 # NAV ADJUSTED LINE PLOT: portfolio vs optimized portfolio
@@ -63,15 +134,15 @@ def get_fig_strat_navs(account: Accounts, pf_data: PortfolioData, opt_data: Opti
         return fig_navs
     fig_navs.add_trace(go.Scatter(x=opt_data.hist_data.nav_eff.index,
                                   y=opt_data.hist_data.nav_eff.values,
-                                  name=opt_data.hist_data.name,
+                                  name=f'{account.name} Opt. ({ALLOCATION_STRATS_LABELS[opt_data.settings.method]})',
                                   mode='lines',
                                   hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
     last_opt = opt_data.hist_data.nav_eff.index.max()
     title = (f'Optimization computed on {datetime.fromtimestamp(opt_data.computed_at):%Y-%m-%d %H:%M}, '
-             f'data until {last_opt:%Y-%m-%d}')
+             f'data until {last_opt:%Y-%m-%d}<br><sup>Settings: {opt_data.settings.describe()}</sup>')
     if pf_data.hist_data.nav_eff.index.max() > last_opt:
         title += '<br><sup>Portfolio data is more recent: run the optimization again to include it</sup>'
-    fig_navs.update_layout(title=dict(text=title))
+    fig_navs.update_layout(title=dict(text=title), margin=dict(t=110))
     return fig_navs
 
 
@@ -94,6 +165,26 @@ def select_account_strategies(account_name: str) -> str:
     return account_name
 
 
+# show the settings of the saved optimization of the selected account (defaults if there is none)
+@callback(
+    *[Output(i, p) for i, p in SETTINGS_CONTROLS],
+    Input('dropdown-strategies', 'value'),
+)
+def load_settings(account_name: str) -> Tuple:
+    opt_data = get_optimized_data(Accounts.get_account_by_name(name=account_name))
+    return settings_to_controls(opt_data.settings if opt_data is not None else OptimizationSettings())
+
+
+# volatility settings only apply to their method
+@callback(
+    Output('strat-max-vol', 'disabled'),
+    Output('strat-target-vol', 'disabled'),
+    Input('strat-method', 'value'),
+)
+def enable_method_settings(method: str) -> Tuple:
+    return method != AllocationStrats.MAX_SHARPE.value, method != AllocationStrats.MAX_RET.value
+
+
 # draw the strategies figures from saved data only (also when the page is loaded and after an optimization)
 @callback(
     Output('fig_strat_navs', 'figure'),
@@ -111,18 +202,23 @@ def render_strategies(account_name: str, strategy_version) -> Tuple:
     return tuple(fig.update_layout(uirevision=account_name) for fig in figs)
 
 
-# run the optimization of the selected account; the new version triggers the redraw of the figures
+# run the optimization of the selected account with the chosen settings; the new version triggers the redraw
 @callback(
     Output('store-strategy-version', 'data'),
     Output('optimize-status', 'children'),
     Input('button-optimize', 'n_clicks'),
     State('dropdown-strategies', 'value'),
+    *[State(i, p) for i, p in SETTINGS_CONTROLS],
     prevent_initial_call=True
 )
-def run_optimization_callback(n_clicks, account_name: str) -> Tuple:
+def run_optimization_callback(n_clicks, account_name: str, *controls) -> Tuple:
     # Dash also calls this when the page is built (prevent_initial_call does not apply, since
     # store-strategy-version is outside the page): optimize only on an actual click
     if not n_clicks:
         raise PreventUpdate
-    prices_summary = run_optimization(Accounts.get_account_by_name(name=account_name))
+    try:
+        settings = controls_to_settings(*controls)
+        prices_summary = run_optimization(Accounts.get_account_by_name(name=account_name), settings=settings)
+    except ValueError as e:
+        return no_update, html.Span(f'Not run: {e}', className='text-danger')
     return time.time(), f'Optimized {time.strftime("%H:%M")} (prices {prices_summary})'

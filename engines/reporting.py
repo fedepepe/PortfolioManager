@@ -268,7 +268,8 @@ def regress_strat_vs_bm(nav: pd.Series,
 
 def compute_results_from_navs(navs: Union[pd.Series, pd.DataFrame],
                               nav_benchmark: Optional[pd.Series] = None,
-                              file_name: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+                              file_name: Optional[str] = None,
+                              save: bool = True) -> Dict[str, pd.DataFrame]:
     if isinstance(navs, pd.Series):
         navs = navs.to_frame()
     results_dict = {PerfDataTabs.RETURNS_YEARLY: pd.DataFrame(),
@@ -281,11 +282,12 @@ def compute_results_from_navs(navs: Union[pd.Series, pd.DataFrame],
             print(results_single[label])
             results_dict[label] = pd.concat([results_dict[label], results_single[label].rename(nav.name)], axis=1)
     results_dict[PerfDataTabs.CORRELATION] = results_dict[PerfDataTabs.RETURNS_MONTHLY].corr()
-    if file_name is None:
-        file_name = 'results'
-    save_df_dict_to_excel(df_dict=results_dict,
-                          folder_name=RESULTS_DIR,
-                          file_name=file_name)
+    if save:
+        if file_name is None:
+            file_name = 'results'
+        save_df_dict_to_excel(df_dict=results_dict,
+                              folder_name=RESULTS_DIR,
+                              file_name=file_name)
     return results_dict
 
 

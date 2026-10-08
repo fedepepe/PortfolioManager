@@ -181,7 +181,7 @@ def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
     args = dict(optimization_type=allocation_method,
                 min_pf_exposure=extra_args.get('min_pf_exposure', 0.0),
                 max_pf_exposure=extra_args.get('max_pf_exposure', 1.0),
-                bounds_weights=(extra_args.get('min_pf_exposure', 0.0),
+                bounds_weights=(extra_args.get('min_asset_exposure', 0.0),
                                 extra_args.get('max_asset_exposure', 1.0)))
     if extra_args.get('bounds_asset_class', None) is not None:
         asset_class_mat = np.zeros(shape=(len(extra_args.get('bounds_asset_class', None)), len(prices.columns)))
@@ -220,5 +220,25 @@ def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
             print('-----------------------------')
             print(f'Optimized weights: {optim_weights.values}')
             print('-----------------------------')
+        if extra_args.get('min_position_size', 0.0) > 0:
+            optim_weights = apply_min_position_size(weights=optim_weights,
+                                                    min_size=extra_args['min_position_size'],
+                                                    max_weight=extra_args.get('max_asset_exposure', 1.0))
         weights_df.loc[idx, :] = optim_weights
     return weights_df
+
+
+def apply_min_position_size(weights: pd.Series, min_size: float, max_weight: float) -> pd.Series:
+    # positions below min_size are dropped; their weight is redistributed proportionally among the remaining
+    # positions, without exceeding max_weight (what cannot be placed stays in cash)
+    if weights.isna().all():
+        return weights
+    total = weights.sum()
+    weights = weights.where(weights >= min_size, 0.)
+    for _ in range(len(weights)):
+        free = (weights > 0) & (weights < max_weight)
+        missing = total - weights.sum()
+        if missing <= 1e-12 or not free.any():
+            break
+        weights[free] = (weights[free] * (1. + missing / weights[free].sum())).clip(upper=max_weight)
+    return weights

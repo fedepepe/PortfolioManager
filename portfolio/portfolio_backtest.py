@@ -20,7 +20,7 @@ from portfolio.portfolio_adj_prices import get_portfolio_adj_prices
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from portfolio.portfolio_backtest_engine import backtest_portfolio
 from portfolio.portfolio_performance import save_performance_data, compute_portfolio_performance
-from strategy.strategy_definitions import AllocationStrats
+from strategy.strategy_definitions import OptimizationSettings
 from utils import file_utils as fu
 from utils.date_utils import reset_time
 
@@ -190,6 +190,9 @@ def refresh_account(account: Accounts):
                                   hist_benchmark_data=hist_benchmark_data)
 
 
+OPTIMIZATION_SETTINGS_LABEL = 'settings'
+
+
 def optimized_portfolio_name(account: Accounts) -> str:
     # name of the saved backtest and performance files of the optimized portfolio
     return f'{account.name} Opt. (Tangency)'
@@ -220,22 +223,25 @@ def optimization_prices(account: Accounts) -> Tuple[pd.DataFrame, str]:
 
 def backtest_portfolio_optimized(account: Accounts,
                                  index: pd.DatetimeIndex,
-                                 prices_adj_df: Optional[pd.DataFrame] = None) -> PortfolioBacktestData:
+                                 prices_adj_df: Optional[pd.DataFrame] = None,
+                                 settings: Optional[OptimizationSettings] = None) -> PortfolioBacktestData:
+    settings = settings or OptimizationSettings()
     if prices_adj_df is None:
         prices_adj_df, _ = optimization_prices(account=account)
-    target_exp_df = compute_weights_optim_portfolio(allocation_method=AllocationStrats.MAX_SHARPE,
+    target_exp_df = compute_weights_optim_portfolio(allocation_method=settings.method,
                                                     prices=prices_adj_df,
                                                     sampling_freq=DEFAULT_DATA_FREQ,
-                                                    optimization_freq='M',
-                                                    extra_args={'max_asset_exposure': 0.3,
-                                                                'max_vol': 0.15})
+                                                    optimization_freq=settings.optimization_freq,
+                                                    extra_args=settings.extra_args())
     portfolio_name = optimized_portfolio_name(account)
     backtest_data_optimized = backtest_portfolio(name=portfolio_name,
                                                  prices_df=prices_adj_df.reindex(index=index).ffill(),
                                                  target_exp=target_exp_df,
                                                  curr_base=account.currency)
-    # also saves the performance results under portfolio_name
-    compute_results_from_navs(navs=backtest_data_optimized.nav, file_name=portfolio_name)
+    # performance results saved together with the settings they were computed with
+    results_dict = compute_results_from_navs(navs=backtest_data_optimized.nav, save=False)
+    results_dict[OPTIMIZATION_SETTINGS_LABEL] = settings.to_series().to_frame()
+    save_performance_data(results_dict=results_dict, file_name=portfolio_name)
     save_backtest_data(hist_portfolio_data=backtest_data_optimized)
     return backtest_data_optimized
 

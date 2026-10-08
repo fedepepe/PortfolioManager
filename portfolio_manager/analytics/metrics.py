@@ -95,7 +95,7 @@ def compute_portfolio_metrics(
         PerfDataTabs.TURNOVER: turnover,
     }
     if compute_hist_metrics:
-        results_dict[PerfDataTabs.HIST_PERF_METRICS] = _historical_metrics(nav, freq, returns_resampled)
+        results_dict[PerfDataTabs.HIST_PERF_METRICS] = _historical_metrics(nav, freq)
     # correlation of the weekly returns of adjusted closing prices (as shown in the dashboard)
     if hist_portfolio_data is not None and hist_portfolio_data.close_adj is not None:
         returns_weekly = hist_portfolio_data.close_adj.resample(DEFAULT_CORR_DATA_FREQ).last().pct_change()
@@ -188,17 +188,21 @@ def _risk_metrics(
     )
 
 
-def _historical_metrics(nav: pd.Series, freq: str, returns_resampled: pd.Series) -> pd.DataFrame:
-    # return, volatility, Sharpe and Sortino ratios at each date, from the start of the NAV up to that date
+def _historical_metrics(nav: pd.Series, freq: str) -> pd.DataFrame:
+    # return, volatility, Sharpe and Sortino ratios at each period of freq, from the start of the NAV up to that
+    # period; all computed on the NAV resampled at freq, so that the minimum history is a number of periods
     names = [m.name for m in (Metrics.PA_RETURN, Metrics.VOLATILITY, Metrics.SHARPE_RATIO, Metrics.SORTINO_RATIO)]
-    if len(nav) < MIN_PERIODS_DICT[freq]:
+    nav_resampled = nav.resample(freq).last().ffill()
+    min_periods = MIN_PERIODS_DICT[freq]
+    if len(nav_resampled) < min_periods:
         # young portfolio: not enough history for any value
-        return pd.DataFrame(np.nan, index=nav.index, columns=names)
+        return pd.DataFrame(np.nan, index=nav_resampled.index, columns=names)
+    returns = nav_resampled.pct_change()
     ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
-    expanding = {'window': len(nav), 'min_periods': MIN_PERIODS_DICT[freq]}
-    pa_return = nav.rolling(**expanding).apply(lambda x: compute_pa_return(x, freq)).rename(Metrics.PA_RETURN.name)
-    volatility = (ann_factor * returns_resampled.rolling(**expanding).std()).rename(Metrics.VOLATILITY.name)
-    down_volatility = ann_factor * returns_resampled.rolling(**expanding).apply(lambda r: r[r < 0].std())
+    pa_return = nav_resampled.expanding(min_periods=min_periods).apply(lambda x: compute_pa_return(x, freq))
+    pa_return = pa_return.rename(Metrics.PA_RETURN.name)
+    volatility = (ann_factor * returns.expanding(min_periods=min_periods).std()).rename(Metrics.VOLATILITY.name)
+    down_volatility = ann_factor * returns.expanding(min_periods=min_periods).apply(lambda r: r[r < 0].std())
     sharpe_ratio = ((pa_return - METRICS_RISK_FREE_RATE) / volatility).rename(Metrics.SHARPE_RATIO.name)
     sortino_ratio = ((pa_return - METRICS_RISK_FREE_RATE) / down_volatility).rename(Metrics.SORTINO_RATIO.name)
     return pd.concat([pa_return, volatility, sharpe_ratio, sortino_ratio], axis=1)

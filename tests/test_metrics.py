@@ -62,3 +62,17 @@ def test_young_portfolio_has_empty_historical_metrics():
     hist = results[PerfDataTabs.HIST_PERF_METRICS]
     assert hist.index.equals(nav.index) and hist.isna().all().all()
     assert results[PerfDataTabs.RISK_METRICS][Metrics.TOTAL_RETURN.name] == pytest.approx(0.05)
+
+
+def test_minimum_history_counts_periods_not_rows():
+    from portfolio_manager.analytics.metrics import _historical_metrics
+
+    # one value every other business day: the history is counted in business days (130 needed), not in values
+    def every_other_day(n_business_days):
+        index = pd.bdate_range('2021-01-01', periods=n_business_days)[::2]
+        return pd.Series(np.linspace(100.0, 110.0, len(index)), index=index, name='NAV')
+
+    young = _historical_metrics(every_other_day(120), 'B')  # 60 values, 119 business days
+    assert young.isna().all().all()
+    hist = _historical_metrics(every_other_day(200), 'B')  # 100 values, 199 business days
+    assert len(hist) == 199 and hist[Metrics.VOLATILITY.name].notna().any()

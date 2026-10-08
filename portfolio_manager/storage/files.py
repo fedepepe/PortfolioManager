@@ -1,3 +1,5 @@
+"""Excel files of the data and results folders."""
+
 import os
 
 import pandas as pd
@@ -6,10 +8,12 @@ PD_DATA_TYPES = pd.Series | pd.DataFrame
 
 
 def to_file_name(file_name: str) -> str:
+    """File name without spaces and dots."""
     return file_name.replace(' ', '_').replace('.', '_')
 
 
 def save_df_to_excel(df: PD_DATA_TYPES, file_name: str, folder_name: str = None, append: bool = False):
+    """Save a frame; with append, merge it into the saved one (new rows win)."""
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -27,6 +31,7 @@ def save_df_to_excel(df: PD_DATA_TYPES, file_name: str, folder_name: str = None,
 def save_df_dict_to_excel(
     df_dict: dict[str, PD_DATA_TYPES], file_name: str, folder_name: str = None, append: bool = False
 ):
+    """Save frames as the sheets of one file; with append, merge them into the saved ones."""
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -46,6 +51,7 @@ def save_df_dict_to_excel(
 
 
 def load_df_from_excel(file_name: str, folder_name: str = None, sheet_name: str | list[str] = 'Sheet1') -> pd.DataFrame:
+    """Read one sheet (or several) of a file."""
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -55,6 +61,7 @@ def load_df_from_excel(file_name: str, folder_name: str = None, sheet_name: str 
 
 
 def load_df_dict_from_excel(file_name: str, folder_name: str = None) -> dict[str, pd.DataFrame | str]:
+    """Read every sheet of a file: sheet name -> frame."""
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:

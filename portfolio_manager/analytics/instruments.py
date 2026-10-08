@@ -1,3 +1,5 @@
+"""Instrument data from Yahoo Finance: prices, performance and the ETF catalog of each account."""
+
 import logging
 import time
 from difflib import SequenceMatcher
@@ -26,6 +28,8 @@ CATALOG_PERF_LABEL = 'Performance'
 
 
 class InstrPerfTableCols:
+    """Columns of the instruments table."""
+
     ticker = 'Ticker'
     isin = 'ISIN'
     name = 'Name'
@@ -33,13 +37,14 @@ class InstrPerfTableCols:
 
 
 def is_missing(value) -> bool:
+    """True for None, NaN and blank strings."""
     if isinstance(value, str):
         return not value.strip()
     return value is None or pd.isna(value)
 
 
 def choose_ticker(tickers: list[str], ticker: str | None = None) -> str:
-    # follow the priority order of exchanges: first {ticker}.{exchange}, then any ticker listed on an exchange
+    """Follow the priority order of exchanges: first {ticker}.{exchange}, then any ticker listed on an exchange."""
     for prefix in ([ticker] if ticker is not None else []) + [None]:
         for x in ExchangesYF:
             for t in tickers:
@@ -55,6 +60,9 @@ def fetch_instr_hist_data(
     name_lst: str | list[str] | None = None,
     freq: str = DEFAULT_DATA_FREQ,
 ) -> dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
+    """Yahoo Finance history of each instrument (searched by ISIN, then by ticker), choosing one listing by name and
+    exchange: one frame per column, date x ticker, plus the instrument information.
+    """
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
     if ticker_lst is None:
@@ -120,6 +128,7 @@ def fetch_instr_hist_data(
 
 
 def remove_duplicated_tickers(col, data_single):
+    """Merge the columns of tickers appearing more than once (in place)."""
     if col == YF_PROD_INFO_LABEL:
         data_single[col] = data_single[col].loc[:, ~data_single[col].columns.duplicated()].copy()
     else:
@@ -129,6 +138,7 @@ def remove_duplicated_tickers(col, data_single):
 def prices_to_base_curr(
     account: Accounts, price_df: pd.DataFrame, curr_info: PD_DATA_TYPES | list[str]
 ) -> pd.DataFrame:
+    """Prices converted to the account currency, given the currency of each column."""
     if isinstance(curr_info, pd.Series):
         curr_lst = curr_info.str.upper().to_list()
     elif isinstance(curr_info, list):
@@ -159,6 +169,7 @@ def prices_to_base_curr(
 
 
 def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
+    """Adjusted prices of the products of an account, in its currency."""
     products_df = load_portfolio_products(account=account)
     isin_lst = products_df['isin'].to_list()
     name_lst = products_df['name'].to_list()
@@ -174,6 +185,7 @@ def fetch_instr_adj_prices(
     name_lst: list | None = None,
     tick_lst: list | None = None,
 ) -> pd.DataFrame:
+    """Adjusted prices of the given instruments, in the account currency."""
     data = fetch_instr_hist_data(
         isin_lst=isin_lst, columns=YFinHistCols.adj_close, ticker_lst=tick_lst, name_lst=name_lst
     )
@@ -196,6 +208,7 @@ def fetch_instr_adj_prices(
 def compute_product_performance(
     adj_close_df: PD_DATA_TYPES, volume_df: PD_DATA_TYPES | None = None, prod_info_df: PD_DATA_TYPES | None = None
 ) -> pd.DataFrame:
+    """Performance metrics of each price series (and its volume if given)."""
     perf_metrics_df = pd.DataFrame()
     for ticker in adj_close_df.columns:
         isin_str = f' ({prod_info_df.loc[YFinInfoCols.isin.value, ticker]})' if prod_info_df is not None else ''
@@ -225,6 +238,7 @@ def compute_product_performance(
 
 
 def compute_single_etf_performance(isin: str) -> pd.DataFrame:
+    """Performance metrics of one ETF."""
     # ticker and name from the Degiro catalog (if listed) help picking the right Yahoo Finance listing
     prod_df = query_products(product_isin=isin, product_type=ProductTypes.ETF)
     ticker = prod_df[Product.symbol.name].iloc[0] if not prod_df.empty else None
@@ -236,6 +250,7 @@ def compute_single_etf_performance(isin: str) -> pd.DataFrame:
 
 
 def compute_portfolio_instruments_performance():
+    """Performance metrics of the instruments of every account."""
     for account in Accounts:
         close_adj_df = fetch_portfolio_instr_adj_prices(account=account)
         perf_metrics_df = pd.DataFrame()
@@ -250,6 +265,7 @@ def compute_portfolio_instruments_performance():
 
 
 def fetch_etf_catalog_data():
+    """Download the Yahoo Finance history of the tradable ETFs of the DeGiro catalog."""
     etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)[
         [Product.isin.name, Product.symbol.name, Product.name.name, Product.exchange_id.name]
     ]
@@ -278,6 +294,9 @@ def fetch_etf_catalog_data():
 
 
 def build_etf_catalog_data(account: Accounts) -> dict[YFinHistCols, pd.DataFrame]:
+    """Build and save the ETF catalog of an account: the most liquid ETFs, prices in the account currency and their
+    performance metrics.
+    """
     volume_df = query_yahoo_finance_hist_data(columns=YFinHistCols.volume)
     volume_3m_df = volume_df.rolling(90).mean().dropna(how='all', axis=1)
     curr_info = query_yahoo_finance_prod_info().loc[YFinInfoCols.currency.value, volume_3m_df.columns]
@@ -299,6 +318,7 @@ def build_etf_catalog_data(account: Accounts) -> dict[YFinHistCols, pd.DataFrame
 
 
 def compute_catalog_performance_df(data_dict: dict[str | YFinHistCols, pd.DataFrame]) -> pd.DataFrame:
+    """Performance metrics of the ETFs of a catalog."""
     return compute_product_performance(
         adj_close_df=data_dict[YFinHistCols.adj_close],
         volume_df=data_dict[YFinHistCols.volume],
@@ -307,7 +327,7 @@ def compute_catalog_performance_df(data_dict: dict[str | YFinHistCols, pd.DataFr
 
 
 def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
-    # add the performance metrics to an existing catalog, from its saved data only
+    """Add the performance metrics to an existing catalog, from its saved data only."""
     data_dict = load_etf_catalog_data(account=account)
     data_dict[CATALOG_PERF_LABEL] = compute_catalog_performance_df(data_dict)
     save_etf_catalog_data(account=account, data_dict=data_dict)
@@ -315,12 +335,13 @@ def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
 
 
 def save_etf_catalog_data(account: Accounts, data_dict: dict[str | YFinHistCols, pd.DataFrame]):
+    """Save the ETF catalog of an account."""
     data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
     save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
 
 
 def load_etf_catalog_data(account: Accounts) -> dict[str | YFinHistCols, pd.DataFrame]:
-    # keys: YFinHistCols for the price and volume sheets, YF_PROD_INFO_LABEL, and CATALOG_PERF_LABEL if computed
+    """Keys: YFinHistCols for the price and volume sheets, YF_PROD_INFO_LABEL, and CATALOG_PERF_LABEL if computed."""
     data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
     data_dict_renamed = {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}
     return data_dict_renamed

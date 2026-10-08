@@ -1,3 +1,5 @@
+"""Components and figures shared by the pages."""
+
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
@@ -31,19 +33,23 @@ COLOR_ROW_ODD = px.colors.qualitative.Plotly[0]
 
 
 def loading_wrapper(children) -> dcc.Loading:
+    """Show a spinner while the children are loading."""
     return dcc.Loading(type='default', children=children)
 
 
 def card_wrapper(children) -> dbc.Card:
+    """Card with the background color of the figures."""
     return dbc.Card(children=children, body=True, color=pio.templates['plotly_dark'].layout.plot_bgcolor)
 
 
 def get_fig_empty() -> go.Figure:
+    """Empty figure, shown until the real one is drawn."""
     return go.Figure(layout=go.Layout(template=LAYOUT_TEMPLATE))
 
 
 # PERFORMANCE METRICS TABLE: one column per entry of risk_metrics_dct (label -> risk metrics, None if missing)
 def get_fig_metrics_table(risk_metrics_dct: dict[str, PD_DATA_TYPES | None]) -> go.Figure:
+    """Table of performance metrics, one column per entry (None: empty column)."""
     columns = [
         to_str_risk_metrics(m) if m is not None else pd.Series(name='Parameter', dtype=str)
         for m in risk_metrics_dct.values()
@@ -73,6 +79,7 @@ def get_fig_metrics_table(risk_metrics_dct: dict[str, PD_DATA_TYPES | None]) -> 
 
 
 def compute_corr_mat(df) -> pd.DataFrame:
+    """Correlation matrix of the columns of df, lower triangle only, rows in reverse order."""
     corr_mat = df.corr()
     corr_mat = np.tril(corr_mat)
     corr_mat[np.triu_indices(corr_mat.shape[0], 1)] = np.nan

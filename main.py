@@ -1,3 +1,5 @@
+"""Web server: serves the dashboard (Dash, mounted in FastAPI) at /portfolio_manager."""
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -12,7 +14,7 @@ from portfolio_manager.storage.models import init_db
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # start-up: make sure the database and its tables exist
+    """Start-up: make sure the database and its tables exist."""
     init_db()
     yield
 
@@ -26,6 +28,7 @@ server.mount('/portfolio_manager', WSGIMiddleware(app.server))
 # Define the main API endpoint
 @server.get('/')
 def index():
+    """Redirect the root URL to the dashboard."""
     return RedirectResponse(url='/portfolio_manager')
 
 

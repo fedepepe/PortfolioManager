@@ -1,3 +1,5 @@
+"""Strategies page: optimization settings, optimized portfolios."""
+
 import time
 from datetime import datetime
 
@@ -44,10 +46,12 @@ SETTINGS_CONTROLS = [
 
 
 def labelled(label: str, control, width: int) -> dbc.Col:
+    """Column with a control and its label."""
     return dbc.Col([dbc.Label(label, className='small mb-1'), control], width=width)
 
 
 def pct_input(control_id: str, placeholder: str) -> dbc.InputGroup:
+    """Numeric input in percent."""
     return dbc.InputGroup(
         [
             dbc.Input(id=control_id, type='number', min=0, max=100, step=0.5, placeholder=placeholder, size='sm'),
@@ -59,7 +63,7 @@ def pct_input(control_id: str, placeholder: str) -> dbc.InputGroup:
 
 # OPTIMIZATION SETTINGS
 def get_settings_card() -> dbc.Card:
-    # control values are filled from the saved optimization of the selected account
+    """Control values are filled from the saved optimization of the selected account."""
     return dbc.Card(
         dbc.CardBody(
             [
@@ -128,7 +132,7 @@ def get_settings_card() -> dbc.Card:
 
 # DASHBOARD
 def build_content_strategies(account: Accounts):
-    # layout only: the figures and the settings are filled by callbacks, which also run when the page is loaded
+    """Layout only: the figures and the settings are filled by callbacks, which also run when the page is loaded."""
     return html.Div(
         dbc.Card(
             [
@@ -179,6 +183,8 @@ def build_content_strategies(account: Accounts):
 
 
 def settings_to_controls(settings: OptimizationSettings) -> tuple:
+    """Values of the settings controls (percentages) from optimization settings."""
+
     def pct(v):
         return None if v is None else round(100 * v, 2)
 
@@ -197,6 +203,8 @@ def settings_to_controls(settings: OptimizationSettings) -> tuple:
 def controls_to_settings(
     method, freq, max_assets, weight_range, min_position, invested_range, max_vol, target_vol
 ) -> OptimizationSettings:
+    """Optimization settings from the values of the settings controls (percentages)."""
+
     def frac(v):
         return None if v in (None, '') else float(v) / 100.0
 
@@ -216,6 +224,7 @@ def controls_to_settings(
 
 # NAV ADJUSTED LINE PLOT: portfolio vs optimized portfolio
 def get_fig_strat_navs(account: Accounts, pf_data: PortfolioData, opt_data: OptimizedData | None) -> go.Figure:
+    """Effective NAV of the portfolio and of its optimized version, with the settings."""
     fig_navs = go.Figure(
         data=[
             go.Scatter(
@@ -260,6 +269,7 @@ def get_fig_strat_navs(account: Accounts, pf_data: PortfolioData, opt_data: Opti
 
 # PERFORMANCE METRICS TABLE: portfolio vs optimized portfolio
 def get_fig_strat_perf(pf_data: PortfolioData, opt_data: OptimizedData | None) -> go.Figure:
+    """Performance metrics of the portfolio and of its optimized version."""
     opt_metrics = None
     if opt_data is not None and opt_data.perf_dct is not None:
         opt_metrics = opt_data.perf_dct.get(PerfDataTabs.RISK_METRICS)
@@ -273,6 +283,7 @@ def get_fig_strat_perf(pf_data: PortfolioData, opt_data: OptimizedData | None) -
     prevent_initial_call=True,
 )
 def select_account_strategies(account_name: str) -> str:
+    """Remember the account selected on the Strategies page."""
     return account_name
 
 
@@ -282,6 +293,7 @@ def select_account_strategies(account_name: str) -> str:
     Input('dropdown-strategies', 'value'),
 )
 def load_settings(account_name: str) -> tuple:
+    """Show the settings of the saved optimization of the account (defaults if there is none)."""
     opt_data = get_optimized_data(Accounts.get_account_by_name(name=account_name))
     return settings_to_controls(opt_data.settings if opt_data is not None else OptimizationSettings())
 
@@ -295,6 +307,7 @@ def load_settings(account_name: str) -> tuple:
     Input('strat-method', 'value'),
 )
 def enable_method_settings(method: str) -> tuple:
+    """Grey out the settings that do not apply to the method: (max vol, target vol, max assets, min position)."""
     equal_weight = method == AllocationStrats.EQUAL_WEIGHT.value
     return (
         method != AllocationStrats.MAX_SHARPE.value,
@@ -312,6 +325,7 @@ def enable_method_settings(method: str) -> tuple:
     Input('store-strategy-version', 'data'),
 )
 def render_strategies(account_name: str, strategy_version) -> tuple:
+    """Draw the figures of the Strategies page from the saved data."""
     account = Accounts.get_account_by_name(name=account_name)
     pf_data = get_portfolio_data(account)
     opt_data = get_optimized_data(account)
@@ -330,6 +344,7 @@ def render_strategies(account_name: str, strategy_version) -> tuple:
     prevent_initial_call=True,
 )
 def run_optimization_callback(n_clicks, account_name: str, *controls) -> tuple:
+    """Run the optimization with the chosen settings (Run optimization button); the new version redraws the figures."""
     # Dash also calls this when the page is built (prevent_initial_call does not apply, since
     # store-strategy-version is outside the page): optimize only on an actual click
     if not n_clicks:

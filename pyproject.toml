@@ -21,4 +21,10 @@ quote-style = "single"
 [tool.ruff.lint]
 # pycodestyle, pyflakes, import sorting, bugbear (likely bugs), pyupgrade (modern syntax),
 # no print (logging instead), logging calls with lazy formatting
-select = ["E", "W", "F", "I", "B", "UP", "T20", "G", "LOG"]
+# docstrings required on public modules, classes and functions (not on packages, magic methods, __init__)
+select = ["E", "W", "F", "I", "B", "UP", "T20", "G", "LOG", "D1"]
+ignore = ["D104", "D105", "D107"]
+
+[tool.ruff.lint.per-file-ignores]
+# test names describe the tests
+"tests/*" = ["D1"]

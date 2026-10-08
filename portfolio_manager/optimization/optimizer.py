@@ -1,3 +1,5 @@
+"""Portfolio optimizer and the optimized weights over time."""
+
 import logging
 from collections.abc import Callable
 from typing import Any, NamedTuple
@@ -21,6 +23,8 @@ MAX_MIN_PF_EXPOSURE = 0.99
 
 
 class PortfolioOptimizer:
+    """Optimal weights of a set of assets from their returns, under the given constraints."""
+
     def __init__(
         self,
         optimization_type: AllocationStrats,
@@ -66,6 +70,7 @@ class PortfolioOptimizer:
         risk_budget: dict[str, float] | None = None,
         risk_free_rate: float | None = 0,
     ):
+        """Set the returns and the constraints of the next optimization."""
         self.optimization_type = optimization_type
         self.returns = returns if returns is not None else pd.DataFrame()
         self.min_pf_exposure = min_pf_exposure
@@ -87,6 +92,7 @@ class PortfolioOptimizer:
         self.weights_curr = None
 
     def get_constraints(self):
+        """Constraints of the solver: exposures, weights, volatility, asset classes."""
         constr_exposure = (
             {'type': 'ineq', 'fun': lambda x: self.max_pf_exposure - np.sum(x)},
             {'type': 'ineq', 'fun': lambda x: np.sum(x) - self.min_pf_exposure},
@@ -163,6 +169,7 @@ class PortfolioOptimizer:
         )
 
     def clean_returns_df(self, severity: str = 'high') -> pd.DataFrame:
+        """Returns without missing values: high drops every asset with gaps, low only empty rows and assets."""
         if severity == 'high':
             returns_clean = self.returns.dropna(axis=1)
         elif severity == 'low':
@@ -173,7 +180,7 @@ class PortfolioOptimizer:
         return returns_clean
 
     def compute_equal_weights(self) -> pd.Series:
-        # the max exposure split equally among the assets, without exceeding the max weight per asset (rest in cash)
+        """The max exposure split equally among the assets, capped at the max weight per asset (rest in cash)."""
         n_assets = self.returns_clean.shape[1]
         weight = self.max_pf_exposure / n_assets
         if self.bounds_weights is not None:
@@ -181,6 +188,7 @@ class PortfolioOptimizer:
         return pd.Series(weight, index=self.returns_clean.columns, name='weights')
 
     def compute_optimized_portfolio(self) -> pd.Series:
+        """Optimized weights, NaN if the optimization fails."""
         try:
             if self.optimization_type == AllocationStrats.EQUAL_WEIGHT:
                 return self.compute_equal_weights()  # no optimization needed
@@ -225,6 +233,8 @@ class PortfolioOptimizer:
 
 
 class OptimizedWeights(NamedTuple):
+    """Weights at each optimization date and the dates where the optimization failed."""
+
     weights: pd.DataFrame  # one row per optimization date
     failed_dates: list[pd.Timestamp]  # dates where the optimization failed (previous weights kept, if any)
 
@@ -237,8 +247,9 @@ def compute_weights_optim_portfolio(
     extra_args: dict[str, Any] | None = None,
     start_date: pd.Timestamp | None = None,
 ) -> OptimizedWeights:
-    # optimizes on each date of optimization_freq from start_date on (all dates if None), estimating returns and
-    # risk from the full price history up to that date
+    """Optimizes on each date of optimization_freq from start_date on (all dates if None), estimating returns and risk
+    from the full price history up to that date.
+    """
     extra_args = extra_args or {}
     weights_df = pd.DataFrame().reindex_like(prices.resample(optimization_freq).last())
     if start_date is not None:
@@ -316,8 +327,9 @@ def compute_weights_optim_portfolio(
 
 
 def apply_min_position_size(weights: pd.Series, min_size: float, max_weight: float) -> pd.Series:
-    # positions below min_size are dropped; their weight is redistributed proportionally among the remaining
-    # positions, without exceeding max_weight (what cannot be placed stays in cash)
+    """Positions below min_size are dropped; their weight is redistributed proportionally among the remaining positions,
+    without exceeding max_weight (what cannot be placed stays in cash).
+    """
     if weights.isna().all():
         return weights
     total = weights.sum()

@@ -1,3 +1,5 @@
+"""Sidebar and page switching."""
+
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, ctx, html
 
@@ -41,6 +43,7 @@ sidebar = html.Div(
     State('store-account', 'data'),
 )
 def switch_content(n1, n2, n3, account_name):
+    """Show the page of the clicked sidebar button for the remembered account."""
     account = Accounts.get_account_by_name(name=account_name) or Accounts.get_default_account()
     if ctx.triggered_id == 'button-instruments':
         return build_content_instruments(account=account)

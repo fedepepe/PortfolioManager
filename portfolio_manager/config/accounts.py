@@ -1,3 +1,5 @@
+"""The broker accounts managed by the dashboard."""
+
 from enum import Enum
 from typing import NamedTuple
 
@@ -6,11 +8,15 @@ from portfolio_manager.config.account_state import State
 
 
 class Brokers(Enum):
+    """Supported brokers."""
+
     DEGIRO = 'Degiro'
     IBS = 'IBS'
 
 
 class Account(NamedTuple):
+    """Settings of one account: name, broker, base currency, credentials file, state and benchmark."""
+
     name: str
     broker: Brokers
     currency: Currencies
@@ -20,6 +26,8 @@ class Account(NamedTuple):
 
 
 class Accounts(Account, Enum):
+    """The accounts; the benchmark maps each ticker to (weight, rebalancing frequency, ISIN or ticker)."""
+
     DEGIRO_CHF = Account(
         name='Portfolio CHF',
         broker=Brokers.DEGIRO,
@@ -47,9 +55,11 @@ class Accounts(Account, Enum):
 
     @classmethod
     def get_default_account(cls):
+        """Account used when none is selected."""
         return cls.DEGIRO_CHF
 
     @classmethod
     def get_account_by_name(cls, name):
+        """Account with the given name, None if there is none."""
         found = [e for e in cls if e.name == name]
         return found[0] if found else None

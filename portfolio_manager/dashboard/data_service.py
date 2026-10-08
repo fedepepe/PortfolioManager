@@ -1,3 +1,7 @@
+"""Single access point of the dashboard to the saved data, cached per account and data version, and to the long-running
+jobs (update, optimization).
+"""
+
 # Single access point of the dashboard to portfolio data.
 # Data is cached per account and data version: the version changes whenever an update rewrites the account's
 # data files, so the cache never serves stale data and needs no explicit invalidation.
@@ -31,6 +35,8 @@ _UPDATE_LOCK = threading.Lock()
 
 
 class OptimizedData(NamedTuple):
+    """Saved optimization of an account: backtest, performance, date and settings."""
+
     hist_data: PortfolioBacktestData
     perf_dct: dict[str, pd.DataFrame] | None  # None if the performance results are missing
     computed_at: float  # modification time of the saved backtest file
@@ -53,7 +59,7 @@ def _data_files(account: Accounts) -> list[str]:
 
 
 def data_version(account: Accounts) -> str:
-    # latest modification time of the files read by the portfolio page (0 for missing files)
+    """Latest modification time of the files read by the portfolio page (0 for missing files)."""
     return str(max(os.path.getmtime(f) if os.path.isfile(f) else 0.0 for f in _data_files(account)))
 
 
@@ -83,7 +89,7 @@ def _instruments_data(account_name: str, version: str) -> InstrumentsData:
 
 
 def get_instruments_data(account: Accounts) -> InstrumentsData | None:
-    # None if the account has no ETF catalog
+    """None if the account has no ETF catalog."""
     file = _catalog_file(account)
     if not os.path.isfile(file):
         return None
@@ -115,7 +121,7 @@ def _optimized_data(account_name: str, version: str) -> OptimizedData:
 
 
 def get_optimized_data(account: Accounts) -> OptimizedData | None:
-    # None if no optimization has been computed for the account
+    """None if no optimization has been computed for the account."""
     files = _optimized_files(account)
     if not os.path.isfile(files[0]):
         return None
@@ -124,23 +130,26 @@ def get_optimized_data(account: Accounts) -> OptimizedData | None:
 
 
 def get_portfolio_data(account: Accounts) -> PortfolioData:
+    """Portfolio data of an account (cached until its files change)."""
     return _portfolio_data(account.name, data_version(account))
 
 
 def get_benchmark_data(account: Accounts) -> PortfolioBacktestData:
+    """Benchmark backtest of an account (computed and saved if missing)."""
     return _benchmark_data(account.name, data_version(account))
 
 
 def update_account(account: Accounts):
-    # one update at a time: a second request waits for the running one to finish
+    """One update at a time: a second request waits for the running one to finish."""
     with _UPDATE_LOCK:
         refresh_account(account=account)
 
 
 def run_optimization(account: Accounts, settings: OptimizationSettings) -> str:
-    # backtest of the optimized portfolio over the dates of the saved portfolio (saves its files);
-    # returns where the prices come from (online / offline) and the failed optimization dates, if any.
-    # Raises ValueError if the settings cannot be satisfied
+    """Backtest of the optimized portfolio over the dates of the saved portfolio (saves its files); returns where the
+    prices come from (online / offline) and the failed optimization dates, if any. Raises ValueError if the settings
+    cannot be satisfied.
+    """
     error = settings.validate()
     if error:
         raise ValueError(error)

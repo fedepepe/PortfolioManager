@@ -1,7 +1,11 @@
+"""DeGiro product types and exchange identifiers."""
+
 from enum import Enum
 
 
 class ProductTypes:
+    """Product types of the DeGiro catalog."""
+
     STOCK = 'STOCK'
     ETF = 'ETF'
     BOND = 'BOND'
@@ -16,6 +20,8 @@ class ProductTypes:
 
 
 class Exchanges(Enum):
+    """DeGiro exchange ids."""
+
     XET = 194
     TDG = 196
     EAM = 200

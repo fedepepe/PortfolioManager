@@ -1,3 +1,5 @@
+"""Data of the Portfolio page."""
+
 import sys
 
 import numpy as np
@@ -15,6 +17,8 @@ from portfolio_manager.storage.models import Product
 
 
 class AllocationRiskLabels:
+    """Labels of the allocation and risk contribution table."""
+
     ALLOCATION = 'Allocation'
     RISK_CONTRIB = 'Risk contrib.'
     NAME = Product.name.name
@@ -24,6 +28,8 @@ class AllocationRiskLabels:
 
 # read-only view of the saved data of a portfolio, shared through dashboard.data_service: do not modify
 class PortfolioData:
+    """Backtest, performance and products of an account, as shown on the Portfolio page."""
+
     def __init__(self, account: Accounts | None = None, hist_data: PortfolioBacktestData | None = None):
         if account is not None:
             self.account = account
@@ -43,6 +49,7 @@ class PortfolioData:
         self.alloc_risk_df = self.get_alloc_risk()
 
     def get_alloc_risk(self) -> pd.DataFrame:
+        """Latest weights and contributions to the portfolio risk of each instrument."""
         weights_last = self.hist_data.effective_weights.T.iloc[:, -1].rename(AllocationRiskLabels.ALLOCATION)
         risk_contrib = vol_risk_contr(
             w=self.hist_data.effective_weights.drop('Cash', axis=1).iloc[-1, :].values,

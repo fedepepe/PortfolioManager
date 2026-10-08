@@ -20,6 +20,7 @@ ACCOUNT_CHOICES = {account._name_.lower(): account for account in Accounts}
 
 
 def selected_accounts(args: argparse.Namespace) -> list[Accounts]:
+    """The account given with --account, or all accounts."""
     return list(Accounts) if args.account is None else [ACCOUNT_CHOICES[args.account]]
 
 
@@ -119,6 +120,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Command-line parser: one subcommand per task, with the options it takes."""
     parser = argparse.ArgumentParser(description='Portfolio Manager maintenance tasks')
     parser.add_argument('-v', '--verbose', action='store_true', help='show debug messages')
     subparsers = parser.add_subparsers(dest='command', required=True)
@@ -133,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None):
+    """Run the task given on the command line."""
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,

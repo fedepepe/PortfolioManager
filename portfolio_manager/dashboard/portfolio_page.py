@@ -1,3 +1,5 @@
+"""Portfolio page: layout, figures and callbacks."""
+
 import time
 
 import dash_bootstrap_components as dbc
@@ -25,7 +27,7 @@ from portfolio_manager.storage.queries import query_yahoo_finance_prod_info, sea
 
 # DASHBOARD
 def build_content_portfolio(account: Accounts):
-    # layout only: the figures are filled by the render callbacks, which also run when the page is loaded
+    """Layout only: the figures are filled by the render callbacks, which also run when the page is loaded."""
     return html.Div(
         dbc.Card(
             [
@@ -134,6 +136,7 @@ def build_content_portfolio(account: Accounts):
 
 # NAV ADJUSTED LINE PLOT
 def get_fig_navs(pf_data: PortfolioData, bm_data: PortfolioBacktestData) -> go.Figure:
+    """Effective NAV of the portfolio and of its benchmark."""
     fig_navs = go.Figure(
         data=[
             go.Scatter(
@@ -165,6 +168,7 @@ def get_fig_navs(pf_data: PortfolioData, bm_data: PortfolioBacktestData) -> go.F
 
 # PORTFOLIO ALLOCATION PIE CHART
 def get_fig_allocation(pf_data: PortfolioData) -> go.Figure:
+    """Latest weights of the instruments and cash."""
     return go.Figure(
         data=[
             go.Pie(
@@ -185,6 +189,7 @@ def get_fig_allocation(pf_data: PortfolioData) -> go.Figure:
 
 # ASSET CORRELATION MATRIX HEATMAP
 def get_fig_corr(pf_data: PortfolioData) -> go.Figure:
+    """Correlation matrix of the weekly returns of the instruments."""
     corr_df = compute_corr_mat(pf_data.returns_adj_weekly_df)
     col_name_dct = dict(pf_data.prod_df['symbol'])
     labels = corr_df.rename(columns=col_name_dct).columns.to_list()
@@ -213,6 +218,7 @@ def get_fig_corr(pf_data: PortfolioData) -> go.Figure:
 
 # RISK ALLOCATION PIE CHART
 def get_fig_risk_contrib(pf_data: PortfolioData) -> go.Figure:
+    """Contribution of each instrument to the portfolio risk."""
     return go.Figure(
         data=[
             go.Pie(
@@ -233,6 +239,7 @@ def get_fig_risk_contrib(pf_data: PortfolioData) -> go.Figure:
 
 # PERFORMANCE METRICS TABLE
 def get_fig_perf(pf_data: PortfolioData) -> go.Figure:
+    """Performance metrics of the portfolio and of its benchmark."""
     return get_fig_metrics_table(
         {
             'Portfolio': pf_data.perf_dct[PerfDataTabs.RISK_METRICS],
@@ -243,6 +250,7 @@ def get_fig_perf(pf_data: PortfolioData) -> go.Figure:
 
 # HISTORICAL SHARPE RATIO LINE PLOT
 def get_fig_hist_sharpe(pf_data: PortfolioData) -> go.Figure:
+    """Sharpe ratio over time of the portfolio and of its benchmark."""
     hist_perf_df = pf_data.perf_dct[PerfDataTabs.HIST_PERF_METRICS]
     fig_sharpe = go.Figure(
         data=[
@@ -276,6 +284,7 @@ def get_fig_hist_sharpe(pf_data: PortfolioData) -> go.Figure:
 
 # MONTHLY RETURNS HISTOGRAM CHART
 def get_fig_monthly_ret(pf_data: PortfolioData) -> go.Figure:
+    """Distribution of the monthly returns."""
     return go.Figure(
         data=[
             go.Histogram(
@@ -296,7 +305,7 @@ def get_fig_monthly_ret(pf_data: PortfolioData) -> go.Figure:
 def get_fig_pf_instr_adj_close(
     pf_data: PortfolioData, currency: str, is_visible: list[bool] | None = None
 ) -> go.Figure:
-    # with some instruments hidden, the visible ones are rebased to 100 to make them comparable
+    """With some instruments hidden, the visible ones are rebased to 100 to make them comparable."""
     instruments = pf_data.alloc_risk_df.index.drop('Cash')
     if is_visible is None:
         is_visible = [True] * len(instruments)
@@ -327,8 +336,9 @@ def get_fig_pf_instr_adj_close(
 
 
 def get_visibility_after_restyle(figure: dict | None, restyle_data: list | None) -> list[bool] | None:
-    # visibility of each trace after a legend click, starting from the figure currently shown:
-    # restyle_data is [{'visible': [values]}, [trace indices]], listing only the traces that changed
+    """Visibility of each trace after a legend click, starting from the figure currently shown: restyle_data is
+    [{'visible': [values]}, [trace indices]], listing only the traces that changed.
+    """
     if not figure or not figure.get('data'):
         return None
     is_visible = [trace.get('visible', True) is True for trace in figure['data']]
@@ -345,6 +355,7 @@ def get_visibility_after_restyle(figure: dict | None, restyle_data: list | None)
 
 # INSTRUMENT ADJUSTED CLOSE
 def get_fig_instr_adj_close(title: str | None = None) -> go.Figure:
+    """Empty chart of the instrument search, with an optional message as title."""
     return go.Figure(
         layout=go.Layout(
             xaxis_title=dict(text='Date'),
@@ -356,7 +367,7 @@ def get_fig_instr_adj_close(title: str | None = None) -> go.Figure:
 
 
 def with_ui_revision(fig: go.Figure, account_name: str) -> go.Figure:
-    # keep zoom and legend state across redraws of the same account
+    """Keep zoom and legend state across redraws of the same account."""
     return fig.update_layout(uirevision=account_name)
 
 
@@ -367,6 +378,7 @@ def with_ui_revision(fig: go.Figure, account_name: str) -> go.Figure:
     prevent_initial_call=True,
 )
 def select_account(account_name: str) -> str:
+    """Remember the account selected on the Portfolio page."""
     return account_name
 
 
@@ -383,6 +395,7 @@ def select_account(account_name: str) -> str:
     Input('store-data-version', 'data'),
 )
 def render_portfolio(account_name: str, data_version) -> tuple:
+    """Draw the figures of the Portfolio page from the saved data of the account."""
     account = Accounts.get_account_by_name(name=account_name)
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
@@ -407,6 +420,7 @@ def render_portfolio(account_name: str, data_version) -> tuple:
     State('fig_pf_instr_adj_close', 'figure'),
 )
 def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, figure) -> go.Figure:
+    """Draw the adjusted prices of the instruments held; clicks on the legend rebase the visible ones."""
     account = Accounts.get_account_by_name(name=account_name)
     pf_data = get_portfolio_data(account)
     is_visible = None
@@ -427,6 +441,7 @@ def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, fig
     prevent_initial_call=True,
 )
 def run_update(n_clicks, account_name: str) -> tuple:
+    """Update the data of the account (Update button); the new data version redraws the figures."""
     # Dash also calls this when the page is built (prevent_initial_call does not apply, since
     # store-data-version is outside the page): update only on an actual click
     if not n_clicks:
@@ -444,6 +459,7 @@ def run_update(n_clicks, account_name: str) -> tuple:
     prevent_initial_call=True,
 )
 def search_instruments(search_value: str | None, value: str | None, options: list | None) -> list:
+    """List the instruments matching the typed text as "{ticker} - {name}"."""
     if not search_value or not search_value.strip():
         raise PreventUpdate  # keep the current options, so that the selected instrument stays displayed
     results_df = search_yahoo_finance_instruments(text=search_value)
@@ -470,6 +486,7 @@ def search_instruments(search_value: str | None, value: str | None, options: lis
     prevent_initial_call=True,
 )
 def update_instr_adj_close_fig(ticker: str | None, account_name: str) -> go.Figure:
+    """Chart of the adjusted prices of the instrument picked in the search."""
     if not ticker:  # cleared selection
         return get_fig_instr_adj_close()
     account = Accounts.get_account_by_name(name=account_name)

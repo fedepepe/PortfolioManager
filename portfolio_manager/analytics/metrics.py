@@ -1,3 +1,5 @@
+"""Return and risk metrics of a NAV."""
+
 import logging
 import math
 from enum import Enum
@@ -18,11 +20,14 @@ MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6
 
 
 class Metric(NamedTuple):
+    """A metric: label, display format and sort order in the tables."""
+
     name: str
     format: str = '{:.2%}'
     sort: str | None = None
 
     def to_ag_grid_format_func(self):
+        """JavaScript formatter of the metric for AG Grid."""
         return (
             f'params.value ? '
             f"d3.format('{self.format.replace(':', '').replace('{', '').replace('}', '')}')(params.value) "
@@ -31,6 +36,8 @@ class Metric(NamedTuple):
 
 
 class Metrics(Metric, Enum):
+    """The metrics of the performance tables."""
+
     TOTAL_RETURN = Metric('Total Return')
     PA_RETURN = Metric('P.a. Return')
     LAST_YEAR_RETURN = Metric('1Y Return')
@@ -53,22 +60,24 @@ class Metrics(Metric, Enum):
 
 
 def compute_pa_return_last_n_years(nav: pd.Series, freq: str, n_years: int = None) -> float:
+    """Annualized return of the last n years (NaN with a shorter history)."""
     num_periods = n_years * ANN_FACTOR_DICT[freq]
     return (1.0 + nav.resample(freq).last().ffill().pct_change(num_periods).iloc[-1]) ** (1.0 / n_years) - 1
 
 
 def compute_total_return(nav: pd.Series) -> float:
+    """Return from the first to the last value."""
     return nav.iloc[-1] / nav.iloc[0] - 1
 
 
 def compute_pa_return(nav: pd.Series, freq: str) -> float:
-    # annualized return over the whole NAV
+    """Annualized return over the whole NAV."""
     n_years = (len(nav.resample(freq).last()) - 1) / ANN_FACTOR_DICT[freq]
     return (1.0 + compute_total_return(nav)) ** (1.0 / n_years) - 1
 
 
 def downside_deviation(returns: pd.Series) -> float:
-    # root mean square of the negative returns over all periods (positive returns count as 0)
+    """Root mean square of the negative returns over all periods (positive returns count as 0)."""
     return math.sqrt(returns.clip(upper=0.0).pow(2).mean())
 
 
@@ -79,7 +88,7 @@ def compute_portfolio_metrics(
     compute_hist_metrics: bool = True,
     print_results: bool = True,
 ) -> dict[str, PD_DATA_TYPES]:
-    # performance of a NAV (or of the effective NAV of a backtest): returns, risk metrics and their history
+    """Performance of a NAV (or of the effective NAV of a backtest): returns, risk metrics and their history."""
     if hist_portfolio_data is not None:
         nav = hist_portfolio_data.nav_eff
     nav = nav.loc[nav.first_valid_index() :]  # remove initial nans
@@ -107,7 +116,7 @@ def compute_portfolio_metrics(
 
 
 def _sampling_freq(nav: pd.Series, hist_portfolio_data: PortfolioBacktestData | None) -> str:
-    # frequency of the backtest data if known, otherwise inferred from the NAV (default if that fails)
+    """Frequency of the backtest data if known, otherwise inferred from the NAV (default if that fails)."""
     if hist_portfolio_data is not None and hist_portfolio_data.freq is not None:
         freq = hist_portfolio_data.freq
         logger.debug('Using input sampling frequency: %s', freq)
@@ -121,7 +130,7 @@ def _sampling_freq(nav: pd.Series, hist_portfolio_data: PortfolioBacktestData | 
 
 
 def _yearly_returns(nav: pd.Series) -> pd.Series:
-    # calendar-year returns (the first year from the first NAV value), latest first, plus the total return
+    """Calendar-year returns (the first year from the first NAV value), latest first, plus the total return."""
     prices_eoy = nav.resample('Y').last()
     if nav.index[0] not in prices_eoy.index:
         prices_eoy = pd.concat([nav.iloc[[0]], prices_eoy])
@@ -133,7 +142,7 @@ def _yearly_returns(nav: pd.Series) -> pd.Series:
 
 
 def _turnover(hist_portfolio_data: PortfolioBacktestData | None, freq: str) -> tuple[pd.Series, float]:
-    # daily traded value (purchases and sales, gross) relative to the NAV, and its average (only for backtest data)
+    """Daily traded value (purchases and sales, gross) relative to the NAV, and its average (only for backtest data)."""
     if hist_portfolio_data is None:
         return pd.Series(), np.nan
     turnover = (
@@ -193,8 +202,9 @@ def _risk_metrics(
 
 
 def _historical_metrics(nav: pd.Series, freq: str) -> pd.DataFrame:
-    # return, volatility, Sharpe and Sortino ratios at each period of freq, from the start of the NAV up to that
-    # period; all computed on the NAV resampled at freq, so that the minimum history is a number of periods
+    """Return, volatility, Sharpe and Sortino ratios at each period of freq, from the start of the NAV up to that
+    period; all computed on the NAV resampled at freq, so that the minimum history is a number of periods.
+    """
     names = [m.name for m in (Metrics.PA_RETURN, Metrics.VOLATILITY, Metrics.SHARPE_RATIO, Metrics.SORTINO_RATIO)]
     nav_resampled = nav.resample(freq).last().ffill()
     min_periods = MIN_PERIODS_DICT[freq]
@@ -219,6 +229,7 @@ def _historical_metrics(nav: pd.Series, freq: str) -> pd.DataFrame:
 
 
 def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES):
+    """Metrics formatted for display (missing ones left out)."""
     if isinstance(risk_metrics, pd.DataFrame):
         risk_metrics = risk_metrics.iloc[:, 0]
     risk_metrics_str = pd.Series(name='Parameter', dtype=str)
@@ -232,6 +243,9 @@ def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES):
 
 
 def regress_strat_vs_bm(nav: pd.Series, strategy_benchmark: pd.Series, freq: str = 'M', return_sign: str = 'all'):
+    """Alpha (annualized), beta and p-value of the alpha of the strategy against the benchmark, from returns at freq;
+    return_sign restricts to the periods the benchmark fell (neg) or rose (pos).
+    """
     try:
         bm = strategy_benchmark.copy()
         df = pd.concat([nav, bm], axis=1).resample(freq).last().pct_change().dropna()
@@ -259,6 +273,7 @@ def compute_results_from_navs(
     file_name: str | None = None,
     save: bool = True,
 ) -> dict[str, pd.DataFrame]:
+    """Performance of each NAV, and the correlation of their monthly returns."""
     if isinstance(navs, pd.Series):
         navs = navs.to_frame()
     results_dict = {
@@ -281,6 +296,8 @@ def compute_results_from_navs(
 
 
 class PerfDataTabs:
+    """Names of the sheets of the performance results."""
+
     RETURNS_YEARLY = 'returns_yearly'
     RETURNS_MONTHLY = 'returns_monthly'
     RISK_METRICS = 'risk_metrics'

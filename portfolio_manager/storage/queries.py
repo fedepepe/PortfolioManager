@@ -1,3 +1,5 @@
+"""Reads and writes of the database; every write opens its own session."""
+
 import logging
 
 import pandas as pd
@@ -27,6 +29,7 @@ DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
 
 
 def insert_product(product: ProductItem):
+    """Insert a DeGiro product (skipped if already stored)."""
     data = Product(
         active=product.active,
         buy_order_types=list_to_str(product.buy_order_types),
@@ -70,8 +73,9 @@ def insert_product(product: ProductItem):
 
 
 def insert_degiro_hist(product_id: int, df: pd.DataFrame):
-    # upsert historical data of one product; new non-null values overwrite stored ones,
-    # while a field missing from this fetch keeps its stored value
+    """Upsert historical data of one product; new non-null values overwrite stored ones, while a field missing from this
+    fetch keeps its stored value.
+    """
     df = df.reindex(columns=DEGIRO_HIST_COLS).dropna(how='all')
     if df.empty:
         return
@@ -94,6 +98,9 @@ def insert_degiro_hist(product_id: int, df: pd.DataFrame):
 
 
 def insert_yahoo_finance_data(data_dict: dict[YFinHistCols, pd.DataFrame], to_portfolio_instr_table: bool = True):
+    """Store Yahoo Finance information and history; existing data of a ticker is kept unless its field is set to be
+    overwritten.
+    """
     if data_dict[YF_PROD_INFO_LABEL].empty:
         return
     with SessionLocal() as session:
@@ -153,7 +160,7 @@ def insert_yahoo_finance_data(data_dict: dict[YFinHistCols, pd.DataFrame], to_po
 
 
 def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
-    # adjusted prices are recomputed backwards at each dividend: replace the whole stored history of the ticker
+    """Adjusted prices are recomputed backwards at each dividend: replace the whole stored history of the ticker."""
     ser = ser.dropna()
     if ser.empty:
         return
@@ -170,7 +177,7 @@ def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
 
 
 def query_portfolio_instr_adj_close(tickers: list[str]) -> pd.DataFrame:
-    # stored adjusted prices: date x ticker (exact ticker match)
+    """Stored adjusted prices: date x ticker (exact ticker match)."""
     table = YahooFinanceHistDataPfInstr
     stmt = select(table.ticker, table.date, table.value).where(
         table.ticker.in_(tickers) & (table.quote_type == str(YFinHistCols.adj_close))
@@ -183,6 +190,7 @@ def query_portfolio_instr_adj_close(tickers: list[str]) -> pd.DataFrame:
 
 
 def upsert_yahoo_finance_info(ticker: str, info: dict[str, str]):
+    """Insert or update the information fields of a ticker (empty values skipped)."""
     rows = [
         {'ticker': ticker, 'quote_type': field, 'value': str(value)}
         for field, value in info.items()
@@ -201,7 +209,7 @@ def upsert_yahoo_finance_info(ticker: str, info: dict[str, str]):
 
 
 def query_yahoo_finance_info_field(tickers: list[str], field: str) -> dict[str, str]:
-    # one info field per ticker (exact ticker match)
+    """One info field per ticker (exact ticker match)."""
     stmt = select(YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.value).where(
         YahooFinanceProdInfo.ticker.in_(tickers) & (YahooFinanceProdInfo.quote_type == field)
     )
@@ -210,6 +218,7 @@ def query_yahoo_finance_info_field(tickers: list[str], field: str) -> dict[str, 
 
 
 def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
+    """Map DeGiro products to a Yahoo Finance ticker."""
     stmt = sqlite_insert(DegiroYahooMap)
     stmt = stmt.on_conflict_do_update(index_elements=[DegiroYahooMap.product_id], set_={'ticker': stmt.excluded.ticker})
     with SessionLocal() as session:
@@ -218,6 +227,7 @@ def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
 
 
 def query_degiro_yahoo_map(product_ids: list[int]) -> dict[int, str]:
+    """Yahoo Finance ticker of each mapped product."""
     stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker).where(
         DegiroYahooMap.product_id.in_([int(p) for p in product_ids])
     )
@@ -249,6 +259,7 @@ def query_products(
     tradable: bool | None = None,
     exchange: Exchanges | int | None = None,
 ) -> pd.DataFrame:
+    """Products of the DeGiro catalog matching all the given filters."""
     query = select(Product)
     if isinstance(exchange, Exchanges):
         exchange = exchange.value
@@ -277,7 +288,7 @@ def query_degiro_hist(
     date_start: pd.Timestamp | None = None,
     date_stop: pd.Timestamp | None = None,
 ) -> pd.DataFrame | dict[str, pd.DataFrame]:
-    # returns a date x product_id dataframe per requested field (a single dataframe if one field is requested)
+    """Returns a date x product_id dataframe per requested field (a single dataframe if one field is requested)."""
     if isinstance(product_ids, int):
         product_ids = [product_ids]
     if columns is None:
@@ -303,6 +314,10 @@ def query_degiro_hist(
 def query_yahoo_finance_prod_info(
     isin: str | list[str] | None = None, ticker: str | list[str] | None = None
 ) -> pd.DataFrame:
+    """Information of the tickers starting with the given ticker(s), or listed with ISINs starting with the given
+    ISIN(s): field x ticker.
+    """
+
     def _query_yahoo_finance_prod_info_single(isin: str = None, ticker: str = None) -> pd.DataFrame:
         if isin is not None:
             cond = (YahooFinanceProdInfo.quote_type == YFinInfoCols.isin.value) & (
@@ -349,8 +364,9 @@ def query_yahoo_finance_prod_info(
 
 
 def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame:
-    # instruments whose Yahoo ticker or ISIN starts with text or, from 3 characters, whose name contains it;
-    # one row per ticker (ticker, name, isin, currency): ticker matches first, then ISIN, then name matches
+    """Instruments whose Yahoo ticker or ISIN starts with text or, from 3 characters, whose name contains it; one row
+    per ticker (ticker, name, isin, currency): ticker matches first, then ISIN, then name matches.
+    """
     columns = ['ticker', 'name', 'isin', 'currency']
     text = text.strip()
     if not text:
@@ -391,6 +407,7 @@ def query_yahoo_finance_hist_data(
     isin: str | None = None,
     columns: str | list[str] | YFinHistCols | list[YFinHistCols] | None = None,
 ) -> pd.DataFrame | dict[str, pd.DataFrame]:
+    """Stored Yahoo Finance history (date x ticker) of the given tickers or ISIN, one frame per column."""
     if isinstance(tickers, list):  # list of tickers is only possible in case of Yahoo tickers
         ticker_lst = tickers
     else:
@@ -425,5 +442,6 @@ def query_yahoo_finance_hist_data(
 
 
 def get_max_product_id() -> int:
+    """Largest product id in the catalog."""
     with SessionLocal() as session:
         return session.query(func.max(Product.id)).all()[0][0]

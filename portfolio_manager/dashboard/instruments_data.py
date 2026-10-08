@@ -1,3 +1,5 @@
+"""Data of the Instruments page."""
+
 import logging
 
 from portfolio_manager.analytics.instruments import (
@@ -13,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 # read-only view of the saved ETF catalog of an account, shared through dashboard.data_service: do not modify
 class InstrumentsData:
+    """ETF catalog of an account: prices, volumes, information and performance metrics."""
+
     def __init__(self, account: Accounts):
         self.account = account
         data = load_etf_catalog_data(account=account)

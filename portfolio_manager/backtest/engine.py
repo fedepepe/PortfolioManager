@@ -1,3 +1,5 @@
+"""Day-by-day backtest of a portfolio."""
+
 import logging
 from dataclasses import dataclass
 
@@ -13,12 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 def align_to_index(dates: pd.DatetimeIndex, index: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    # map each date to the last date in index on or before it (NaT if none)
+    """Map each date to the last date in index on or before it (NaT if none)."""
     pos = index.searchsorted(dates, side='right') - 1
     return pd.DatetimeIndex([index[p] if p >= 0 else pd.NaT for p in pos])
 
 
 def align_df_to_index(df: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
+    """Move the dates of df to the price index (last date on or before); keep the last per date."""
     df = df.copy()
     df.index = align_to_index(pd.DatetimeIndex(df.index), index)
     df = df[df.index.notna()]
@@ -27,7 +30,8 @@ def align_df_to_index(df: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame
 
 @dataclass
 class _DailyRecords:
-    # values recorded for each day of the backtest (rows) and instrument (columns)
+    """Values recorded for each day of the backtest (rows) and instrument (columns)."""
+
     units: np.ndarray
     effective_weights: np.ndarray
     txn_values: np.ndarray
@@ -68,8 +72,9 @@ def backtest_portfolio(
     freq_rebalancing: str | None = None,
     id_symbol_map: dict | None = None,
 ) -> PortfolioBacktestData:
-    # daily simulation of a portfolio driven by one of (in order of precedence): target weights (a frame by date,
-    # or fixed weights rebalanced every freq_rebalancing), target units by date, or the trades of an account
+    """Daily simulation of a portfolio driven by one of (in order of precedence): target weights (a frame by date, or
+    fixed weights rebalanced every freq_rebalancing), target units by date, or the trades of an account.
+    """
     if name is None and account is None:
         raise AttributeError
     if account is not None:
@@ -117,7 +122,7 @@ def backtest_portfolio(
 def _build_portfolio(
     prices_df: pd.DataFrame, account: Accounts | None, curr_base: Currencies, initial_cash_balance: float
 ) -> PortfolioGeneric:
-    # an account replays its trades; otherwise a simulated portfolio rebalanced to targets
+    """An account replays its trades; otherwise a simulated portfolio rebalanced to targets."""
     tickers = prices_df.columns.to_list()
     if account is not None:
         if account.broker != Brokers.DEGIRO:
@@ -137,7 +142,7 @@ def _build_portfolio(
 
 
 def _rebalancing_dates(index: pd.DatetimeIndex, freq_rebalancing: str | None) -> pd.DatetimeIndex:
-    # every day, or the last available trading date of each period
+    """Every day, or the last available trading date of each period."""
     if freq_rebalancing is None:
         return index
     return pd.DatetimeIndex(index.to_series().resample(freq_rebalancing).last().dropna())
@@ -154,7 +159,7 @@ def _rebalance(
     is_first_day: bool,
     rebalancing_dates: pd.DatetimeIndex,
 ) -> bool:
-    # rebalances the portfolio if the date calls for it; returns whether it did
+    """Rebalances the portfolio if the date calls for it; returns whether it did."""
     if target_exp is not None:
         if isinstance(target_exp, pd.DataFrame):
             if date not in target_exp.index:
@@ -182,7 +187,7 @@ def _rebalance(
 def _add_dividends(
     portfolio: PortfolioGeneric, date: pd.Timestamp, div_hist_df: pd.DataFrame, tickers: list
 ) -> np.ndarray:
-    # credits the dividends paid on the date; returns them by instrument
+    """Credits the dividends paid on the date; returns them by instrument."""
     dividends = np.zeros(len(tickers))
     div_day = div_hist_df.loc[div_hist_df['Date'] == date, :]
     if div_day.empty:
@@ -194,7 +199,7 @@ def _add_dividends(
 
 
 def _add_deposits(portfolio: PortfolioGeneric, date: pd.Timestamp, dep_hist_df: pd.DataFrame) -> float:
-    # credits the deposits (negative: withdrawals) of the date; returns their total
+    """Credits the deposits (negative: withdrawals) of the date; returns their total."""
     dep_day = dep_hist_df.loc[dep_hist_df['Date'] == date, 'change']
     if dep_day.empty:
         return 0.0
@@ -260,7 +265,7 @@ def _to_backtest_data(
 
 
 def _complete_adjusted_prices(name: str, prices_df: pd.DataFrame, close_adj_df: pd.DataFrame | None):
-    # adjusted prices over the backtest period; instruments without them use the backtest prices
+    """Adjusted prices over the backtest period; instruments without them use the backtest prices."""
     if close_adj_df is None:
         return None
     close_adj_df = close_adj_df.reindex(index=prices_df.index).ffill()

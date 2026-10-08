@@ -1,3 +1,5 @@
+"""Tables of the SQLite database."""
+
 import os
 
 from sqlalchemy import Boolean, Column, Date, Float, Index, Integer, Sequence, String, UniqueConstraint
@@ -8,6 +10,8 @@ from portfolio_manager.storage.db import Base, engine
 
 # Degiro product catalog table
 class Product(Base):
+    """DeGiro product catalog."""
+
     __tablename__ = 'products'
     active = Column(Boolean)
     buy_order_types = Column(String)
@@ -50,6 +54,8 @@ class Product(Base):
 # Degiro historical market data table (one row per product and day)
 # volume is stored as reported by Degiro's chart API (unit not verified)
 class DegiroHistData(Base):
+    """DeGiro daily history (OHLC, price, volume) per product."""
+
     __tablename__ = 'degiro_hist'
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, nullable=False)
@@ -65,6 +71,8 @@ class DegiroHistData(Base):
 
 # Yahoo Finance historical price table
 class YahooFinanceHistData(Base):
+    """Yahoo Finance history of the ETF catalog, one row per ticker, date and field."""
+
     __tablename__ = 'yahoo_finance_hist'
     id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
     ticker = Column(String)
@@ -79,6 +87,8 @@ class YahooFinanceHistData(Base):
 
 # Yahoo Finance instruments catalog table
 class YahooFinanceProdInfo(Base):
+    """Yahoo Finance instrument information, one row per ticker and field."""
+
     __tablename__ = 'yahoo_finance_info'
     id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
     ticker = Column(String)
@@ -89,6 +99,8 @@ class YahooFinanceProdInfo(Base):
 
 # Yahoo Finance portfolio instruments historical price table
 class YahooFinanceHistDataPfInstr(Base):
+    """Yahoo Finance adjusted prices of the portfolio instruments."""
+
     __tablename__ = 'yahoo_finance_hist_pf_instr'
     id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
     ticker = Column(String)
@@ -103,13 +115,15 @@ class YahooFinanceHistDataPfInstr(Base):
 
 # Yahoo Finance listing chosen for each Degiro product (several products may share a listing)
 class DegiroYahooMap(Base):
+    """Yahoo Finance listing chosen for each DeGiro product."""
+
     __tablename__ = 'degiro_yahoo_map'
     product_id = Column(Integer, primary_key=True)
     ticker = Column(String, nullable=False)
 
 
 def init_db():
-    # create the database file, its missing tables and indexes (called once at start-up)
+    """Create the database file, its missing tables and indexes (called once at start-up)."""
     os.makedirs(DATA_DIR, exist_ok=True)
     Base.metadata.create_all(engine)
     # create_all does not add new indexes to existing tables

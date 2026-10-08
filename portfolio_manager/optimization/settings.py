@@ -1,3 +1,5 @@
+"""Allocation methods and the settings of a portfolio optimization."""
+
 from dataclasses import dataclass, fields
 from enum import Enum
 from typing import Any
@@ -6,6 +8,8 @@ import pandas as pd
 
 
 class AllocationStrats(Enum):
+    """Allocation methods."""
+
     MAX_RET = 'max_ret'
     MIN_VAR = 'min_var'
     MAX_SHARPE = 'max_sharpe'
@@ -29,6 +33,8 @@ OPTIONAL_SETTINGS = ('max_vol', 'target_vol', 'max_asset_num')
 # settings of a portfolio optimization; the defaults are used when an account has no saved optimization
 @dataclass
 class OptimizationSettings:
+    """Settings of a portfolio optimization (weights and exposures as fractions)."""
+
     method: AllocationStrats = AllocationStrats.MAX_SHARPE
     optimization_freq: str = 'M'
     min_asset_exposure: float = 0.0  # min weight of every asset
@@ -41,19 +47,21 @@ class OptimizationSettings:
     max_asset_num: int | None = None  # keep only the largest weights
 
     def extra_args(self) -> dict[str, Any]:
+        """Settings as optimizer arguments (unset and inapplicable ones left out)."""
         args = {f.name: getattr(self, f.name) for f in fields(self) if f.name not in ('method', 'optimization_freq')}
         if self.method == AllocationStrats.EQUAL_WEIGHT:
             args = {k: v for k, v in args.items() if k not in EQUAL_WEIGHT_UNUSED_SETTINGS}
         return {k: v for k, v in args.items() if v is not None}
 
     def to_series(self) -> pd.Series:
+        """Settings as a series, to be saved with the results."""
         values = {f.name: getattr(self, f.name) for f in fields(self)}
         values['method'] = self.method.value
         return pd.Series({k: ('' if v is None else v) for k, v in values.items()}, name='value')
 
     @classmethod
     def from_series(cls, ser: pd.Series) -> 'OptimizationSettings':
-        # missing entries take the default; empty entries mean "not set" for the optional settings
+        """Missing entries take the default; empty entries mean "not set" for the optional settings."""
         settings = cls()
         for f in fields(cls):
             if f.name not in ser.index:
@@ -73,7 +81,7 @@ class OptimizationSettings:
         return settings
 
     def validate(self, n_assets: int | None = None) -> str | None:
-        # None if the settings can be satisfied, otherwise the reason
+        """None if the settings can be satisfied, otherwise the reason."""
         if not 0.0 <= self.min_asset_exposure <= self.max_asset_exposure <= 1.0:
             return 'Weight per asset: the minimum must not exceed the maximum (both between 0% and 100%)'
         if not 0.0 <= self.min_pf_exposure <= self.max_pf_exposure <= 1.0:
@@ -101,6 +109,7 @@ class OptimizationSettings:
         return None
 
     def describe(self) -> str:
+        """Short description, e.g. "Max Sharpe, monthly, weight 0%-30%, ..."."""
         freq = OPTIMIZATION_FREQ_LABELS.get(self.optimization_freq, self.optimization_freq).lower()
         text = (
             f'{ALLOCATION_STRATS_LABELS[self.method]}, {freq}, '

@@ -1,3 +1,5 @@
+"""Login to the DeGiro API."""
+
 import logging
 
 from degiro_connector.trading.api import API
@@ -10,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 def get_degiro_connection(account: Accounts | None = None) -> API:
-    # logs in to the account with its credentials file; without an account (market data, the same for every
-    # account) the default account is used
+    """Logs in to the account with its credentials file; without an account (market data, the same for every account)
+    the default account is used.
+    """
     if account is None:
         account = Accounts.get_default_account()
     credentials = build_credentials(

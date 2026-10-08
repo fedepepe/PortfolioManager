@@ -1,3 +1,5 @@
+"""Portfolio models of the backtests and the backtest results."""
+
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -9,12 +11,16 @@ DEFAULT_FREQ_HIST_DATA = 'B'
 
 
 class Currencies:
+    """Base currencies."""
+
     EUR = 'EUR'
     USD = 'USD'
     CHF = 'CHF'
 
 
 class PortfolioGeneric:
+    """Units held and cash of a portfolio; costs and cash buffer settings of the rebalancings."""
+
     def __init__(
         self,
         tickers: list[str],
@@ -44,31 +50,41 @@ class PortfolioGeneric:
         self.min_cash_ratio = min_cash_ratio
 
     def get_dollar_values(self, current_prices) -> np.ndarray:
+        """Value of each position."""
         return self.current_units * current_prices
 
     def get_nav(self, current_prices) -> float:
+        """Value of the positions plus cash."""
         return np.nansum(self.get_dollar_values(current_prices)) + self.__current_cash_balance
 
     def get_effective_weights(self, current_prices) -> np.ndarray:
+        """Weight of each position in the NAV."""
         return self.get_dollar_values(current_prices) / self.get_nav(current_prices)
 
     def add_cash(self, value: float):
+        """Add cash (negative: withdraw)."""
         self.__current_cash_balance += value
 
     def get_current_cash_balance(self):
+        """Cash held."""
         return self.__current_cash_balance
 
     @abstractmethod
     def rebalance(self):
+        """Change the positions (implemented by each portfolio type)."""
         pass
 
 
 class PortfolioRebalanceType(Enum):
+    """Minimal: trade only positions beyond the tolerance; full: trade all of them."""
+
     FULL = 'full'
     MINIMAL = 'minimal'
 
 
 class Portfolio(PortfolioGeneric):
+    """Simulated portfolio, rebalanced to target weights or target units."""
+
     def rebalance(
         self,
         current_prices: np.ndarray | pd.Series | None = None,
@@ -76,6 +92,9 @@ class Portfolio(PortfolioGeneric):
         units: np.ndarray | pd.Series | None = None,
         rebalance_type: PortfolioRebalanceType = PortfolioRebalanceType.MINIMAL,
     ):
+        """Trade to the target weights (or units), paying the transaction costs; a minimal rebalancing that would
+        overdraw the cash becomes a full one.
+        """
         if target_exp is None and units is None:
             raise AttributeError('At least one between target_exp and units must be provided.')
         # estimate transaction costs
@@ -98,7 +117,7 @@ class Portfolio(PortfolioGeneric):
         self.previous_units = self.current_units.copy()
 
     def compute_txn_costs(self, txn_values: np.ndarray | pd.Series) -> np.ndarray | pd.Series:
-        # proportional costs, plus the fixed cost of each instrument actually traded, capped per instrument
+        """Proportional costs, plus the fixed cost of each instrument actually traded, capped per instrument."""
         txn_costs = self.txn_costs_prop * np.abs(txn_values) + self.txn_costs_fixed * (txn_values != 0)
         if self.txn_costs_max is not None:
             txn_costs = np.minimum(txn_costs, self.txn_costs_max)
@@ -107,6 +126,7 @@ class Portfolio(PortfolioGeneric):
     def compute_txn_values(
         self, current_prices: np.ndarray | pd.Series, current_units: np.ndarray | pd.Series
     ) -> np.ndarray | pd.Series:
+        """Value of the trades to the given units (negative: purchases)."""
         change_units = current_units - self.previous_units
         txn_values = -change_units * current_prices
         return txn_values
@@ -118,6 +138,9 @@ class Portfolio(PortfolioGeneric):
         units: np.ndarray | pd.Series | None = None,
         rebalance_type: PortfolioRebalanceType = PortfolioRebalanceType.MINIMAL,
     ) -> np.ndarray | pd.Series:
+        """Units after trading to the targets: the targets apply to the NAV less the cash buffer and the estimated
+        costs.
+        """
         if target_exp is not None:
             if rebalance_type == PortfolioRebalanceType.MINIMAL:
                 bool_trade = np.abs(self.get_effective_weights(current_prices) - target_exp) > self.max_target_dev
@@ -140,6 +163,8 @@ class Portfolio(PortfolioGeneric):
 
 @dataclass
 class PortfolioBacktestData:
+    """Results of a backtest, saved as the sheets of an Excel file."""
+
     name: str
     nav: pd.Series
     units: pd.DataFrame

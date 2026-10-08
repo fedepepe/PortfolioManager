@@ -1,3 +1,5 @@
+"""Adjusted prices of the portfolio instruments: Yahoo Finance when online, the database offline."""
+
 # Adjusted prices of the portfolio instruments, full history, in the account currency, labelled by Degiro product id.
 # Online, the prices are downloaded from Yahoo Finance and stored in the database; offline (or if a download fails),
 # the prices stored in the database are used.
@@ -23,12 +25,14 @@ logger = logging.getLogger(__name__)
 
 
 class AdjPrices(NamedTuple):
+    """Adjusted prices of the products of an account and where they come from."""
+
     prices: pd.DataFrame  # date x product id, account currency; products without adjusted prices are missing
     summary: str  # where the prices come from, for logs and the dashboard
 
 
 def _fetch_from_yahoo(isin: str | None, symbol: str | None, name: str | None) -> tuple[str, pd.Series, dict] | None:
-    # (Yahoo ticker, adjusted prices in the instrument currency, instrument info), None if no data is found
+    """(Yahoo ticker, adjusted prices in the instrument currency, instrument info), None if no data is found."""
     data = fetch_instr_hist_data(isin_lst=[isin], columns=YFinHistCols.adj_close, ticker_lst=[symbol], name_lst=[name])
     prices_df = data[YFinHistCols.adj_close].dropna(axis=1, how='all')
     if prices_df.empty:
@@ -38,6 +42,9 @@ def _fetch_from_yahoo(isin: str | None, symbol: str | None, name: str | None) ->
 
 
 def get_portfolio_adj_prices(account: Accounts) -> AdjPrices:
+    """Adjusted prices of the products of an account, in the account currency: downloaded from Yahoo Finance and stored
+    when online, read from the database when offline.
+    """
     products_df = load_portfolio_products(account=account)
     online = is_yahoo_reachable()
     stored_map = query_degiro_yahoo_map(products_df['id'].to_list())

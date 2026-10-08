@@ -1,3 +1,5 @@
+"""Yahoo Finance: search, instrument information and price history."""
+
 import time
 from enum import Enum
 from typing import NamedTuple
@@ -9,6 +11,8 @@ from curl_cffi.requests.exceptions import DNSError, HTTPError, Timeout
 
 
 class YFinHistCols(Enum):
+    """Price history columns of Yahoo Finance."""
+
     open = 'Open'
     high = 'High'
     low = 'Low'
@@ -24,6 +28,7 @@ class YFinHistCols(Enum):
 
     @classmethod
     def get_entry_by_val(cls, value: str):
+        """Member with the given value (the value itself if there is none)."""
         lst = [e for e in YFinHistCols if e.value == value]
         return lst[0] if lst else value
 
@@ -32,6 +37,8 @@ YF_PROD_INFO_LABEL = 'Product Info'
 
 
 class YFinInfoCols(Enum):
+    """Instrument information fields of Yahoo Finance."""
+
     symbol = 'symbol'
     currency = 'currency'
     isin = 'isin'
@@ -44,11 +51,15 @@ class YFinInfoCols(Enum):
 
 
 class Exchange(NamedTuple):
+    """Yahoo Finance exchange: ticker suffix and name."""
+
     code: str
     name: str | None = None
 
 
 class Exchanges(Exchange, Enum):
+    """Exchanges in order of preference when an instrument is listed on several."""
+
     DE = Exchange('DE', 'Frankfurt')
     L = Exchange('L', 'London')
     MI = Exchange('MI', 'Milan')
@@ -65,9 +76,10 @@ YAHOO_FINANCE_HOST = 'query1.finance.yahoo.com'
 
 
 def is_yahoo_reachable(timeout: float = 3.0) -> bool:
-    # quick connectivity check, to avoid long retries and timeouts per instrument when working offline.
-    # An HTTPS request, since a plain TCP connection may be accepted locally (e.g. by a VPN or firewall);
-    # any HTTP response means the server is reachable
+    """Quick connectivity check, to avoid long retries and timeouts per instrument when working offline. An HTTPS
+    request, since a plain TCP connection may be accepted locally (e.g. by a VPN or firewall); any HTTP response
+    means the server is reachable.
+    """
     try:
         requests.head(f'https://{YAHOO_FINANCE_HOST}', timeout=timeout)
         return True
@@ -76,6 +88,7 @@ def is_yahoo_reachable(timeout: float = 3.0) -> bool:
 
 
 def search_ticker(ticker: str) -> yf.search.Search:
+    """Yahoo Finance search (any text: ticker, ISIN, name), None if Yahoo cannot be reached."""
     for _ in range(5):
         try:
             return yf.Search(query=ticker, include_research=True)
@@ -84,6 +97,7 @@ def search_ticker(ticker: str) -> yf.search.Search:
 
 
 def get_ticker_info(ticker: str) -> yf.Ticker.info:
+    """Instrument information of a ticker, None if Yahoo cannot be reached."""
     for _ in range(5):
         try:
             return yf.Ticker(ticker).info
@@ -92,6 +106,7 @@ def get_ticker_info(ticker: str) -> yf.Ticker.info:
 
 
 def fetch_history_single(ticker: str | yf.Ticker):
+    """Daily history of the last ten years of one ticker (calendar days without data dropped)."""
     if isinstance(ticker, str):
         ticker = yf.Ticker(ticker=ticker)
     elif isinstance(ticker, yf.Ticker):
@@ -109,6 +124,7 @@ def fetch_history(
     tickers: str | list[str] | yf.Ticker | list[yf.Ticker],
     columns: str | YFinHistCols | list[str] | list[YFinHistCols] = YFinHistCols.adj_close,
 ) -> dict[str | YFinHistCols, pd.DataFrame]:
+    """Daily history of the given tickers: one frame per column, date x ticker."""
     if isinstance(tickers, str) or isinstance(tickers, yf.Ticker):
         tickers = [tickers]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
@@ -133,6 +149,9 @@ def search_fetch_history(
     isin: str | None = None,
     columns: str | YFinHistCols | list[str] | list[YFinHistCols] = YFinHistCols.adj_close,
 ) -> dict[str | YFinHistCols, pd.DataFrame] | None:
+    """History and information of the listings found for a ticker (exact listing) or an ISIN (every result of the
+    search); None if Yahoo cannot be reached.
+    """
     if ticker is None and isin is None:
         raise ValueError('Ticker and ISIN both missing. At least one must be given.')
     search = search_ticker(ticker=ticker if ticker is not None else isin)

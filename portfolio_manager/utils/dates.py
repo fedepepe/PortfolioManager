@@ -1,3 +1,5 @@
+"""Date helpers and annualization factors of the sampling frequencies."""
+
 import pandas as pd
 
 FREQ_DAYS_DICT = {'D': 1, 'B': 1, 'W': 7, '2W': 14, 'M': 30, '2M': 60}
@@ -16,4 +18,5 @@ FREQ_LABELS_DICT = {
 
 
 def reset_time(ts: pd.Timestamp) -> pd.Timestamp:
+    """The date without its time."""
     return ts.replace(hour=0, minute=0, second=0, microsecond=0)

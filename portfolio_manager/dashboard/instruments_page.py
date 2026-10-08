@@ -1,3 +1,5 @@
+"""Instruments page: ETF catalog table and correlations."""
+
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
@@ -38,6 +40,7 @@ COLUMN_DEFS = [{'field': f} for f in COLS_INFO_TABLE] + COLUMN_DEFS
 
 # PERFORMANCE METRICS TABLE
 def get_table_perf(instr_data: InstrumentsData) -> dag.AgGrid:
+    """Table of the performance metrics of the ETF catalog (sortable and filterable)."""
     return dag.AgGrid(
         id='table_perf',
         className='ag-theme-alpine-dark',
@@ -51,6 +54,7 @@ def get_table_perf(instr_data: InstrumentsData) -> dag.AgGrid:
 
 # INSTRUMENTS CORRELATION MATRIX HEATMAP
 def get_fig_corr_instr(instr_data: InstrumentsData, ticker_lst: list | None = None) -> go.Figure:
+    """Correlation matrix of the weekly returns of the given instruments (the first ones of the catalog if none)."""
     if ticker_lst is not None:
         ticker_lst = [t for t in ticker_lst if t in instr_data.adj_close_df.columns]
         adj_close_corr = instr_data.adj_close_df[ticker_lst].iloc[:, :MAX_INSTR_CORR].copy()
@@ -83,6 +87,7 @@ def get_fig_corr_instr(instr_data: InstrumentsData, ticker_lst: list | None = No
 
 # DASHBOARD
 def build_content_instruments(account: Accounts) -> html.Div:
+    """Layout of the Instruments page."""
     instr_data = get_instruments_data(account)
     if instr_data is None:
         return html.Div(dbc.Card(dbc.CardBody(html.H4(f'No ETF catalog available for {account.name}')), color='dark'))
@@ -116,6 +121,7 @@ def build_content_instruments(account: Accounts) -> html.Div:
     State('store-account', 'data'),
 )
 def update_corr_heatmap_fig(virtual_data, account_name) -> go.Figure:
+    """Correlations of the instruments currently shown in the table."""
     # None until the table has rendered its rows: keep the heatmap built with the page
     if virtual_data is None:
         raise PreventUpdate

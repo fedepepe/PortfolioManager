@@ -1,3 +1,5 @@
+"""Data update and backtests of the accounts, their benchmarks and optimized portfolios."""
+
 import re
 from dataclasses import asdict
 from datetime import datetime
@@ -38,6 +40,7 @@ from portfolio_manager.utils.dates import reset_time
 
 
 def save_backtest_data(hist_portfolio_data: PortfolioBacktestData):
+    """Save a backtest; with an id-symbol map also a copy with symbols as column labels."""
     fu.save_df_dict_to_excel(
         df_dict=asdict(hist_portfolio_data), file_name=hist_portfolio_data.name, folder_name=DATA_DIR
     )
@@ -53,6 +56,7 @@ BACKTEST_SERIES_FIELDS = ['nav', 'nav_eff', 'deposits']
 
 
 def load_backtest_data(name: str) -> PortfolioBacktestData:
+    """Saved backtest with the given name."""
     data_dict = fu.load_df_dict_from_excel(file_name=name, folder_name=DATA_DIR)
     # series are saved as one-column sheets: restore them as series
     for field in BACKTEST_SERIES_FIELDS:
@@ -63,6 +67,7 @@ def load_backtest_data(name: str) -> PortfolioBacktestData:
 
 
 def update_data(account: Accounts):
+    """Download the transactions, products, cash movements and charts of an account from DeGiro."""
     conn = get_degiro_connection(account=account)
     fetch_tx_history(account=account, degiro_conn=conn)
     fetch_portfolio_products_info(account=account, degiro_conn=conn)
@@ -81,7 +86,7 @@ PRODUCT_CHANGE_PATTERN = 'CAMBIO'  # product change: a sale of the old product a
 
 
 def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
-    # backtest of the account from its saved DeGiro data (trades, cash movements, prices), saved to its file
+    """Backtest of the account from its saved DeGiro data (trades, cash movements, prices), saved to its file."""
     prices_df = load_portfolio_charts(account=account)
     tx_hist_df = load_tx_history(account=account)
     movements_df = load_account_movements(account=account)
@@ -143,7 +148,7 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
 
 
 def split_multipliers(movements_df: pd.DataFrame) -> pd.DataFrame:
-    # unit multiplier of each split, by date (index) and product: e.g. 36 units becoming 900 gives 25
+    """Unit multiplier of each split, by date (index) and product: e.g. 36 units becoming 900 gives 25."""
     splits_df = movements_df[movements_df['description'].str.contains(SPLIT_PATTERN)].copy()
     splits_df['mult'] = [int(re.search(r'\d+', s).group()) for s in splits_df['description']]
     # the units leaving the account (negative change) multiply, the units entering divide
@@ -152,7 +157,7 @@ def split_multipliers(movements_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def adjust_tx_for_splits(tx_hist_df: pd.DataFrame, splits_df: pd.DataFrame):
-    # converts the trades before each split into post-split units and prices (in place)
+    """Converts the trades before each split into post-split units and prices (in place)."""
     for ts, prod_id, mult in zip(splits_df.index, splits_df['product_id'], splits_df['mult'], strict=True):
         mask = (tx_hist_df.index <= ts) & (tx_hist_df['product_id'] == prod_id)
         tx_hist_df.loc[mask, TxHistFields.quantity] = tx_hist_df.loc[mask, TxHistFields.quantity].mul(mult)
@@ -160,7 +165,7 @@ def adjust_tx_for_splits(tx_hist_df: pd.DataFrame, splits_df: pd.DataFrame):
 
 
 def product_changes(movements_df: pd.DataFrame) -> dict:
-    # old product id -> new product id, from the sale and purchase movements of each product change
+    """Old product id -> new product id, from the sale and purchase movements of each product change."""
     changes_df = movements_df[movements_df['description'].str.contains(PRODUCT_CHANGE_PATTERN)].copy()
     changes_df = changes_df.set_index('value_date')
     changes_df['product'] = [re.search(r'\d+(.*?)@', s).group(1) for s in changes_df['description']]
@@ -192,6 +197,7 @@ def _dividends_to_base_currency(
 
 
 def backtest_portfolio_benchmark(account: Accounts, index: pd.DatetimeIndex) -> PortfolioBacktestData:
+    """Backtest of the benchmark of an account over the given dates (saved)."""
     prices_adj_df = fetch_instr_adj_prices(
         account=account, isin_lst=[v[2] for v in account.benchmark.values()], tick_lst=list(account.benchmark.keys())
     )
@@ -207,7 +213,7 @@ def backtest_portfolio_benchmark(account: Accounts, index: pd.DatetimeIndex) -> 
 
 
 def refresh_account(account: Accounts):
-    # fetch new data from Degiro, then recompute and save backtest and performance of portfolio and benchmark
+    """Fetch new data from Degiro, then recompute and save backtest and performance of portfolio and benchmark."""
     update_data(account=account)
     hist_portfolio_data = backtest_portfolio_account(account=account)
     hist_benchmark_data = backtest_portfolio_benchmark(account=account, index=hist_portfolio_data.nav.index)
@@ -220,15 +226,16 @@ OPTIMIZATION_SETTINGS_LABEL = 'settings'
 
 
 def optimized_portfolio_name(account: Accounts) -> str:
-    # name of the saved backtest and performance files of the optimized portfolio
+    """Name of the saved backtest and performance files of the optimized portfolio."""
     return f'{account.name} Opt. (Tangency)'
 
 
 def optimization_prices(account: Accounts) -> tuple[pd.DataFrame, str]:
-    # full history of adjusted prices (Yahoo Finance, or the database when offline) and where they come from;
-    # products without adjusted prices use the unadjusted Degiro prices of the saved backtest (portfolio period only).
-    # One column per instrument: products with the same ISIN (e.g. one ETF on two exchanges) have the same
-    # prices, so only one is kept, preferring the product held at the end of the backtest
+    """Full history of adjusted prices (Yahoo Finance, or the database when offline) and where they come from; products
+    without adjusted prices use the unadjusted Degiro prices of the saved backtest (portfolio period only). One
+    column per instrument: products with the same ISIN (e.g. one ETF on two exchanges) have the same prices, so only
+    one is kept, preferring the product held at the end of the backtest.
+    """
     adj_prices = get_portfolio_adj_prices(account=account)
     hist_data = load_backtest_data(name=account.name)
     prices_df = adj_prices.prices.reindex(index=adj_prices.prices.index.union(hist_data.prices.index))
@@ -253,6 +260,9 @@ def backtest_portfolio_optimized(
     prices_adj_df: pd.DataFrame | None = None,
     settings: OptimizationSettings | None = None,
 ) -> tuple[PortfolioBacktestData, OptimizedWeights]:
+    """Backtest of the optimized portfolio over the given dates with the given settings; saves the backtest and its
+    performance with the settings.
+    """
     settings = settings or OptimizationSettings()
     if prices_adj_df is None:
         prices_adj_df, _ = optimization_prices(account=account)

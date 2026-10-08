@@ -1,3 +1,5 @@
+"""DeGiro product information: full catalog in the database, portfolio products in Excel."""
+
 import pandas as pd
 from degiro_connector.trading.api import API
 
@@ -12,6 +14,7 @@ from portfolio_manager.storage.queries import insert_product
 
 
 def fetch_full_product_catalog(degiro_conn: API | None = None):
+    """Download the information of every DeGiro product into the database (long)."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     # FETCH PRODUCT INFO
@@ -39,6 +42,7 @@ def fetch_full_product_catalog(degiro_conn: API | None = None):
 
 
 def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[int] = 11853206) -> pd.DataFrame:
+    """Information of the given products from DeGiro, one row per product."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     if isinstance(product_ids, int):
@@ -54,10 +58,12 @@ def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[i
 
 
 def save_product_info(account: Accounts, product_info_df: pd.DataFrame):
+    """Save the product information of an account."""
     save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
 
 
 def fetch_portfolio_products_info(account: Accounts, degiro_conn: API | None = None):
+    """Download and save the information of the products traded in an account."""
     tx_history_df = load_tx_history(account=account)
     product_ids = list(set(tx_history_df['product_id'].astype(int).to_list()))
     product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)
@@ -65,11 +71,13 @@ def fetch_portfolio_products_info(account: Accounts, degiro_conn: API | None = N
 
 
 def load_portfolio_products(account: Accounts) -> pd.DataFrame:
+    """Saved information of the products traded in an account."""
     product_df = load_df_from_excel(file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
     return product_df
 
 
 def adjust_prod_column_labels(prod_df: pd.DataFrame) -> pd.DataFrame:
+    """Fill missing symbols and names with the ISIN; symbols shared by several products get their currency appended."""
     prod_df[Product.symbol.name] = prod_df[Product.symbol.name].fillna(prod_df[Product.isin.name])
     prod_df[Product.name.name] = prod_df[Product.name.name].fillna(prod_df[Product.isin.name])
     prod_duplicate = prod_df.duplicated(Product.symbol.name, keep=False)

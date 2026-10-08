@@ -1,3 +1,5 @@
+"""Paths of the data folders and project-wide constants."""
+
 import os
 
 # directories (created when a file is first written to them)

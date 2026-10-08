@@ -1,3 +1,5 @@
+"""DeGiro transactions and cash movements of an account."""
+
 from datetime import date
 from enum import Enum
 from typing import Any
@@ -14,6 +16,8 @@ from portfolio_manager.storage import files as fu
 
 
 class TxHistFields:
+    """Columns of the transaction history."""
+
     date = 'date'
     auto_fx_fee_in_base_currency = 'auto_fx_fee_in_base_currency'
     buysell = 'buysell'
@@ -40,6 +44,8 @@ class TxHistFields:
 
 
 class CashMovements(str, Enum):
+    """Columns of the cash movements."""
+
     date = 'date'
     balance = 'balance'
     change = 'change'
@@ -52,6 +58,7 @@ class CashMovements(str, Enum):
 
 
 def field_list_to_df(data: Any) -> pd.DataFrame:
+    """Frame of DeGiro records (lists of field/value pairs); date columns without time zone."""
     df = pd.DataFrame()
     for field in data:
         columns, values = zip(*field, strict=True)
@@ -65,6 +72,7 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
 
 
 def fetch_tx_history(account: Accounts, degiro_conn: API | None = None) -> pd.DataFrame:
+    """Download and save the transactions of the last ten years."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW
@@ -81,12 +89,14 @@ def fetch_tx_history(account: Accounts, degiro_conn: API | None = None) -> pd.Da
 
 
 def load_tx_history(account: Accounts) -> pd.DataFrame:
+    """Saved transactions of an account."""
     tx_history_df = fu.load_df_from_excel(file_name=f'{account.name}_tx_hist', folder_name=DATA_DIR)
     tx_history_df = tx_history_df.astype({'product_id': int})
     return tx_history_df
 
 
 def fetch_account_movements(account: Accounts, degiro_conn: API | None = None):
+    """Download and save the cash movements of the last ten years."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW
@@ -105,5 +115,6 @@ def fetch_account_movements(account: Accounts, degiro_conn: API | None = None):
 
 
 def load_account_movements(account: Accounts) -> pd.DataFrame:
+    """Saved cash movements of an account."""
     account_movements_df = fu.load_df_from_excel(file_name=f'{account.name}_movements', folder_name=DATA_DIR)
     return account_movements_df

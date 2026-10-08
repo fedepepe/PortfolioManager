@@ -1,5 +1,4 @@
 import logging
-from typing import Optional, List, Dict
 
 import numpy as np
 import pandas as pd
@@ -7,7 +6,7 @@ import pandas as pd
 from config.accounts import Accounts, Brokers
 from degiro.portfolio_backtest import PortfolioDegiro
 from degiro.transactions import TxHistFields
-from portfolio.portfolio_definitions import Portfolio, PortfolioBacktestData, Currencies
+from portfolio.portfolio_definitions import Currencies, Portfolio, PortfolioBacktestData
 
 
 def align_to_index(dates: pd.DatetimeIndex, index: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -25,19 +24,19 @@ def align_df_to_index(df: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame
 
 def backtest_portfolio(
     prices_df: pd.DataFrame,
-    name: Optional[str] = None,
-    account: Optional[Accounts] = None,
-    target_exp: Optional[pd.DataFrame | List] = None,
-    target_units: Optional[pd.DataFrame] = None,
-    tx_hist_df: Optional[pd.DataFrame] = None,
+    name: str | None = None,
+    account: Accounts | None = None,
+    target_exp: pd.DataFrame | list | None = None,
+    target_units: pd.DataFrame | None = None,
+    tx_hist_df: pd.DataFrame | None = None,
     curr_base: Currencies = Currencies.USD,
     initial_cash_balance: float = 1e6,
-    div_hist_df: Optional[pd.DataFrame] = None,
-    fx_rates_df: Optional[pd.DataFrame] = None,
-    dep_hist_df: Optional[pd.DataFrame] = None,
-    close_adj_df: Optional[pd.DataFrame] = None,
-    freq_rebalancing: Optional[str] = None,
-    id_symbol_map: Optional[Dict] = None,
+    div_hist_df: pd.DataFrame | None = None,
+    fx_rates_df: pd.DataFrame | None = None,
+    dep_hist_df: pd.DataFrame | None = None,
+    close_adj_df: pd.DataFrame | None = None,
+    freq_rebalancing: str | None = None,
+    id_symbol_map: dict | None = None,
 ) -> PortfolioBacktestData:
     if name is None and account is None:
         raise AttributeError
@@ -98,7 +97,7 @@ def backtest_portfolio(
                     portfolio.rebalance(target_exp=target_exp.loc[prices_df.index[t], :], current_prices=current_prices)
                     txn_values[t, :] = portfolio.txn_values
                     txn_costs[t, :] = portfolio.txn_costs
-            elif isinstance(target_exp, List):
+            elif isinstance(target_exp, list):
                 if t == 0 or prices_df.index[t] in rebalancing_dates:
                     portfolio.rebalance(target_exp=np.array(target_exp), current_prices=current_prices)
                     txn_values[t, :] = portfolio.txn_values

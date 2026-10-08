@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Union, List
+from typing import Union
 
 import pandas as pd
 
@@ -25,7 +25,7 @@ def save_df_to_excel(df: PD_DATA_TYPES, file_name: str, folder_name: str = None,
 
 
 def save_df_dict_to_excel(
-    df_dict: Dict[str, PD_DATA_TYPES], file_name: str, folder_name: str = None, append: bool = False
+    df_dict: dict[str, PD_DATA_TYPES], file_name: str, folder_name: str = None, append: bool = False
 ):
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
@@ -57,7 +57,7 @@ def save_df_to_parquet(df: PD_DATA_TYPES, file_name: str, folder_name: str = Non
     df.to_parquet(file_path)
 
 
-def load_df_from_excel(file_name: str, folder_name: str = None, sheet_name: str | List[str] = 'Sheet1') -> pd.DataFrame:
+def load_df_from_excel(file_name: str, folder_name: str = None, sheet_name: str | list[str] = 'Sheet1') -> pd.DataFrame:
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -66,7 +66,7 @@ def load_df_from_excel(file_name: str, folder_name: str = None, sheet_name: str 
     return df
 
 
-def load_df_dict_from_excel(file_name: str, folder_name: str = None) -> Dict[str, pd.DataFrame | str]:
+def load_df_dict_from_excel(file_name: str, folder_name: str = None) -> dict[str, pd.DataFrame | str]:
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:

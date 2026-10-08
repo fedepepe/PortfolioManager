@@ -1,4 +1,3 @@
-from typing import Optional
 import numpy as np
 import pandas as pd
 
@@ -7,8 +6,8 @@ from portfolio.portfolio_definitions import Portfolio
 
 def compute_historical_portfolio(
     prices_df: pd.DataFrame,
-    date_start: Optional[str | pd.Timestamp],
-    date_stop: Optional[str | pd.Timestamp],
+    date_start: str | pd.Timestamp | None,
+    date_stop: str | pd.Timestamp | None,
     initial_cash_pos: float = 1e2,
 ):
     # restrict prices to chosen timeframe

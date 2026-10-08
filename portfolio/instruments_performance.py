@@ -2,23 +2,22 @@ import time
 import warnings
 from difflib import SequenceMatcher
 from enum import Enum
-from typing import List, Dict, Optional
 
 import pandas as pd
 
-from degiro.charts import load_portfolio_products, load_fx_rates
-from config.definitions import DEFAULT_DATA_FREQ
 from config.accounts import Accounts
-from config.definitions import RESULTS_DIR
-from utils.file_utils import PD_DATA_TYPES
-from utils.file_utils import save_df_dict_to_excel, load_df_from_excel, load_df_dict_from_excel
-from degiro.degiro_definitions import ProductTypes
-from engines.reporting import compute_portfolio_metrics, PerfDataTabs
-from database.sql import query_products, insert_yahoo_finance_data
-from database.sql import query_yahoo_finance_prod_info, query_yahoo_finance_hist_data
-from degiro.degiro_definitions import Exchanges
+from config.definitions import DEFAULT_DATA_FREQ, RESULTS_DIR
+from database.sql import (
+    query_products,
+    query_yahoo_finance_hist_data,
+    query_yahoo_finance_prod_info,
+)
 from database.table_definitions import Product
-from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols, search_fetch_history, YF_PROD_INFO_LABEL
+from degiro.charts import load_fx_rates, load_portfolio_products
+from degiro.degiro_definitions import Exchanges, ProductTypes
+from engines.reporting import PerfDataTabs, compute_portfolio_metrics
+from utils.file_utils import PD_DATA_TYPES, load_df_dict_from_excel, load_df_from_excel, save_df_dict_to_excel
+from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols, search_fetch_history
 from yahoo_finance.yahoo_finance import Exchanges as ExchangesYF
 
 MAX_ETF_CATALOG_SIZE = 250
@@ -38,7 +37,7 @@ def is_missing(value) -> bool:
     return value is None or pd.isna(value)
 
 
-def choose_ticker(tickers: List[str], ticker: Optional[str] = None) -> str:
+def choose_ticker(tickers: list[str], ticker: str | None = None) -> str:
     # follow the priority order of exchanges: first {ticker}.{exchange}, then any ticker listed on an exchange
     for prefix in ([ticker] if ticker is not None else []) + [None]:
         for x in ExchangesYF:
@@ -49,12 +48,12 @@ def choose_ticker(tickers: List[str], ticker: Optional[str] = None) -> str:
 
 
 def fetch_instr_hist_data(
-    isin_lst: str | List[str],
-    columns: str | YFinHistCols | List[str] | List[YFinHistCols],
-    ticker_lst: Optional[str | List[str]] = None,
-    name_lst: Optional[str | List[str]] = None,
+    isin_lst: str | list[str],
+    columns: str | YFinHistCols | list[str] | list[YFinHistCols],
+    ticker_lst: str | list[str] | None = None,
+    name_lst: str | list[str] | None = None,
     freq: str = DEFAULT_DATA_FREQ,
-) -> Dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
+) -> dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
     if ticker_lst is None:
@@ -127,11 +126,11 @@ def remove_duplicated_tickers(col, data_single):
 
 
 def prices_to_base_curr(
-    account: Accounts, price_df: pd.DataFrame, curr_info: PD_DATA_TYPES | List[str]
+    account: Accounts, price_df: pd.DataFrame, curr_info: PD_DATA_TYPES | list[str]
 ) -> pd.DataFrame:
     if isinstance(curr_info, pd.Series):
         curr_lst = curr_info.str.upper().to_list()
-    elif isinstance(curr_info, List):
+    elif isinstance(curr_info, list):
         curr_lst = [c.upper() for c in curr_info]
     else:
         raise TypeError
@@ -170,9 +169,9 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
 
 def fetch_instr_adj_prices(
     account: Accounts,
-    isin_lst: List,
-    name_lst: Optional[List] = None,
-    tick_lst: Optional[List] = None,
+    isin_lst: list,
+    name_lst: list | None = None,
+    tick_lst: list | None = None,
     to_portfolio_instr_table: bool = True,
 ) -> pd.DataFrame:
     data = fetch_instr_hist_data(
@@ -196,7 +195,7 @@ def fetch_instr_adj_prices(
 
 
 def compute_product_performance(
-    adj_close_df: PD_DATA_TYPES, volume_df: Optional[PD_DATA_TYPES] = None, prod_info_df: Optional[PD_DATA_TYPES] = None
+    adj_close_df: PD_DATA_TYPES, volume_df: PD_DATA_TYPES | None = None, prod_info_df: PD_DATA_TYPES | None = None
 ) -> pd.DataFrame:
     perf_metrics_df = pd.DataFrame()
     for ticker in adj_close_df.columns:
@@ -283,7 +282,7 @@ def load_etf_catalog_performance() -> pd.DataFrame:
     return load_df_from_excel(file_name='ETF_performance', folder_name=RESULTS_DIR)
 
 
-def build_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame]:
+def build_etf_catalog_data(account: Accounts) -> dict[YFinHistCols, pd.DataFrame]:
     volume_df = query_yahoo_finance_hist_data(columns=YFinHistCols.volume)
     volume_3m_df = volume_df.rolling(90).mean().dropna(how='all', axis=1)
     curr_info = query_yahoo_finance_prod_info().loc[YFinInfoCols.currency.value, volume_3m_df.columns]
@@ -304,7 +303,7 @@ def build_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame
     return data_dict
 
 
-def compute_catalog_performance_df(data_dict: Dict[str | YFinHistCols, pd.DataFrame]) -> pd.DataFrame:
+def compute_catalog_performance_df(data_dict: dict[str | YFinHistCols, pd.DataFrame]) -> pd.DataFrame:
     return compute_product_performance(
         adj_close_df=data_dict[YFinHistCols.adj_close],
         volume_df=data_dict[YFinHistCols.volume],
@@ -320,12 +319,12 @@ def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
     return data_dict[CATALOG_PERF_LABEL]
 
 
-def save_etf_catalog_data(account: Accounts, data_dict: Dict[str | YFinHistCols, pd.DataFrame]):
+def save_etf_catalog_data(account: Accounts, data_dict: dict[str | YFinHistCols, pd.DataFrame]):
     data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
     save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
 
 
-def load_etf_catalog_data(account: Accounts) -> Dict[str | YFinHistCols, pd.DataFrame]:
+def load_etf_catalog_data(account: Accounts) -> dict[str | YFinHistCols, pd.DataFrame]:
     # keys: YFinHistCols for the price and volume sheets, YF_PROD_INFO_LABEL, and CATALOG_PERF_LABEL if computed
     data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
     data_dict_renamed = {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}

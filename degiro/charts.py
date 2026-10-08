@@ -1,18 +1,17 @@
 import warnings
 from enum import Enum
-from typing import List, Optional
 
 import pandas as pd
 from degiro_connector.quotecast.models.chart import ChartRequest, Interval
 from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher, SeriesFormatter
 from degiro_connector.trading.api import API
 
-from utils.file_utils import load_df_from_excel, save_df_to_excel
 from config.accounts import Accounts
-from config.definitions import DATA_DIR, PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME
-from degiro.degiro_connection import get_degiro_connection
-from degiro.products import fetch_product_info, load_portfolio_products, query_products, ProductTypes
+from config.definitions import DATA_DIR, FX_RATES_CHART_FILE_NAME, PRODUCTS_CHART_FILE_NAME
 from database.sql import insert_degiro_hist
+from degiro.degiro_connection import get_degiro_connection
+from degiro.products import ProductTypes, fetch_product_info, load_portfolio_products, query_products
+from utils.file_utils import load_df_from_excel, save_df_to_excel
 
 
 class ChartType(str, Enum):
@@ -52,12 +51,12 @@ def fetch_hist_data_single(
 
 
 def fetch_charts(
-    degiro_conn: Optional[API] = None,
-    product_ids: Optional[int | List[int]] = None,
-    product_info_df: Optional[pd.DataFrame] = None,
+    degiro_conn: API | None = None,
+    product_ids: int | list[int] | None = None,
+    product_info_df: pd.DataFrame | None = None,
     chart_type: ChartType = ChartType.PRICE,
-    period: Optional[Interval] = Interval.P10Y,
-    resolution: Optional[Interval] = Interval.P1D,
+    period: Interval | None = Interval.P10Y,
+    resolution: Interval | None = Interval.P1D,
     return_df: bool = True,
 ) -> pd.DataFrame:
     # all historical data is stored into the database; the chart_type column is returned if return_df is True
@@ -119,7 +118,7 @@ def save_charts(
     save_df_to_excel(df=chart_df, file_name=file_name, folder_name=DATA_DIR)
 
 
-def fetch_portfolio_charts(account: Accounts, degiro_conn: Optional[API] = None):
+def fetch_portfolio_charts(account: Accounts, degiro_conn: API | None = None):
     products_df = load_portfolio_products(account=account)
     chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=list(set(products_df['id'].astype(int).to_list())))
     save_charts(chart_df=chart_df, account=account)
@@ -132,7 +131,7 @@ def load_portfolio_charts(
     return chart_df
 
 
-def fetch_fx_charts(account: Accounts, degiro_conn: Optional[API] = None):
+def fetch_fx_charts(account: Accounts, degiro_conn: API | None = None):
     results_df = query_products(product_type=ProductTypes.CURRENCY)
     chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=results_df['id'].to_list())
     save_charts(account=account, chart_df=chart_df, chart_name=FX_RATES_CHART_FILE_NAME)
@@ -140,7 +139,7 @@ def fetch_fx_charts(account: Accounts, degiro_conn: Optional[API] = None):
 
 def load_fx_rates(
     account: Accounts,
-    curr_foreign_lst: List[str],
+    curr_foreign_lst: list[str],
     index: pd.DatetimeIndex,
 ) -> pd.DataFrame:
     results_df = query_products(product_type=ProductTypes.CURRENCY)

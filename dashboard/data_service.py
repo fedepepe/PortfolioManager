@@ -5,7 +5,7 @@
 import os
 import threading
 from functools import lru_cache
-from typing import Optional, NamedTuple, Dict
+from typing import NamedTuple
 
 import pandas as pd
 
@@ -13,12 +13,18 @@ from config.accounts import Accounts
 from config.definitions import DATA_DIR, RESULTS_DIR
 from dashboard.dash_instruments_data import InstrumentsData
 from dashboard.dash_portfolio_data import PortfolioData
-from portfolio.portfolio_backtest import load_backtest_data, backtest_portfolio_benchmark, refresh_account
-from portfolio.portfolio_backtest import backtest_portfolio_optimized, optimized_portfolio_name, optimization_prices
-from portfolio.portfolio_backtest import OPTIMIZATION_SETTINGS_LABEL
-from strategy.strategy_definitions import OptimizationSettings
+from portfolio.portfolio_backtest import (
+    OPTIMIZATION_SETTINGS_LABEL,
+    backtest_portfolio_benchmark,
+    backtest_portfolio_optimized,
+    load_backtest_data,
+    optimization_prices,
+    optimized_portfolio_name,
+    refresh_account,
+)
 from portfolio.portfolio_definitions import PortfolioBacktestData
-from utils.file_utils import to_file_name, load_df_dict_from_excel
+from strategy.strategy_definitions import OptimizationSettings
+from utils.file_utils import load_df_dict_from_excel, to_file_name
 
 # serializes the long-running jobs (data update, optimization)
 _UPDATE_LOCK = threading.Lock()
@@ -26,7 +32,7 @@ _UPDATE_LOCK = threading.Lock()
 
 class OptimizedData(NamedTuple):
     hist_data: PortfolioBacktestData
-    perf_dct: Optional[Dict[str, pd.DataFrame]]  # None if the performance results are missing
+    perf_dct: dict[str, pd.DataFrame] | None  # None if the performance results are missing
     computed_at: float  # modification time of the saved backtest file
     settings: OptimizationSettings  # settings of the saved optimization (defaults for files saved without them)
 
@@ -76,7 +82,7 @@ def _instruments_data(account_name: str, version: str) -> InstrumentsData:
     return InstrumentsData(account=Accounts.get_account_by_name(account_name))
 
 
-def get_instruments_data(account: Accounts) -> Optional[InstrumentsData]:
+def get_instruments_data(account: Accounts) -> InstrumentsData | None:
     # None if the account has no ETF catalog
     file = _catalog_file(account)
     if not os.path.isfile(file):
@@ -108,7 +114,7 @@ def _optimized_data(account_name: str, version: str) -> OptimizedData:
     )
 
 
-def get_optimized_data(account: Accounts) -> Optional[OptimizedData]:
+def get_optimized_data(account: Accounts) -> OptimizedData | None:
     # None if no optimization has been computed for the account
     files = _optimized_files(account)
     if not os.path.isfile(files[0]):

@@ -1,18 +1,21 @@
-from typing import Optional, Dict, List
-
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
-from sqlalchemy import or_
-from sqlalchemy import select, func, insert, delete
+from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
-from database.db_conn import engine, conn
+from database.db_conn import conn, engine
 from database.sql_utils import list_to_str, str_to_date
-from database.table_definitions import Product, DegiroHistData, YahooFinanceHistData, YahooFinanceProdInfo
-from database.table_definitions import YahooFinanceHistDataPfInstr, DegiroYahooMap
-from degiro.degiro_definitions import ProductTypes, Exchanges
-from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinInfoCols, YFinHistCols
+from database.table_definitions import (
+    DegiroHistData,
+    DegiroYahooMap,
+    Product,
+    YahooFinanceHistData,
+    YahooFinanceHistDataPfInstr,
+    YahooFinanceProdInfo,
+)
+from degiro.degiro_definitions import Exchanges, ProductTypes
+from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols
 
 YAHOO_FINANCE_DATA_OVERWRITE_DICT = {YFinHistCols.adj_close: True}
 DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
@@ -84,7 +87,7 @@ def insert_degiro_hist(product_id: int, df: pd.DataFrame):
     db_commit(message=f'Degiro historical data of product {product_id} ({len(rows)} rows)')
 
 
-def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame], to_portfolio_instr_table: bool = True):
+def insert_yahoo_finance_data(data_dict: dict[YFinHistCols, pd.DataFrame], to_portfolio_instr_table: bool = True):
     if data_dict[YF_PROD_INFO_LABEL].empty:
         return
     for col, df in data_dict.items():
@@ -159,7 +162,7 @@ def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
     db_commit(message=f'Yahoo Finance adjusted prices of {ticker} ({len(ser)} rows)')
 
 
-def query_portfolio_instr_adj_close(tickers: List[str]) -> pd.DataFrame:
+def query_portfolio_instr_adj_close(tickers: list[str]) -> pd.DataFrame:
     # stored adjusted prices: date x ticker (exact ticker match)
     table = YahooFinanceHistDataPfInstr
     stmt = select(table.ticker, table.date, table.value).where(
@@ -172,7 +175,7 @@ def query_portfolio_instr_adj_close(tickers: List[str]) -> pd.DataFrame:
     return df.pivot(index='date', columns='ticker', values='value').sort_index()
 
 
-def upsert_yahoo_finance_info(ticker: str, info: Dict[str, str]):
+def upsert_yahoo_finance_info(ticker: str, info: dict[str, str]):
     rows = [
         {'ticker': ticker, 'quote_type': field, 'value': str(value)}
         for field, value in info.items()
@@ -189,7 +192,7 @@ def upsert_yahoo_finance_info(ticker: str, info: Dict[str, str]):
     db_commit()
 
 
-def query_yahoo_finance_info_field(tickers: List[str], field: str) -> Dict[str, str]:
+def query_yahoo_finance_info_field(tickers: list[str], field: str) -> dict[str, str]:
     # one info field per ticker (exact ticker match)
     stmt = select(YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.value).where(
         YahooFinanceProdInfo.ticker.in_(tickers) & (YahooFinanceProdInfo.quote_type == field)
@@ -197,21 +200,21 @@ def query_yahoo_finance_info_field(tickers: List[str], field: str) -> Dict[str, 
     return dict(conn.execute(stmt).all())
 
 
-def upsert_degiro_yahoo_map(product_ids: List[int], ticker: str):
+def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
     stmt = sqlite_insert(DegiroYahooMap)
     stmt = stmt.on_conflict_do_update(index_elements=[DegiroYahooMap.product_id], set_={'ticker': stmt.excluded.ticker})
     conn.execute(stmt, [{'product_id': int(p), 'ticker': ticker} for p in product_ids])
     db_commit()
 
 
-def query_degiro_yahoo_map(product_ids: List[int]) -> Dict[int, str]:
+def query_degiro_yahoo_map(product_ids: list[int]) -> dict[int, str]:
     stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker).where(
         DegiroYahooMap.product_id.in_([int(p) for p in product_ids])
     )
     return dict(conn.execute(stmt).all())
 
 
-def db_commit(message: Optional[str] = None):
+def db_commit(message: str | None = None):
     try:
         conn.commit()
     except IntegrityError as e:
@@ -227,13 +230,13 @@ def db_commit(message: Optional[str] = None):
 
 
 def query_products(
-    product_name: Optional[str] = None,
-    product_id: Optional[int] = None,
-    product_isin: Optional[str] = None,
-    product_symbol: Optional[str] = None,
-    product_type: Optional[ProductTypes] = None,
-    tradable: Optional[bool] = None,
-    exchange: Optional[Exchanges | int] = None,
+    product_name: str | None = None,
+    product_id: int | None = None,
+    product_isin: str | None = None,
+    product_symbol: str | None = None,
+    product_type: ProductTypes | None = None,
+    tradable: bool | None = None,
+    exchange: Exchanges | int | None = None,
 ) -> pd.DataFrame:
     query = select(Product)
     if isinstance(exchange, Exchanges):
@@ -266,11 +269,11 @@ def query_tradable_products(product_type: ProductTypes) -> pd.DataFrame:
 
 
 def query_degiro_hist(
-    product_ids: int | List[int],
-    columns: Optional[str | List[str]] = None,
-    date_start: Optional[pd.Timestamp] = None,
-    date_stop: Optional[pd.Timestamp] = None,
-) -> pd.DataFrame | Dict[str, pd.DataFrame]:
+    product_ids: int | list[int],
+    columns: str | list[str] | None = None,
+    date_start: pd.Timestamp | None = None,
+    date_stop: pd.Timestamp | None = None,
+) -> pd.DataFrame | dict[str, pd.DataFrame]:
     # returns a date x product_id dataframe per requested field (a single dataframe if one field is requested)
     if isinstance(product_ids, int):
         product_ids = [product_ids]
@@ -295,7 +298,7 @@ def query_degiro_hist(
 
 
 def query_yahoo_finance_prod_info(
-    isin: Optional[str | List[str]] = None, ticker: Optional[str | List[str]] = None
+    isin: str | list[str] | None = None, ticker: str | list[str] | None = None
 ) -> pd.DataFrame:
     def _query_yahoo_finance_prod_info_single(isin: str = None, ticker: str = None) -> pd.DataFrame:
         if isin is not None:
@@ -381,11 +384,11 @@ def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame
 
 
 def query_yahoo_finance_hist_data(
-    tickers: Optional[str | List[str]] = None,
-    isin: Optional[str] = None,
-    columns: Optional[str | List[str] | YFinHistCols | List[YFinHistCols]] = None,
-) -> pd.DataFrame | Dict[str, pd.DataFrame]:
-    if isinstance(tickers, List):  # list of tickers is only possible in case of Yahoo tickers
+    tickers: str | list[str] | None = None,
+    isin: str | None = None,
+    columns: str | list[str] | YFinHistCols | list[YFinHistCols] | None = None,
+) -> pd.DataFrame | dict[str, pd.DataFrame]:
+    if isinstance(tickers, list):  # list of tickers is only possible in case of Yahoo tickers
         ticker_lst = tickers
     else:
         info_df = query_yahoo_finance_prod_info(isin=isin, ticker=tickers)

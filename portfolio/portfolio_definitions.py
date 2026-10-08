@@ -1,11 +1,9 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Optional, List, Dict
 from enum import Enum
 
 import numpy as np
 import pandas as pd
-
 
 DEFAULT_FREQ_HIST_DATA = 'B'
 
@@ -19,14 +17,14 @@ class Currencies:
 class PortfolioGeneric:
     def __init__(
         self,
-        tickers: List[str],
+        tickers: list[str],
         base_currency: Currencies = Currencies.USD,
         name: str = 'Portfolio',
         initial_cash_balance: float = 1e6,
         max_target_dev: float = 0.0,
         txn_costs_prop_bp: int = 0,  # proportional transaction costs in basis points
         txn_costs_fixed: float = 0.0,  # fixed transaction costs per asset traded
-        txn_costs_max: Optional[float] = None,  # max transaction costs per asset traded (None: no cap)
+        txn_costs_max: float | None = None,  # max transaction costs per asset traded (None: no cap)
         min_cash_amount: float = 0.0,
         min_cash_ratio: float = 0.0,
     ):  # cash kept at rebalancing, as a fraction of the NAV
@@ -73,9 +71,9 @@ class PortfolioRebalanceType(Enum):
 class Portfolio(PortfolioGeneric):
     def rebalance(
         self,
-        current_prices: Optional[np.ndarray | pd.Series] = None,
-        target_exp: Optional[np.ndarray | pd.Series] = None,
-        units: Optional[np.ndarray | pd.Series] = None,
+        current_prices: np.ndarray | pd.Series | None = None,
+        target_exp: np.ndarray | pd.Series | None = None,
+        units: np.ndarray | pd.Series | None = None,
         rebalance_type: PortfolioRebalanceType = PortfolioRebalanceType.MINIMAL,
     ):
         if target_exp is None and units is None:
@@ -116,8 +114,8 @@ class Portfolio(PortfolioGeneric):
     def compute_current_units(
         self,
         current_prices: np.ndarray | pd.Series,
-        target_exp: Optional[np.ndarray | pd.Series] = None,
-        units: Optional[np.ndarray | pd.Series] = None,
+        target_exp: np.ndarray | pd.Series | None = None,
+        units: np.ndarray | pd.Series | None = None,
         rebalance_type: PortfolioRebalanceType = PortfolioRebalanceType.MINIMAL,
     ) -> np.ndarray | pd.Series:
         if target_exp is not None:
@@ -148,15 +146,15 @@ class PortfolioBacktestData:
     cum_pnl: pd.DataFrame = None
     yield_dividends: pd.DataFrame = None
     yield_total: pd.DataFrame = None
-    target_weights: Optional[pd.DataFrame] = None
-    effective_weights: Optional[pd.DataFrame] = None
-    transaction_value: Optional[pd.DataFrame] = None
-    transaction_costs: Optional[pd.DataFrame] = None
-    prices: Optional[pd.DataFrame] = None
-    dividends: Optional[pd.DataFrame] = None
-    fx_rates: Optional[pd.DataFrame] = None
-    deposits: Optional[pd.Series] = None
-    nav_eff: Optional[pd.Series] = None
-    close_adj: Optional[pd.DataFrame] = None
-    freq: Optional[str] = DEFAULT_FREQ_HIST_DATA
-    id_symbol_map: Optional[Dict] = None
+    target_weights: pd.DataFrame | None = None
+    effective_weights: pd.DataFrame | None = None
+    transaction_value: pd.DataFrame | None = None
+    transaction_costs: pd.DataFrame | None = None
+    prices: pd.DataFrame | None = None
+    dividends: pd.DataFrame | None = None
+    fx_rates: pd.DataFrame | None = None
+    deposits: pd.Series | None = None
+    nav_eff: pd.Series | None = None
+    close_adj: pd.DataFrame | None = None
+    freq: str | None = DEFAULT_FREQ_HIST_DATA
+    id_symbol_map: dict | None = None

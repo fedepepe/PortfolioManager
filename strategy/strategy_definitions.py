@@ -1,10 +1,8 @@
 from dataclasses import dataclass, fields
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Any
 
 import pandas as pd
-
-from engines.reporting import compute_portfolio_metrics
 
 
 class AllocationStrats(Enum):
@@ -38,11 +36,11 @@ class OptimizationSettings:
     min_position_size: float = 0.0  # smaller positions are dropped and their weight redistributed (0: off)
     min_pf_exposure: float = 0.9  # min total invested, the rest is cash (with 0%, max Sharpe stayed mostly in cash)
     max_pf_exposure: float = 1.0  # max total invested
-    max_vol: Optional[float] = 0.15  # max annual volatility (max Sharpe)
-    target_vol: Optional[float] = None  # target annual volatility (max return)
-    max_asset_num: Optional[int] = None  # keep only the largest weights
+    max_vol: float | None = 0.15  # max annual volatility (max Sharpe)
+    target_vol: float | None = None  # target annual volatility (max return)
+    max_asset_num: int | None = None  # keep only the largest weights
 
-    def extra_args(self) -> Dict[str, Any]:
+    def extra_args(self) -> dict[str, Any]:
         args = {f.name: getattr(self, f.name) for f in fields(self) if f.name not in ('method', 'optimization_freq')}
         if self.method == AllocationStrats.EQUAL_WEIGHT:
             args = {k: v for k, v in args.items() if k not in EQUAL_WEIGHT_UNUSED_SETTINGS}
@@ -74,7 +72,7 @@ class OptimizationSettings:
             setattr(settings, f.name, value)
         return settings
 
-    def validate(self, n_assets: Optional[int] = None) -> Optional[str]:
+    def validate(self, n_assets: int | None = None) -> str | None:
         # None if the settings can be satisfied, otherwise the reason
         if not 0.0 <= self.min_asset_exposure <= self.max_asset_exposure <= 1.0:
             return 'Weight per asset: the minimum must not exceed the maximum (both between 0% and 100%)'

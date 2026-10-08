@@ -1,11 +1,11 @@
 import dash_bootstrap_components as dbc
-from dash import html, callback, Output, Input, State, ctx
+from dash import Input, Output, State, callback, ctx, html
 
+from config.accounts import Accounts
 from dashboard.dash_common import SIDEBAR_STYLE
 from dashboard.dash_instruments import build_content_instruments
 from dashboard.dash_portfolio import build_content_portfolio
 from dashboard.dash_strategies import build_content_strategies
-from config.accounts import Accounts
 
 # Sidebar
 sidebar = html.Div(

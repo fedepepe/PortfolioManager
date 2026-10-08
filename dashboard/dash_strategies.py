@@ -1,19 +1,22 @@
 import time
 from datetime import datetime
-from typing import Optional, Tuple
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import html, dcc, Input, Output, State, callback, no_update
+from dash import Input, Output, State, callback, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from config.accounts import Accounts
-from dashboard.dash_common import LAYOUT_TEMPLATE, loading_wrapper, card_wrapper, get_fig_empty, get_fig_metrics_table
+from dashboard.dash_common import LAYOUT_TEMPLATE, card_wrapper, get_fig_empty, get_fig_metrics_table, loading_wrapper
 from dashboard.dash_portfolio_data import PortfolioData
-from dashboard.data_service import get_portfolio_data, get_optimized_data, run_optimization, OptimizedData
+from dashboard.data_service import OptimizedData, get_optimized_data, get_portfolio_data, run_optimization
 from engines.reporting import PerfDataTabs
-from strategy.strategy_definitions import AllocationStrats, OptimizationSettings
-from strategy.strategy_definitions import ALLOCATION_STRATS_LABELS, OPTIMIZATION_FREQ_LABELS
+from strategy.strategy_definitions import (
+    ALLOCATION_STRATS_LABELS,
+    OPTIMIZATION_FREQ_LABELS,
+    AllocationStrats,
+    OptimizationSettings,
+)
 
 PCT_MARKS = {v: f'{v}%' for v in range(0, 101, 10)}
 # controls of the optimization settings, in the order of the callbacks' outputs and states
@@ -164,7 +167,7 @@ def build_content_strategies(account: Accounts):
     )
 
 
-def settings_to_controls(settings: OptimizationSettings) -> Tuple:
+def settings_to_controls(settings: OptimizationSettings) -> tuple:
     pct = lambda v: None if v is None else round(100 * v, 2)
     return (
         settings.method.value,
@@ -197,7 +200,7 @@ def controls_to_settings(
 
 
 # NAV ADJUSTED LINE PLOT: portfolio vs optimized portfolio
-def get_fig_strat_navs(account: Accounts, pf_data: PortfolioData, opt_data: Optional[OptimizedData]) -> go.Figure:
+def get_fig_strat_navs(account: Accounts, pf_data: PortfolioData, opt_data: OptimizedData | None) -> go.Figure:
     fig_navs = go.Figure(
         data=[
             go.Scatter(
@@ -241,7 +244,7 @@ def get_fig_strat_navs(account: Accounts, pf_data: PortfolioData, opt_data: Opti
 
 
 # PERFORMANCE METRICS TABLE: portfolio vs optimized portfolio
-def get_fig_strat_perf(pf_data: PortfolioData, opt_data: Optional[OptimizedData]) -> go.Figure:
+def get_fig_strat_perf(pf_data: PortfolioData, opt_data: OptimizedData | None) -> go.Figure:
     opt_metrics = None
     if opt_data is not None and opt_data.perf_dct is not None:
         opt_metrics = opt_data.perf_dct.get(PerfDataTabs.RISK_METRICS)
@@ -263,7 +266,7 @@ def select_account_strategies(account_name: str) -> str:
     *[Output(i, p) for i, p in SETTINGS_CONTROLS],
     Input('dropdown-strategies', 'value'),
 )
-def load_settings(account_name: str) -> Tuple:
+def load_settings(account_name: str) -> tuple:
     opt_data = get_optimized_data(Accounts.get_account_by_name(name=account_name))
     return settings_to_controls(opt_data.settings if opt_data is not None else OptimizationSettings())
 
@@ -276,7 +279,7 @@ def load_settings(account_name: str) -> Tuple:
     Output('strat-min-position', 'disabled'),
     Input('strat-method', 'value'),
 )
-def enable_method_settings(method: str) -> Tuple:
+def enable_method_settings(method: str) -> tuple:
     equal_weight = method == AllocationStrats.EQUAL_WEIGHT.value
     return (
         method != AllocationStrats.MAX_SHARPE.value,
@@ -293,7 +296,7 @@ def enable_method_settings(method: str) -> Tuple:
     Input('dropdown-strategies', 'value'),
     Input('store-strategy-version', 'data'),
 )
-def render_strategies(account_name: str, strategy_version) -> Tuple:
+def render_strategies(account_name: str, strategy_version) -> tuple:
     account = Accounts.get_account_by_name(name=account_name)
     pf_data = get_portfolio_data(account)
     opt_data = get_optimized_data(account)
@@ -311,7 +314,7 @@ def render_strategies(account_name: str, strategy_version) -> Tuple:
     *[State(i, p) for i, p in SETTINGS_CONTROLS],
     prevent_initial_call=True,
 )
-def run_optimization_callback(n_clicks, account_name: str, *controls) -> Tuple:
+def run_optimization_callback(n_clicks, account_name: str, *controls) -> tuple:
     # Dash also calls this when the page is built (prevent_initial_call does not apply, since
     # store-strategy-version is outside the page): optimize only on an actual click
     if not n_clicks:

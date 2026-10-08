@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import NamedTuple, Optional, Dict, Tuple
+from typing import NamedTuple
 
 from engines.settings import State
 from portfolio.portfolio_definitions import Currencies
@@ -16,7 +16,7 @@ class Account(NamedTuple):
     currency: Currencies
     config_file: str
     state: State
-    benchmark: Optional[Dict[str, Tuple[float, str, Optional[str]]]] = None
+    benchmark: dict[str, tuple[float, str, str | None]] | None = None
 
 
 class Accounts(Account, Enum):

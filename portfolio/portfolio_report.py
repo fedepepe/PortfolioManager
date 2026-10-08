@@ -39,16 +39,7 @@ def print_portfolio_report(self, prices):
         else:
             drift_str = f'\033[92m{drift:.2f}\033[0m'  # green
         print(
-            '{:<10} {:<8} {:<6} {:>12.4f} {:>12.2f} {:>12.2f} {:>12.2f} {:>10}'.format(
-                asset.ticker,
-                group,
-                adjust,
-                asset.shares,
-                price if price else 0,
-                value,
-                target_pct,
-                drift_str,
-            )
+            f'{asset.ticker:<10} {group:<8} {adjust:<6} {asset.shares:>12.4f} {price if price else 0:>12.2f} {value:>12.2f} {target_pct:>12.2f} {drift_str:>10}'
         )
     print(f'\nTotal Portfolio Value: {total_value:.2f} {self.base_currency}')
 
@@ -119,8 +110,8 @@ def print_group_weights_report(self, prices):
     Warns if total target != 100%.
     Colors drift by magnitude for visual cues.
     """
-    from collections import defaultdict
     import math
+    from collections import defaultdict
 
     print(f'\nGroup Weights Report (Base Currency: {self.base_currency})')
     print('{:<10} {:>15} {:>15} {:>15} {:>10}'.format('Group', 'Current %', 'Target %', 'Cash', 'Drift %'))
@@ -149,7 +140,7 @@ def print_group_weights_report(self, prices):
             drift_str = f'\033[91m{drift:.2f}\033[0m'  # red
         else:
             drift_str = f'\033[92m{drift:.2f}\033[0m'  # green
-        print('{:<10} {:>15.2f} {:>15.2f} {:>15.2f} {:>10}'.format(group, current_pct, target_pct, cash, drift_str))
+        print(f'{group:<10} {current_pct:>15.2f} {target_pct:>15.2f} {cash:>15.2f} {drift_str:>10}')
     # Warn if total target allocation is not close to 100%
     if not math.isclose(total_target, 100.0, rel_tol=1e-4):
         print(f'\n[Warning] Total target allocation = {total_target:.2f}% (not 100%)')

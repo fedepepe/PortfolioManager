@@ -1,17 +1,15 @@
-from typing import Optional, List
-
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import html, dcc, Input, Output, State, callback
+from dash import Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
 
-from dashboard.dash_common import loading_wrapper, compute_corr_mat
+from config.accounts import Accounts
+from dashboard.dash_common import compute_corr_mat, loading_wrapper
 from dashboard.dash_instruments_data import InstrumentsData
 from dashboard.data_service import get_instruments_data
-from config.accounts import Accounts
-from portfolio.instruments_performance import InstrPerfTableCols
 from engines.reporting import Metrics
+from portfolio.instruments_performance import InstrPerfTableCols
 
 MAX_INSTR_CORR = 50
 COLS_INFO_TABLE = [InstrPerfTableCols.ticker, InstrPerfTableCols.isin, InstrPerfTableCols.volume]
@@ -52,7 +50,7 @@ def get_table_perf(instr_data: InstrumentsData) -> dag.AgGrid:
 
 
 # INSTRUMENTS CORRELATION MATRIX HEATMAP
-def get_fig_corr_instr(instr_data: InstrumentsData, ticker_lst: Optional[List] = None) -> go.Figure:
+def get_fig_corr_instr(instr_data: InstrumentsData, ticker_lst: list | None = None) -> go.Figure:
     if ticker_lst is not None:
         ticker_lst = [t for t in ticker_lst if t in instr_data.adj_close_df.columns]
         adj_close_corr = instr_data.adj_close_df[ticker_lst].iloc[:, :MAX_INSTR_CORR].copy()

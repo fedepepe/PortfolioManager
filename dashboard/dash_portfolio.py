@@ -1,19 +1,24 @@
 import time
-from typing import Optional, List, Tuple
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import html, dcc, Input, Output, State, callback, ctx
+from dash import Input, Output, State, callback, ctx, dcc, html
 from dash.exceptions import PreventUpdate
 
 from config.accounts import Accounts
-from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_mat, LAYOUT_TEMPLATE
-from dashboard.dash_common import get_fig_empty, get_fig_metrics_table
-from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
-from dashboard.data_service import get_portfolio_data, get_benchmark_data, update_account
+from dashboard.dash_common import (
+    LAYOUT_TEMPLATE,
+    card_wrapper,
+    compute_corr_mat,
+    get_fig_empty,
+    get_fig_metrics_table,
+    loading_wrapper,
+)
+from dashboard.dash_portfolio_data import AllocationRiskLabels, PortfolioData
+from dashboard.data_service import get_benchmark_data, get_portfolio_data, update_account
 from database.sql import query_yahoo_finance_prod_info, search_yahoo_finance_instruments
-from engines.reporting import PerfDataTabs, Metrics
-from portfolio.instruments_performance import prices_to_base_curr, fetch_instr_hist_data
+from engines.reporting import Metrics, PerfDataTabs
+from portfolio.instruments_performance import fetch_instr_hist_data, prices_to_base_curr
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols
 
@@ -289,7 +294,7 @@ def get_fig_monthly_ret(pf_data: PortfolioData) -> go.Figure:
 
 # PORTFOLIO INSTRUMENTS ADJUSTED CLOSE
 def get_fig_pf_instr_adj_close(
-    pf_data: PortfolioData, currency: str, is_visible: Optional[List[bool]] = None
+    pf_data: PortfolioData, currency: str, is_visible: list[bool] | None = None
 ) -> go.Figure:
     # with some instruments hidden, the visible ones are rebased to 100 to make them comparable
     instruments = pf_data.alloc_risk_df.index.drop('Cash')
@@ -321,7 +326,7 @@ def get_fig_pf_instr_adj_close(
     return fig_pf_instr_adj_close
 
 
-def get_visibility_after_restyle(figure: Optional[dict], restyle_data: Optional[list]) -> Optional[List[bool]]:
+def get_visibility_after_restyle(figure: dict | None, restyle_data: list | None) -> list[bool] | None:
     # visibility of each trace after a legend click, starting from the figure currently shown:
     # restyle_data is [{'visible': [values]}, [trace indices]], listing only the traces that changed
     if not figure or not figure.get('data'):
@@ -339,7 +344,7 @@ def get_visibility_after_restyle(figure: Optional[dict], restyle_data: Optional[
 
 
 # INSTRUMENT ADJUSTED CLOSE
-def get_fig_instr_adj_close(title: Optional[str] = None) -> go.Figure:
+def get_fig_instr_adj_close(title: str | None = None) -> go.Figure:
     return go.Figure(
         layout=go.Layout(
             xaxis_title=dict(text='Date'),
@@ -377,7 +382,7 @@ def select_account(account_name: str) -> str:
     Input('dropdown-portfolio', 'value'),
     Input('store-data-version', 'data'),
 )
-def render_portfolio(account_name: str, data_version) -> Tuple:
+def render_portfolio(account_name: str, data_version) -> tuple:
     account = Accounts.get_account_by_name(name=account_name)
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
@@ -421,7 +426,7 @@ def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, fig
     State('dropdown-portfolio', 'value'),
     prevent_initial_call=True,
 )
-def run_update(n_clicks, account_name: str) -> Tuple:
+def run_update(n_clicks, account_name: str) -> tuple:
     # Dash also calls this when the page is built (prevent_initial_call does not apply, since
     # store-data-version is outside the page): update only on an actual click
     if not n_clicks:
@@ -438,7 +443,7 @@ def run_update(n_clicks, account_name: str) -> Tuple:
     State('dropdown_instr', 'options'),
     prevent_initial_call=True,
 )
-def search_instruments(search_value: Optional[str], value: Optional[str], options: Optional[List]) -> List:
+def search_instruments(search_value: str | None, value: str | None, options: list | None) -> list:
     if not search_value or not search_value.strip():
         raise PreventUpdate  # keep the current options, so that the selected instrument stays displayed
     results_df = search_yahoo_finance_instruments(text=search_value)
@@ -464,7 +469,7 @@ def search_instruments(search_value: Optional[str], value: Optional[str], option
     State('dropdown-portfolio', 'value'),
     prevent_initial_call=True,
 )
-def update_instr_adj_close_fig(ticker: Optional[str], account_name: str) -> go.Figure:
+def update_instr_adj_close_fig(ticker: str | None, account_name: str) -> go.Figure:
     if not ticker:  # cleared selection
         return get_fig_instr_adj_close()
     account = Accounts.get_account_by_name(name=account_name)
@@ -486,7 +491,7 @@ def update_instr_adj_close_fig(ticker: Optional[str], account_name: str) -> go.F
     fig = go.Figure(
         layout=go.Layout(
             xaxis_title=dict(text='Date'),
-            yaxis_title=dict(text=f'Adjusted Closing Price'),
+            yaxis_title=dict(text='Adjusted Closing Price'),
             template=LAYOUT_TEMPLATE,
             title=name,
             showlegend=True,

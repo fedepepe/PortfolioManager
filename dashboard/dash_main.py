@@ -1,5 +1,5 @@
 import dash_bootstrap_components as dbc
-from dash import Dash, html, dcc
+from dash import Dash, dcc, html
 
 from dashboard.dash_common import CONTENT_STYLE
 from dashboard.dash_sidebar import sidebar

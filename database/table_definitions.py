@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, Date, UniqueConstraint, Sequence, Index
+from sqlalchemy import Boolean, Column, Date, Float, Index, Integer, Sequence, String, UniqueConstraint
 
 from database.db_conn import Base, engine
 

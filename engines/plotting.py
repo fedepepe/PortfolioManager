@@ -1,14 +1,14 @@
 from enum import Enum
-from typing import NamedTuple, Union, Optional
+from typing import NamedTuple, Union
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from reporting import lin_reg, poly_reg
 
 from config.definitions import FIGURES_DIR
-from reporting import lin_reg, poly_reg
 
 DATE_FORMAT = mdates.DateFormatter('%b%y')
 DEFAULT_PLOT_FONT_SIZE = 14
@@ -60,7 +60,7 @@ def plot_navs(
     fig_name: str,
     dropna: bool = True,
     initial_value: float = 100.0,
-    nav_forecasts: Optional[pd.DataFrame] = None,
+    nav_forecasts: pd.DataFrame | None = None,
 ) -> plt.Figure:
     if isinstance(navs, pd.Series):
         navs = navs.to_frame()
@@ -80,7 +80,7 @@ def plot_weights(weights: PANDAS_DATA_TYPE, fig_name: str) -> plt.Figure:
 
 
 def plot_returns_strat_vs_bm(
-    returns_df: pd.DataFrame, benchmark: Union[StrategyConfiguration, str], show_regression_lines: bool = True
+    returns_df: pd.DataFrame, benchmark: StrategyConfiguration | str, show_regression_lines: bool = True
 ):
     if isinstance(benchmark, StrategyConfiguration):
         benchmark = benchmark.name

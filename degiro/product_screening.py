@@ -1,8 +1,7 @@
 import pandas as pd
 
-from degiro.degiro_definitions import ProductTypes, Exchanges
 from database.sql import query_products
-
+from degiro.degiro_definitions import Exchanges, ProductTypes
 
 if __name__ == '__main__':
     etf_info_df = pd.DataFrame()

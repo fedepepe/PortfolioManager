@@ -1,8 +1,8 @@
 import logging
 
 from config.accounts import Accounts
-from portfolio.instruments_performance import load_etf_catalog_data, compute_catalog_performance_df, CATALOG_PERF_LABEL
-from yahoo_finance.yahoo_finance import YFinHistCols, YF_PROD_INFO_LABEL
+from portfolio.instruments_performance import CATALOG_PERF_LABEL, compute_catalog_performance_df, load_etf_catalog_data
+from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols
 
 
 # read-only view of the saved ETF catalog of an account, shared through dashboard.data_service: do not modify

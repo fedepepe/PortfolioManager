@@ -1,17 +1,17 @@
 import logging
 from datetime import date
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 from degiro_connector.trading.api import API
 from degiro_connector.trading.models.account import OverviewRequest
 from degiro_connector.trading.models.transaction import HistoryRequest
 
-from utils import file_utils as fu
-from config.definitions import DATA_DIR
 from config.accounts import Accounts
+from config.definitions import DATA_DIR
 from degiro.degiro_connection import get_degiro_connection
+from utils import file_utils as fu
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -67,7 +67,7 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
     return df
 
 
-def fetch_tx_history(account: Accounts, degiro_conn: Optional[API] = None) -> pd.DataFrame:
+def fetch_tx_history(account: Accounts, degiro_conn: API | None = None) -> pd.DataFrame:
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW
@@ -89,7 +89,7 @@ def load_tx_history(account: Accounts) -> pd.DataFrame:
     return tx_history_df
 
 
-def fetch_account_movements(account: Accounts, degiro_conn: Optional[API] = None):
+def fetch_account_movements(account: Accounts, degiro_conn: API | None = None):
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW

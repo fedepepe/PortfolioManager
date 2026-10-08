@@ -2,17 +2,22 @@
 # Online, the prices are downloaded from Yahoo Finance and stored in the database; offline (or if a download fails),
 # the prices stored in the database are used.
 import logging
-from typing import NamedTuple, Optional, Tuple, Dict, List
+from typing import NamedTuple
 
 import pandas as pd
 
 from config.accounts import Accounts
-from database.sql import replace_portfolio_instr_adj_close, query_portfolio_instr_adj_close
-from database.sql import upsert_yahoo_finance_info, query_yahoo_finance_info_field
-from database.sql import upsert_degiro_yahoo_map, query_degiro_yahoo_map
+from database.sql import (
+    query_degiro_yahoo_map,
+    query_portfolio_instr_adj_close,
+    query_yahoo_finance_info_field,
+    replace_portfolio_instr_adj_close,
+    upsert_degiro_yahoo_map,
+    upsert_yahoo_finance_info,
+)
 from degiro.products import load_portfolio_products
-from portfolio.instruments_performance import fetch_instr_hist_data, prices_to_base_curr, is_missing
-from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols, YF_PROD_INFO_LABEL, is_yahoo_reachable
+from portfolio.instruments_performance import fetch_instr_hist_data, is_missing, prices_to_base_curr
+from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols, is_yahoo_reachable
 
 
 class AdjPrices(NamedTuple):
@@ -20,9 +25,7 @@ class AdjPrices(NamedTuple):
     summary: str  # where the prices come from, for logs and the dashboard
 
 
-def _fetch_from_yahoo(
-    isin: Optional[str], symbol: Optional[str], name: Optional[str]
-) -> Optional[Tuple[str, pd.Series, Dict]]:
+def _fetch_from_yahoo(isin: str | None, symbol: str | None, name: str | None) -> tuple[str, pd.Series, dict] | None:
     # (Yahoo ticker, adjusted prices in the instrument currency, instrument info), None if no data is found
     data = fetch_instr_hist_data(isin_lst=[isin], columns=YFinHistCols.adj_close, ticker_lst=[symbol], name_lst=[name])
     prices_df = data[YFinHistCols.adj_close].dropna(axis=1, how='all')
@@ -38,7 +41,7 @@ def get_portfolio_adj_prices(account: Accounts) -> AdjPrices:
     stored_map = query_degiro_yahoo_map(products_df['id'].to_list())
     # products with the same ISIN (e.g. one ETF on two exchanges) share one Yahoo Finance listing
     groups = products_df.groupby(products_df['isin'].fillna(products_df['id'].astype(str)), sort=False)
-    ticker_by_product: Dict[int, str] = {}
+    ticker_by_product: dict[int, str] = {}
     downloaded, from_db, missing = [], [], []
     for _, group in groups:
         product_ids = group['id'].astype(int).to_list()

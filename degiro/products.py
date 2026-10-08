@@ -1,23 +1,22 @@
 import logging
 from enum import Enum
-from typing import List, Optional
 
 import pandas as pd
 from degiro_connector.trading.api import API
 
-from database.table_definitions import Product
-from utils.file_utils import save_df_to_excel, load_df_from_excel
-from config.definitions import DATA_DIR
 from config.accounts import Accounts
+from config.definitions import DATA_DIR
+from database.sql import insert_product, query_products
+from database.table_definitions import Product
 from degiro.degiro_connection import get_degiro_connection
 from degiro.degiro_definitions import ProductTypes
-from database.sql import insert_product, query_products
 from degiro.transactions import load_tx_history
+from utils.file_utils import load_df_from_excel, save_df_to_excel
 
 logging.basicConfig(level=logging.DEBUG)
 
 
-def fetch_full_product_catalog(degiro_conn: Optional[API] = None):
+def fetch_full_product_catalog(degiro_conn: API | None = None):
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     # FETCH PRODUCT INFO
@@ -50,7 +49,7 @@ def fetch_single_product(degiro_conn: API, product_id: int):
         insert_product(product_info.data[product_id])
 
 
-def fetch_product_info(degiro_conn: Optional[API] = None, product_ids: int | List[int] = 11853206) -> pd.DataFrame:
+def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[int] = 11853206) -> pd.DataFrame:
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     if isinstance(product_ids, int):
@@ -69,7 +68,7 @@ def save_product_info(account: Accounts, product_info_df: pd.DataFrame):
     save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
 
 
-def fetch_portfolio_products_info(account: Accounts, degiro_conn: Optional[API] = None):
+def fetch_portfolio_products_info(account: Accounts, degiro_conn: API | None = None):
     tx_history_df = load_tx_history(account=account)
     product_ids = list(set(tx_history_df['product_id'].astype(int).to_list()))
     product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)

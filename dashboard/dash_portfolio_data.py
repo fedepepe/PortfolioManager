@@ -1,5 +1,4 @@
 import sys
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -7,12 +6,12 @@ import pandas as pd
 from config.accounts import Accounts
 from config.definitions import DEFAULT_CORR_DATA_FREQ
 from database.table_definitions import Product
-from degiro.products import load_portfolio_products, adjust_prod_column_labels
-from engines.reporting import compute_portfolio_metrics
+from degiro.products import adjust_prod_column_labels, load_portfolio_products
 from engines.portfolio_optimization_obj_funcs import vol_risk_contr
-from portfolio.portfolio_definitions import PortfolioBacktestData
+from engines.reporting import compute_portfolio_metrics
 from portfolio.portfolio_backtest import load_backtest_data
-from portfolio.portfolio_performance import load_performance_data_portfolio, load_performance_data_benchmark
+from portfolio.portfolio_definitions import PortfolioBacktestData
+from portfolio.portfolio_performance import load_performance_data_benchmark, load_performance_data_portfolio
 
 
 class AllocationRiskLabels:
@@ -25,7 +24,7 @@ class AllocationRiskLabels:
 
 # read-only view of the saved data of a portfolio, shared through dashboard.data_service: do not modify
 class PortfolioData:
-    def __init__(self, account: Optional[Accounts] = None, hist_data: Optional[PortfolioBacktestData] = None):
+    def __init__(self, account: Accounts | None = None, hist_data: PortfolioBacktestData | None = None):
         if account is not None:
             self.account = account
             self.hist_data = load_backtest_data(name=self.account.name)

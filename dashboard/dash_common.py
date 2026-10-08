@@ -1,5 +1,3 @@
-from typing import Dict, Optional
-
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
@@ -45,7 +43,7 @@ def get_fig_empty() -> go.Figure:
 
 
 # PERFORMANCE METRICS TABLE: one column per entry of risk_metrics_dct (label -> risk metrics, None if missing)
-def get_fig_metrics_table(risk_metrics_dct: Dict[str, Optional[PD_DATA_TYPES]]) -> go.Figure:
+def get_fig_metrics_table(risk_metrics_dct: dict[str, PD_DATA_TYPES | None]) -> go.Figure:
     columns = [
         to_str_risk_metrics(m) if m is not None else pd.Series(name='Parameter', dtype=str)
         for m in risk_metrics_dct.values()

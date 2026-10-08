@@ -1,5 +1,3 @@
-from typing import Optional
-
 from degiro_connector.trading.api import API
 from degiro_connector.trading.models.credentials import build_credentials
 
@@ -7,7 +5,7 @@ from config.accounts import Accounts
 from config.definitions import CREDENTIALS_DIR
 
 
-def get_degiro_connection(account: Optional[Accounts] = None) -> API:
+def get_degiro_connection(account: Accounts | None = None) -> API:
     # logs in to the account with its credentials file; without an account (market data, the same for every
     # account) the default account is used
     if account is None:

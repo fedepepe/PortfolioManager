@@ -1,16 +1,15 @@
 import math
 from enum import Enum
-from typing import Dict, Union, Optional, NamedTuple, Tuple
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from config.definitions import RESULTS_DIR, DEFAULT_CORR_DATA_FREQ
+from config.definitions import DEFAULT_CORR_DATA_FREQ, RESULTS_DIR
+from portfolio.portfolio_definitions import DEFAULT_FREQ_HIST_DATA, PortfolioBacktestData
 from utils.date_utils import ANN_FACTOR_DICT
-from utils.file_utils import PD_DATA_TYPES
-from utils.file_utils import save_df_dict_to_excel
-from portfolio.portfolio_definitions import PortfolioBacktestData, DEFAULT_FREQ_HIST_DATA
+from utils.file_utils import PD_DATA_TYPES, save_df_dict_to_excel
 
 MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6, '2M': 3, 'Q': 2, '2Q': 2, 'Y': 2}
 
@@ -18,7 +17,7 @@ MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6
 class Metric(NamedTuple):
     name: str
     format: str = '{:.2%}'
-    sort: Optional[str] = None
+    sort: str | None = None
 
     def to_ag_grid_format_func(self):
         return (
@@ -50,11 +49,11 @@ class Metrics(Metric, Enum):
     PVAL_ALPHA = Metric('pval alpha')
 
 
-def lin_reg(y: pd.Series, x: pd.Series) -> (Tuple[float], Tuple[float], float):
+def lin_reg(y: pd.Series, x: pd.Series) -> (tuple[float], tuple[float], float):
     return poly_reg(y=y, x=x, degree=1)
 
 
-def poly_reg(y: pd.Series, x: pd.Series, degree: int = 2) -> (Tuple[float], Tuple[float], float):
+def poly_reg(y: pd.Series, x: pd.Series, degree: int = 2) -> (tuple[float], tuple[float], float):
     df = pd.concat([y, x], axis=1).dropna()
     df = df.replace([np.inf, -np.inf], np.nan).dropna()
     y = df.iloc[:, 0].values
@@ -75,12 +74,12 @@ def compute_pa_return_last_n_years(nav: pd.Series, freq: str, n_years: int = Non
 
 
 def compute_portfolio_metrics(
-    nav: Optional[pd.Series] = None,
-    hist_portfolio_data: Optional[PortfolioBacktestData] = None,
-    strategy_benchmark: Optional[pd.Series] = None,
+    nav: pd.Series | None = None,
+    hist_portfolio_data: PortfolioBacktestData | None = None,
+    strategy_benchmark: pd.Series | None = None,
     compute_hist_metrics: bool = True,
     print_results: bool = True,
-) -> Dict[str, PD_DATA_TYPES]:
+) -> dict[str, PD_DATA_TYPES]:
     if hist_portfolio_data is not None:
         nav = hist_portfolio_data.nav_eff
 
@@ -269,11 +268,11 @@ def regress_strat_vs_bm(nav: pd.Series, strategy_benchmark: pd.Series, freq: str
 
 
 def compute_results_from_navs(
-    navs: Union[pd.Series, pd.DataFrame],
-    nav_benchmark: Optional[pd.Series] = None,
-    file_name: Optional[str] = None,
+    navs: pd.Series | pd.DataFrame,
+    nav_benchmark: pd.Series | None = None,
+    file_name: str | None = None,
     save: bool = True,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     if isinstance(navs, pd.Series):
         navs = navs.to_frame()
     results_dict = {

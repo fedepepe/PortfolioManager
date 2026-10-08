@@ -1,11 +1,11 @@
 import time
 from enum import Enum
-from typing import List, NamedTuple, Optional, Dict
+from typing import NamedTuple
 
 import pandas as pd
 import requests
 import yfinance as yf
-from curl_cffi.requests.exceptions import HTTPError, DNSError, Timeout
+from curl_cffi.requests.exceptions import DNSError, HTTPError, Timeout
 
 
 class YFinHistCols(Enum):
@@ -45,7 +45,7 @@ class YFinInfoCols(Enum):
 
 class Exchange(NamedTuple):
     code: str
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class Exchanges(Exchange, Enum):
@@ -106,9 +106,9 @@ def fetch_history_single(ticker: str | yf.Ticker):
 
 
 def fetch_history(
-    tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
-    columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
-) -> Dict[str | YFinHistCols, pd.DataFrame]:
+    tickers: str | list[str] | yf.Ticker | list[yf.Ticker],
+    columns: str | YFinHistCols | list[str] | list[YFinHistCols] = YFinHistCols.adj_close,
+) -> dict[str | YFinHistCols, pd.DataFrame]:
     if isinstance(tickers, str) or isinstance(tickers, yf.Ticker):
         tickers = [tickers]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
@@ -129,10 +129,10 @@ def fetch_history(
 
 
 def search_fetch_history(
-    ticker: Optional[str] = None,
-    isin: Optional[str] = None,
-    columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
-) -> Optional[Dict[str | YFinHistCols, pd.DataFrame]]:
+    ticker: str | None = None,
+    isin: str | None = None,
+    columns: str | YFinHistCols | list[str] | list[YFinHistCols] = YFinHistCols.adj_close,
+) -> dict[str | YFinHistCols, pd.DataFrame] | None:
     if ticker is None and isin is None:
         raise ValueError('Ticker and ISIN both missing. At least one must be given.')
     search = search_ticker(ticker=ticker if ticker is not None else isin)

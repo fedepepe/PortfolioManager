@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 import pandas as pd
 
@@ -8,7 +6,7 @@ from portfolio.portfolio_definitions import PortfolioGeneric
 
 
 class PortfolioDegiro(PortfolioGeneric):
-    def rebalance(self, tx_hist_df: Optional[pd.DataFrame] = None):
+    def rebalance(self, tx_hist_df: pd.DataFrame | None = None):
         self.txn_values = np.zeros(len(self.tickers))
         self.txn_costs = np.zeros(len(self.tickers))
         self.current_units = self.previous_units.copy()

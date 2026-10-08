@@ -2,29 +2,28 @@ import re
 from dataclasses import asdict
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Tuple
 
 import pandas as pd
 
 from config.accounts import Accounts
 from config.definitions import DATA_DIR, DEFAULT_DATA_FREQ
-from degiro.charts import fetch_portfolio_charts, fetch_fx_charts, load_portfolio_charts, load_fx_rates
+from degiro.charts import fetch_fx_charts, fetch_portfolio_charts, load_fx_rates, load_portfolio_charts
 from degiro.degiro_connection import get_degiro_connection
-from degiro.products import fetch_portfolio_products_info, load_portfolio_products, adjust_prod_column_labels
+from degiro.products import adjust_prod_column_labels, fetch_portfolio_products_info, load_portfolio_products
 from degiro.transactions import (
-    fetch_tx_history,
-    fetch_account_movements,
-    load_tx_history,
-    load_account_movements,
     TxHistFields,
+    fetch_account_movements,
+    fetch_tx_history,
+    load_account_movements,
+    load_tx_history,
 )
-from engines.portfolio_optimization import compute_weights_optim_portfolio, OptimizedWeights
+from engines.portfolio_optimization import OptimizedWeights, compute_weights_optim_portfolio
 from engines.reporting import compute_results_from_navs
 from portfolio.instruments_performance import fetch_instr_adj_prices
 from portfolio.portfolio_adj_prices import get_portfolio_adj_prices
-from portfolio.portfolio_definitions import PortfolioBacktestData
 from portfolio.portfolio_backtest_engine import backtest_portfolio
-from portfolio.portfolio_performance import save_performance_data, compute_portfolio_performance
+from portfolio.portfolio_definitions import PortfolioBacktestData
+from portfolio.portfolio_performance import compute_portfolio_performance, save_performance_data
 from strategy.strategy_definitions import OptimizationSettings
 from utils import file_utils as fu
 from utils.date_utils import reset_time
@@ -209,7 +208,7 @@ def optimized_portfolio_name(account: Accounts) -> str:
     return f'{account.name} Opt. (Tangency)'
 
 
-def optimization_prices(account: Accounts) -> Tuple[pd.DataFrame, str]:
+def optimization_prices(account: Accounts) -> tuple[pd.DataFrame, str]:
     # full history of adjusted prices (Yahoo Finance, or the database when offline) and where they come from;
     # products without adjusted prices use the unadjusted Degiro prices of the saved backtest (portfolio period only).
     # One column per instrument: products with the same ISIN (e.g. one ETF on two exchanges) have the same
@@ -235,9 +234,9 @@ def optimization_prices(account: Accounts) -> Tuple[pd.DataFrame, str]:
 def backtest_portfolio_optimized(
     account: Accounts,
     index: pd.DatetimeIndex,
-    prices_adj_df: Optional[pd.DataFrame] = None,
-    settings: Optional[OptimizationSettings] = None,
-) -> Tuple[PortfolioBacktestData, OptimizedWeights]:
+    prices_adj_df: pd.DataFrame | None = None,
+    settings: OptimizationSettings | None = None,
+) -> tuple[PortfolioBacktestData, OptimizedWeights]:
     settings = settings or OptimizationSettings()
     if prices_adj_df is None:
         prices_adj_df, _ = optimization_prices(account=account)
@@ -267,6 +266,7 @@ def backtest_portfolio_optimized(
 
 def backtest_equity_portfolio_strat():
     import numpy as np
+
     from utils.file_utils import load_df_from_excel
 
     prices_df = load_df_from_excel(file_name='prices', folder_name=DATA_DIR)

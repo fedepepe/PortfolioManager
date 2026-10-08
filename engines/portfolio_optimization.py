@@ -1,12 +1,13 @@
-from typing import Callable, Optional, List, Tuple, Dict, Any, NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+import engines.portfolio_optimization_obj_funcs as pffun
 from config.definitions import RISK_FREE_RATE
 from strategy.strategy_definitions import AllocationStrats
-import engines.portfolio_optimization_obj_funcs as pffun
 from utils.date_utils import ANN_FACTOR_DICT
 
 # minimum history of returns of an instrument to be included in an optimization (3 months)
@@ -20,17 +21,17 @@ class PortfolioOptimizer:
     def __init__(
         self,
         optimization_type: AllocationStrats,
-        returns: Optional[pd.DataFrame] = pd.DataFrame(),
+        returns: pd.DataFrame | None = pd.DataFrame(),
         min_pf_exposure: float = 0.0,
         max_pf_exposure: float = 1.0,
-        bounds_weights: Optional[Tuple[float, float]] = None,
-        weights_init: Optional[np.ndarray] = None,
-        bounds_asset_class: Optional[List[float | Tuple[float, float]]] = None,
-        asset_class_mat: Optional[np.ndarray] = None,
-        target_vol: Optional[float] = None,
-        max_vol: Optional[float] = None,
-        risk_budget: Optional[Dict[str, float]] = None,
-        risk_free_rate: Optional[float] = 0,
+        bounds_weights: tuple[float, float] | None = None,
+        weights_init: np.ndarray | None = None,
+        bounds_asset_class: list[float | tuple[float, float]] | None = None,
+        asset_class_mat: np.ndarray | None = None,
+        target_vol: float | None = None,
+        max_vol: float | None = None,
+        risk_budget: dict[str, float] | None = None,
+        risk_free_rate: float | None = 0,
     ):
         self.reset(
             optimization_type=optimization_type,
@@ -50,17 +51,17 @@ class PortfolioOptimizer:
     def reset(
         self,
         optimization_type: AllocationStrats,
-        returns: Optional[pd.DataFrame] = pd.DataFrame(),
+        returns: pd.DataFrame | None = pd.DataFrame(),
         min_pf_exposure: float = 0.0,
         max_pf_exposure: float = 1.0,
-        bounds_weights: Optional[Tuple[float, float]] = None,
-        weights_init: Optional[np.ndarray] = None,
-        bounds_asset_class: Optional[List[float | Tuple[float, float]]] = None,
-        asset_class_mat: Optional[np.ndarray] = None,
-        target_vol: Optional[float] = None,
-        max_vol: Optional[float] = None,
-        risk_budget: Optional[Dict[str, float]] = None,
-        risk_free_rate: Optional[float] = 0,
+        bounds_weights: tuple[float, float] | None = None,
+        weights_init: np.ndarray | None = None,
+        bounds_asset_class: list[float | tuple[float, float]] | None = None,
+        asset_class_mat: np.ndarray | None = None,
+        target_vol: float | None = None,
+        max_vol: float | None = None,
+        risk_budget: dict[str, float] | None = None,
+        risk_free_rate: float | None = 0,
     ):
         self.optimization_type = optimization_type
         self.returns = returns
@@ -221,7 +222,7 @@ class PortfolioOptimizer:
 
 class OptimizedWeights(NamedTuple):
     weights: pd.DataFrame  # one row per optimization date
-    failed_dates: List[pd.Timestamp]  # dates where the optimization failed (previous weights kept, if any)
+    failed_dates: list[pd.Timestamp]  # dates where the optimization failed (previous weights kept, if any)
 
 
 def compute_weights_optim_portfolio(
@@ -229,8 +230,8 @@ def compute_weights_optim_portfolio(
     prices: pd.DataFrame,
     sampling_freq: str,
     optimization_freq: str,
-    extra_args: Optional[Dict[str, Any]] = None,
-    start_date: Optional[pd.Timestamp] = None,
+    extra_args: dict[str, Any] | None = None,
+    start_date: pd.Timestamp | None = None,
 ) -> OptimizedWeights:
     # optimizes on each date of optimization_freq from start_date on (all dates if None), estimating returns and
     # risk from the full price history up to that date

@@ -1,4 +1,4 @@
-from typing import Callable, Optional, List, Tuple, Dict, Any
+from typing import Callable, Optional, List, Tuple, Dict, Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -8,6 +8,12 @@ from config.definitions import RISK_FREE_RATE
 from strategy.strategy_definitions import AllocationStrats
 import engines.portfolio_optimization_obj_funcs as pffun
 from utils.date_utils import ANN_FACTOR_DICT
+
+# minimum history of returns of an instrument to be included in an optimization (3 months)
+MIN_HISTORY_YEARS = 0.25
+# cap of the minimum total exposure: a minimum close to the maximum (e.g. fully invested: min = max = 100%) is
+# hard for the solver, which then often fails
+MAX_MIN_PF_EXPOSURE = 0.99
 
 
 class PortfolioOptimizer:
@@ -33,6 +39,7 @@ class PortfolioOptimizer:
                    bounds_asset_class=bounds_asset_class,
                    asset_class_mat=asset_class_mat,
                    target_vol=target_vol,
+                   max_vol=max_vol,
                    risk_budget=risk_budget,
                    risk_free_rate=risk_free_rate)
 
@@ -170,16 +177,26 @@ class PortfolioOptimizer:
             return pd.Series(np.nan, index=self.returns.columns, name='weights')
 
 
+class OptimizedWeights(NamedTuple):
+    weights: pd.DataFrame  # one row per optimization date
+    failed_dates: List[pd.Timestamp]  # dates where the optimization failed (previous weights kept, if any)
+
+
 def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
                                     prices: pd.DataFrame,
                                     sampling_freq: str,
                                     optimization_freq: str,
-                                    extra_args: Optional[Dict[str, Any]] = None
-                                    ) -> pd.DataFrame:
+                                    extra_args: Optional[Dict[str, Any]] = None,
+                                    start_date: Optional[pd.Timestamp] = None
+                                    ) -> OptimizedWeights:
+    # optimizes on each date of optimization_freq from start_date on (all dates if None), estimating returns and
+    # risk from the full price history up to that date
     extra_args = extra_args or {}
     weights_df = pd.DataFrame().reindex_like(prices.resample(optimization_freq).last())
+    if start_date is not None:
+        weights_df = weights_df[weights_df.index >= start_date]
     args = dict(optimization_type=allocation_method,
-                min_pf_exposure=extra_args.get('min_pf_exposure', 0.0),
+                min_pf_exposure=min(extra_args.get('min_pf_exposure', 0.0), MAX_MIN_PF_EXPOSURE),
                 max_pf_exposure=extra_args.get('max_pf_exposure', 1.0),
                 bounds_weights=(extra_args.get('min_asset_exposure', 0.0),
                                 extra_args.get('max_asset_exposure', 1.0)))
@@ -208,12 +225,30 @@ def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
     print(f'Optimization frequency: {optimization_freq}')
     pf_optimizer = PortfolioOptimizer(**args)
     print(args)
-    for idx in prices.resample(optimization_freq).last().index:
+    # instruments with a shorter history of returns are left out of the optimization (weight 0)
+    min_history = int(round(ANN_FACTOR_DICT[sampling_freq] * MIN_HISTORY_YEARS))
+    failed_dates = []
+    for idx in weights_df.index:
         print(f'Running optimization as of {idx}...')
         returns_df = prices[prices.index <= idx].pct_change()
-        args['returns'] = returns_df
+        too_short = returns_df.columns[returns_df.count() < min_history]
+        if len(too_short) > 0:
+            print(f'Too little history, left out: {too_short.to_list()}')
+        args['returns'] = returns_df.drop(columns=too_short)
         pf_optimizer.reset(**args)
+        # with few instruments available (e.g. at the start of the history) the minimum invested may be out of
+        # reach of the maximum weight per asset: invest as much as allowed
+        n_available = pf_optimizer.returns_clean.shape[1]
+        pf_optimizer.min_pf_exposure = min(args['min_pf_exposure'], n_available * args['bounds_weights'][1])
         optim_weights = pf_optimizer.compute_optimized_portfolio()
+        if optim_weights.isna().all():
+            # a failed optimization keeps the previous weights (instead of liquidating the portfolio)
+            failed_dates.append(idx)
+            pos = weights_df.index.get_loc(idx)
+            if pos > 0:
+                print('Keeping the previous weights.')
+                weights_df.iloc[pos, :] = weights_df.iloc[pos - 1, :]
+            continue
         if extra_args.get('max_asset_num', None) is not None:
             optim_weights = optim_weights.mask(
                 optim_weights.rank(method='min', ascending=False) > extra_args.get('max_asset_num', None), 0)
@@ -225,7 +260,7 @@ def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
                                                     min_size=extra_args['min_position_size'],
                                                     max_weight=extra_args.get('max_asset_exposure', 1.0))
         weights_df.loc[idx, :] = optim_weights
-    return weights_df
+    return OptimizedWeights(weights=weights_df, failed_dates=failed_dates)
 
 
 def apply_min_position_size(weights: pd.Series, min_size: float, max_weight: float) -> pd.Series:

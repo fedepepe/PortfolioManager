@@ -129,7 +129,8 @@ def update_account(account: Accounts):
 
 def run_optimization(account: Accounts, settings: OptimizationSettings) -> str:
     # backtest of the optimized portfolio over the dates of the saved portfolio (saves its files);
-    # returns where the prices come from (online / offline). Raises ValueError if the settings cannot be satisfied
+    # returns where the prices come from (online / offline) and the failed optimization dates, if any.
+    # Raises ValueError if the settings cannot be satisfied
     error = settings.validate()
     if error:
         raise ValueError(error)
@@ -139,5 +140,11 @@ def run_optimization(account: Accounts, settings: OptimizationSettings) -> str:
         error = settings.validate(n_assets=prices_df.shape[1])
         if error:
             raise ValueError(error)
-        backtest_portfolio_optimized(account=account, index=index, prices_adj_df=prices_df, settings=settings)
-    return prices_summary
+        _, optimized_weights = backtest_portfolio_optimized(account=account, index=index, prices_adj_df=prices_df,
+                                                            settings=settings)
+    summary = f'prices {prices_summary}'
+    n_failed = len(optimized_weights.failed_dates)
+    if n_failed:
+        summary += (f'; optimization failed on {n_failed} of {len(optimized_weights.weights)} dates, '
+                    f'previous weights kept')
+    return summary

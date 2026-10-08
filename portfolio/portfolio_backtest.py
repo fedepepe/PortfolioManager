@@ -13,7 +13,7 @@ from degiro.degiro_connection import get_degiro_connection
 from degiro.products import fetch_portfolio_products_info, load_portfolio_products, adjust_prod_column_labels
 from degiro.transactions import fetch_tx_history, fetch_account_movements, load_tx_history, load_account_movements, \
     TxHistFields
-from engines.portfolio_optimization import compute_weights_optim_portfolio
+from engines.portfolio_optimization import compute_weights_optim_portfolio, OptimizedWeights
 from engines.reporting import compute_results_from_navs
 from portfolio.instruments_performance import fetch_instr_adj_prices
 from portfolio.portfolio_adj_prices import get_portfolio_adj_prices
@@ -224,26 +224,29 @@ def optimization_prices(account: Accounts) -> Tuple[pd.DataFrame, str]:
 def backtest_portfolio_optimized(account: Accounts,
                                  index: pd.DatetimeIndex,
                                  prices_adj_df: Optional[pd.DataFrame] = None,
-                                 settings: Optional[OptimizationSettings] = None) -> PortfolioBacktestData:
+                                 settings: Optional[OptimizationSettings] = None
+                                 ) -> Tuple[PortfolioBacktestData, OptimizedWeights]:
     settings = settings or OptimizationSettings()
     if prices_adj_df is None:
         prices_adj_df, _ = optimization_prices(account=account)
-    target_exp_df = compute_weights_optim_portfolio(allocation_method=settings.method,
-                                                    prices=prices_adj_df,
-                                                    sampling_freq=DEFAULT_DATA_FREQ,
-                                                    optimization_freq=settings.optimization_freq,
-                                                    extra_args=settings.extra_args())
+    # only the optimization dates within the backtest period are used (the earlier history is used for estimation)
+    optimized_weights = compute_weights_optim_portfolio(allocation_method=settings.method,
+                                                        prices=prices_adj_df,
+                                                        sampling_freq=DEFAULT_DATA_FREQ,
+                                                        optimization_freq=settings.optimization_freq,
+                                                        extra_args=settings.extra_args(),
+                                                        start_date=index[0])
     portfolio_name = optimized_portfolio_name(account)
     backtest_data_optimized = backtest_portfolio(name=portfolio_name,
                                                  prices_df=prices_adj_df.reindex(index=index).ffill(),
-                                                 target_exp=target_exp_df,
+                                                 target_exp=optimized_weights.weights,
                                                  curr_base=account.currency)
     # performance results saved together with the settings they were computed with
     results_dict = compute_results_from_navs(navs=backtest_data_optimized.nav, save=False)
     results_dict[OPTIMIZATION_SETTINGS_LABEL] = settings.to_series().to_frame()
     save_performance_data(results_dict=results_dict, file_name=portfolio_name)
     save_backtest_data(hist_portfolio_data=backtest_data_optimized)
-    return backtest_data_optimized
+    return backtest_data_optimized, optimized_weights
 
 
 def backtest_equity_portfolio_strat():

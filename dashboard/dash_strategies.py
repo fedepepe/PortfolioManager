@@ -218,7 +218,7 @@ def run_optimization_callback(n_clicks, account_name: str, *controls) -> Tuple:
         raise PreventUpdate
     try:
         settings = controls_to_settings(*controls)
-        prices_summary = run_optimization(Accounts.get_account_by_name(name=account_name), settings=settings)
+        summary = run_optimization(Accounts.get_account_by_name(name=account_name), settings=settings)
     except ValueError as e:
         return no_update, html.Span(f'Not run: {e}', className='text-danger')
-    return time.time(), f'Optimized {time.strftime("%H:%M")} (prices {prices_summary})'
+    return time.time(), f'Optimized {time.strftime("%H:%M")} ({summary})'

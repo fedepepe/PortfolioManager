@@ -175,14 +175,18 @@ def load_settings(account_name: str) -> Tuple:
     return settings_to_controls(opt_data.settings if opt_data is not None else OptimizationSettings())
 
 
-# volatility settings only apply to their method
+# volatility settings only apply to their method; equal weights give no ranking to pick assets or positions from
 @callback(
     Output('strat-max-vol', 'disabled'),
     Output('strat-target-vol', 'disabled'),
+    Output('strat-max-assets', 'disabled'),
+    Output('strat-min-position', 'disabled'),
     Input('strat-method', 'value'),
 )
 def enable_method_settings(method: str) -> Tuple:
-    return method != AllocationStrats.MAX_SHARPE.value, method != AllocationStrats.MAX_RET.value
+    equal_weight = method == AllocationStrats.EQUAL_WEIGHT.value
+    return (method != AllocationStrats.MAX_SHARPE.value, method != AllocationStrats.MAX_RET.value,
+            equal_weight, equal_weight)
 
 
 # draw the strategies figures from saved data only (also when the page is loaded and after an optimization)

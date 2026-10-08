@@ -138,8 +138,18 @@ class PortfolioOptimizer:
             raise NotImplementedError
         return returns_clean
 
+    def compute_equal_weights(self) -> pd.Series:
+        # the max exposure split equally among the assets, without exceeding the max weight per asset (rest in cash)
+        n_assets = self.returns_clean.shape[1]
+        weight = self.max_pf_exposure / n_assets
+        if self.bounds_weights is not None:
+            weight = min(weight, self.bounds_weights[1])
+        return pd.Series(weight, index=self.returns_clean.columns, name='weights')
+
     def compute_optimized_portfolio(self) -> pd.Series:
         try:
+            if self.optimization_type == AllocationStrats.EQUAL_WEIGHT:
+                return self.compute_equal_weights()  # no optimization needed
             if self.weights_init is None:
                 if self.weights_curr is not None:
                     self.weights_init = self.weights_curr.copy()

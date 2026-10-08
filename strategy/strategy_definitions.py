@@ -12,12 +12,16 @@ class AllocationStrats(Enum):
 	MIN_VAR = 'min_var'
 	MAX_SHARPE = 'max_sharpe'
 	RISK_PARITY = 'risk_parity'
+	EQUAL_WEIGHT = 'equal_weight'
 
 
 ALLOCATION_STRATS_LABELS = {AllocationStrats.MAX_SHARPE: 'Max Sharpe',
                             AllocationStrats.MIN_VAR: 'Min variance',
                             AllocationStrats.MAX_RET: 'Max return',
-                            AllocationStrats.RISK_PARITY: 'Risk parity'}
+                            AllocationStrats.RISK_PARITY: 'Risk parity',
+                            AllocationStrats.EQUAL_WEIGHT: 'Equal weight'}
+# settings that do not apply to equal weights (no ranking of the assets)
+EQUAL_WEIGHT_UNUSED_SETTINGS = ('min_position_size', 'max_asset_num')
 OPTIMIZATION_FREQ_LABELS = {'M': 'Monthly', 'Q': 'Quarterly', 'Y': 'Yearly'}
 OPTIONAL_SETTINGS = ('max_vol', 'target_vol', 'max_asset_num')
 
@@ -38,6 +42,8 @@ class OptimizationSettings:
 
 	def extra_args(self) -> Dict[str, Any]:
 		args = {f.name: getattr(self, f.name) for f in fields(self) if f.name not in ('method', 'optimization_freq')}
+		if self.method == AllocationStrats.EQUAL_WEIGHT:
+			args = {k: v for k, v in args.items() if k not in EQUAL_WEIGHT_UNUSED_SETTINGS}
 		return {k: v for k, v in args.items() if v is not None}
 
 	def to_series(self) -> pd.Series:
@@ -94,13 +100,14 @@ class OptimizationSettings:
 		text = (f'{ALLOCATION_STRATS_LABELS[self.method]}, {OPTIMIZATION_FREQ_LABELS.get(self.optimization_freq, self.optimization_freq).lower()}, '
 		        f'weight {self.min_asset_exposure:.0%}-{self.max_asset_exposure:.0%}, '
 		        f'invested {self.min_pf_exposure:.0%}-{self.max_pf_exposure:.0%}')
-		if self.min_position_size > 0:
+		equal_weight = self.method == AllocationStrats.EQUAL_WEIGHT
+		if self.min_position_size > 0 and not equal_weight:
 			text += f', min position {self.min_position_size:.0%}'
 		if self.method == AllocationStrats.MAX_SHARPE and self.max_vol is not None:
 			text += f', max vol {self.max_vol:.0%}'
 		if self.method == AllocationStrats.MAX_RET and self.target_vol is not None:
 			text += f', target vol {self.target_vol:.0%}'
-		if self.max_asset_num is not None:
+		if self.max_asset_num is not None and not equal_weight:
 			text += f', max {self.max_asset_num} assets'
 		return text
 

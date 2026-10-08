@@ -67,16 +67,19 @@ def test_young_portfolio_has_empty_historical_metrics():
 
 
 def test_minimum_history_counts_periods_not_rows():
-    from portfolio_manager.analytics.metrics import _historical_metrics
-
-    # one value every other business day: the history is counted in business days (130 needed), not in values
-    def every_other_day(n_business_days):
+    # one value every other business day, at business-day frequency: the history is counted in business days
+    # (130 needed), not in values
+    def hist_metrics(n_business_days):
         index = pd.bdate_range('2021-01-01', periods=n_business_days)[::2]
-        return pd.Series(np.linspace(100.0, 110.0, len(index)), index=index, name='NAV')
+        nav = pd.Series(np.linspace(100.0, 110.0, len(index)), index=index, name='NAV')
+        no_trades = pd.DataFrame(0.0, index=index, columns=['A'])
+        data = PortfolioBacktestData(
+            name='x', nav=nav, units=no_trades, nav_eff=nav, transaction_value=no_trades, freq='B'
+        )
+        return compute_portfolio_metrics(hist_portfolio_data=data, print_results=False)[PerfDataTabs.HIST_PERF_METRICS]
 
-    young = _historical_metrics(every_other_day(120), 'B')  # 60 values, 119 business days
-    assert young.isna().all().all()
-    hist = _historical_metrics(every_other_day(200), 'B')  # 100 values, 199 business days
+    assert hist_metrics(120).isna().all().all()  # 60 values, 119 business days
+    hist = hist_metrics(200)  # 100 values, 199 business days
     assert len(hist) == 199 and hist[Metrics.VOLATILITY.name].notna().any()
 
 

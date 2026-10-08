@@ -59,21 +59,14 @@ class Metrics(Metric, Enum):
     PVAL_ALPHA = Metric('pval alpha')
 
 
-def compute_pa_return_last_n_years(nav: pd.Series, freq: str, n_years: int = None) -> float:
-    """Annualized return of the last n years (NaN with a shorter history)."""
-    num_periods = n_years * ANN_FACTOR_DICT[freq]
-    return (1.0 + nav.resample(freq).last().ffill().pct_change(num_periods).iloc[-1]) ** (1.0 / n_years) - 1
-
-
 def compute_total_return(nav: pd.Series) -> float:
     """Return from the first to the last value."""
     return nav.iloc[-1] / nav.iloc[0] - 1
 
 
-def compute_pa_return(nav: pd.Series, freq: str) -> float:
-    """Annualized return over the whole NAV."""
-    n_years = (len(nav.resample(freq).last()) - 1) / ANN_FACTOR_DICT[freq]
-    return (1.0 + compute_total_return(nav)) ** (1.0 / n_years) - 1
+def annualize_return(total_return: float, n_periods: int | np.ndarray, freq: str) -> float | np.ndarray:
+    """Annualized return of a return earned over n_periods periods of freq."""
+    return (1.0 + total_return) ** (ANN_FACTOR_DICT[freq] / n_periods) - 1
 
 
 def downside_deviation(returns: pd.Series) -> float:
@@ -93,11 +86,12 @@ def compute_portfolio_metrics(
         nav = hist_portfolio_data.nav_eff
     nav = nav.loc[nav.first_valid_index() :]  # remove initial nans
     freq = _sampling_freq(nav, hist_portfolio_data)
-    returns_resampled = nav.resample(freq).last().ffill().pct_change()
+    # the NAV at each period of freq (periods without a value, e.g. holidays, keep the previous one)
+    nav_resampled = nav.resample(freq).last().ffill()
     returns_monthly = nav.resample('M').last().pct_change().dropna().rename('return')
     turnover, turnover_mean_daily = _turnover(hist_portfolio_data, freq)
 
-    risk_metrics = _risk_metrics(nav, freq, returns_resampled, returns_monthly, strategy_benchmark, turnover_mean_daily)
+    risk_metrics = _risk_metrics(nav, nav_resampled, freq, returns_monthly, strategy_benchmark, turnover_mean_daily)
     if print_results:
         logger.info('Risk metrics of %s:\n%s', nav.name, risk_metrics)
     results_dict = {
@@ -107,7 +101,7 @@ def compute_portfolio_metrics(
         PerfDataTabs.TURNOVER: turnover,
     }
     if compute_hist_metrics:
-        results_dict[PerfDataTabs.HIST_PERF_METRICS] = _historical_metrics(nav, freq)
+        results_dict[PerfDataTabs.HIST_PERF_METRICS] = _historical_metrics(nav_resampled, freq)
     # correlation of the weekly returns of adjusted closing prices (as shown in the dashboard)
     if hist_portfolio_data is not None and hist_portfolio_data.close_adj is not None:
         returns_weekly = hist_portfolio_data.close_adj.resample(DEFAULT_CORR_DATA_FREQ).last().pct_change()
@@ -157,14 +151,22 @@ def _turnover(hist_portfolio_data: PortfolioBacktestData | None, freq: str) -> t
 
 def _risk_metrics(
     nav: pd.Series,
+    nav_resampled: pd.Series,
     freq: str,
-    returns_resampled: pd.Series,
     returns_monthly: pd.Series,
     strategy_benchmark: pd.Series | None,
     turnover_mean_daily: float,
 ) -> pd.Series:
     ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
-    pa_return = compute_pa_return(nav, freq)
+    periods_per_year = ANN_FACTOR_DICT[freq]
+    returns_resampled = nav_resampled.pct_change()
+    pa_return = annualize_return(compute_total_return(nav), len(nav_resampled) - 1, freq)
+
+    def return_last_n_years(n_years: int) -> float:
+        # annualized return of the last n years (NaN with a shorter history)
+        n_periods = n_years * periods_per_year
+        return annualize_return(nav_resampled.pct_change(n_periods).iloc[-1], n_periods, freq)
+
     volatility = ann_factor * returns_resampled.std()
     # no losses: no downside deviation, so no Sortino ratio (instead of an infinite one)
     volatility_downside = ann_factor * downside_deviation(returns_resampled) or np.nan
@@ -179,9 +181,9 @@ def _risk_metrics(
         {
             Metrics.TOTAL_RETURN.name: compute_total_return(nav),
             Metrics.PA_RETURN.name: pa_return,
-            Metrics.LAST_YEAR_RETURN.name: nav.resample(freq).last().ffill().pct_change(ANN_FACTOR_DICT[freq]).iloc[-1],
-            Metrics.ANN_3Y_RETURN.name: compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=3),
-            Metrics.ANN_5Y_RETURN.name: compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=5),
+            Metrics.LAST_YEAR_RETURN.name: nav_resampled.pct_change(periods_per_year).iloc[-1],
+            Metrics.ANN_3Y_RETURN.name: return_last_n_years(3),
+            Metrics.ANN_5Y_RETURN.name: return_last_n_years(5),
             Metrics.VOLATILITY.name: volatility,
             Metrics.SHARPE_RATIO.name: (pa_return - RISK_FREE_RATE) / volatility,
             Metrics.SORTINO_RATIO.name: (pa_return - RISK_FREE_RATE) / volatility_downside,
@@ -201,23 +203,21 @@ def _risk_metrics(
     )
 
 
-def _historical_metrics(nav: pd.Series, freq: str) -> pd.DataFrame:
-    """Return, volatility, Sharpe and Sortino ratios at each period of freq, from the start of the NAV up to that
-    period; all computed on the NAV resampled at freq, so that the minimum history is a number of periods.
+def _historical_metrics(nav_resampled: pd.Series, freq: str) -> pd.DataFrame:
+    """Return, volatility, Sharpe and Sortino ratios at each period of freq, from the start of the NAV (resampled at
+    freq) up to that period; the minimum history is a number of periods.
     """
     names = [m.name for m in (Metrics.PA_RETURN, Metrics.VOLATILITY, Metrics.SHARPE_RATIO, Metrics.SORTINO_RATIO)]
-    nav_resampled = nav.resample(freq).last().ffill()
     min_periods = MIN_PERIODS_DICT[freq]
     if len(nav_resampled) < min_periods:
         # young portfolio: not enough history for any value
         return pd.DataFrame(np.nan, index=nav_resampled.index, columns=names)
     returns = nav_resampled.pct_change()
     ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
-    # annualized return from the start (as compute_pa_return): k periods elapsed after the k-th period
+    # annualized return from the start: k periods elapsed after the k-th period
     periods_elapsed = np.arange(len(nav_resampled), dtype=float)
     with np.errstate(divide='ignore'):
-        exponent = ANN_FACTOR_DICT[freq] / periods_elapsed
-    pa_return = (nav_resampled / nav_resampled.iloc[0]) ** exponent - 1
+        pa_return = annualize_return(nav_resampled / nav_resampled.iloc[0] - 1, periods_elapsed, freq)
     pa_return = pa_return.where(periods_elapsed + 1 >= min_periods).rename(Metrics.PA_RETURN.name)
     volatility = (ann_factor * returns.expanding(min_periods=min_periods).std()).rename(Metrics.VOLATILITY.name)
     # downside deviation up to each period (as downside_deviation)

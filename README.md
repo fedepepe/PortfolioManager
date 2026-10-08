@@ -67,9 +67,13 @@ Nothing in these folders is committed:
 
 | Folder | Content |
 |---|---|
-| `data/` | the SQLite database (`degiro.db`), the Degiro downloads and the backtests (Excel) |
-| `results/` | performance results and the ETF catalogs (Excel) |
+| `data/` | the SQLite database (`degiro.db`), the Degiro downloads, and an Excel copy of each backtest for inspection (`*_visual.xlsx`: tickers as column labels) |
+| `data/derived/` | the working copy of the backtests, performance results and ETF catalogs (Parquet tables), read by the dashboard |
+| `results/` | an Excel copy of the performance results and the ETF catalogs, for inspection |
 | `credentials/` | the Degiro credentials |
+
+Results saved before the Parquet tables are converted with `python tasks.py convert-results` (until then they are read
+from the Excel files).
 
 Adjusted prices come from Yahoo Finance when it is reachable and are stored in the database, so that the backtests
 also work offline. Degiro cash movements are recognized by their descriptions, which are in Italian (the language of

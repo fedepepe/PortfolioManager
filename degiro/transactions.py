@@ -1,4 +1,3 @@
-import logging
 from datetime import date
 from enum import Enum
 from typing import Any
@@ -12,8 +11,6 @@ from config.accounts import Accounts
 from config.definitions import DATA_DIR
 from degiro.degiro_connection import get_degiro_connection
 from utils import file_utils as fu
-
-logging.basicConfig(level=logging.DEBUG)
 
 
 class TxHistFields:

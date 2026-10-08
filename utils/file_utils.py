@@ -19,6 +19,7 @@ def save_df_to_excel(df: PD_DATA_TYPES, file_name: str, folder_name: str = None,
         df = pd.concat([df_old, df], axis=0)
         df = df[~df.index.duplicated(keep='last')]
         df = df.sort_index()
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with pd.ExcelWriter(file_path, mode='w', engine='openpyxl') as writer:
         df.to_excel(writer)
 
@@ -37,6 +38,7 @@ def save_df_dict_to_excel(
                 df_dict[df_name] = pd.concat([df, df_dict[df_name]], axis=0)
                 df_dict[df_name] = df_dict[df_name][~df_dict[df_name].index.duplicated(keep='last')]
                 df_dict[df_name] = df_dict[df_name].sort_index()
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with pd.ExcelWriter(file_path, mode='w', engine='openpyxl') as writer:
         for df_name, df in df_dict.items():
             if df is not None and isinstance(df, PD_DATA_TYPES):
@@ -53,6 +55,7 @@ def save_df_to_parquet(df: PD_DATA_TYPES, file_name: str, folder_name: str = Non
         df = pd.concat([df_old, df], axis=0)
         df = df[~df.index.duplicated(keep='last')]
         df = df.sort_index()
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     df.to_parquet(file_path)
 
 

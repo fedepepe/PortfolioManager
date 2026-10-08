@@ -1,16 +1,13 @@
 import os
 
-# directories
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(ROOT_DIR, '../data')
-DATA_ETF_DIR = os.path.join(ROOT_DIR, '../data/etf')
-CREDENTIALS_DIR = os.path.join(ROOT_DIR, '../credentials')
-STATE_DIR = os.path.join(ROOT_DIR, '../state')
-RESULTS_DIR = os.path.join(ROOT_DIR, '../results')
-FIGURES_DIR = os.path.join(ROOT_DIR, '../figures')
-
-for path in [DATA_DIR, CREDENTIALS_DIR, RESULTS_DIR, FIGURES_DIR]:
-    os.makedirs(path, exist_ok=True)
+# directories (created when a file is first written to them)
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_DIR, 'data')
+DATA_ETF_DIR = os.path.join(DATA_DIR, 'etf')
+CREDENTIALS_DIR = os.path.join(PROJECT_DIR, 'credentials')
+STATE_DIR = os.path.join(PROJECT_DIR, 'state')
+RESULTS_DIR = os.path.join(PROJECT_DIR, 'results')
+FIGURES_DIR = os.path.join(PROJECT_DIR, 'figures')
 
 # data properties
 DEFAULT_DATA_FREQ = 'B'

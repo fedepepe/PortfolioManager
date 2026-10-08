@@ -3,8 +3,9 @@ from degiro_connector.trading.models.product import ProductItem
 from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from database.db_conn import conn, engine
+from database.db_conn import SessionLocal, engine
 from database.sql_utils import list_to_str, str_to_date
 from database.table_definitions import (
     DegiroHistData,
@@ -59,9 +60,10 @@ def insert_product(product: ProductItem):
         vwd_module_id=product.vwd_module_id,
         vwd_module_id_secondary=product.vwd_module_id_secondary,
     )
-    conn.add(data)
     print([k for k, v in product.dict().items() if isinstance(v, list)])
-    db_commit(message=f'{product.id} - {product.name}')
+    with SessionLocal() as session:
+        session.add(data)
+        _commit(session, message=f'{product.id} - {product.name}')
 
 
 def insert_degiro_hist(product_id: int, df: pd.DataFrame):
@@ -83,65 +85,68 @@ def insert_degiro_hist(product_id: int, df: pd.DataFrame):
         index_elements=[DegiroHistData.product_id, DegiroHistData.date],
         set_={col: func.coalesce(stmt.excluded[col], DegiroHistData.__table__.c[col]) for col in DEGIRO_HIST_COLS},
     )
-    conn.execute(stmt, rows)
-    db_commit(message=f'Degiro historical data of product {product_id} ({len(rows)} rows)')
+    with SessionLocal() as session:
+        session.execute(stmt, rows)
+        _commit(session, message=f'Degiro historical data of product {product_id} ({len(rows)} rows)')
 
 
 def insert_yahoo_finance_data(data_dict: dict[YFinHistCols, pd.DataFrame], to_portfolio_instr_table: bool = True):
     if data_dict[YF_PROD_INFO_LABEL].empty:
         return
-    for col, df in data_dict.items():
-        if df.empty:
-            continue
-        overwrite = YAHOO_FINANCE_DATA_OVERWRITE_DICT.get(col, False)
-        if col == YF_PROD_INFO_LABEL:
-            # write into product info table
-            for ticker in df.columns:
-                cond = (
-                    YahooFinanceProdInfo.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
-                )
-                query = conn.query(YahooFinanceProdInfo).where(cond)
-                if query.count() and not overwrite:
-                    continue
-                query.delete()
-                conn.flush()
-                data = []
-                for t in range(df.shape[0]):
-                    data.append(
-                        YahooFinanceProdInfo(
-                            ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
-                            quote_type=df.index[t],
-                            value=df[ticker].iloc[t],
-                        )
+    with SessionLocal() as session:
+        for col, df in data_dict.items():
+            if df.empty:
+                continue
+            overwrite = YAHOO_FINANCE_DATA_OVERWRITE_DICT.get(col, False)
+            if col == YF_PROD_INFO_LABEL:
+                # write into product info table
+                for ticker in df.columns:
+                    cond = (
+                        YahooFinanceProdInfo.ticker
+                        == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
                     )
-                conn.add_all(data)
-        else:
-            # write into historical data table
-            if to_portfolio_instr_table:
-                table = YahooFinanceHistDataPfInstr
+                    query = session.query(YahooFinanceProdInfo).where(cond)
+                    if query.count() and not overwrite:
+                        continue
+                    query.delete()
+                    session.flush()
+                    data = []
+                    for t in range(df.shape[0]):
+                        data.append(
+                            YahooFinanceProdInfo(
+                                ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
+                                quote_type=df.index[t],
+                                value=df[ticker].iloc[t],
+                            )
+                        )
+                    session.add_all(data)
             else:
-                table = YahooFinanceHistData
-            for ticker in df.columns:
-                df_melt = pd.melt(df[ticker].reset_index(), id_vars='index', value_vars=ticker)
-                cond = table.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
-                cond = cond & (table.quote_type == str(col))
-                query = conn.query(table).where(cond)
-                if query.count() and not overwrite:
-                    continue
-                query.delete()
-                conn.flush()
-                data = []
-                for t in range(df_melt.shape[0]):
-                    data.append(
-                        table(
-                            ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
-                            date=df_melt['index'].iloc[t],
-                            quote_type=str(col),
-                            value=df_melt['value'].iloc[t],
+                # write into historical data table
+                if to_portfolio_instr_table:
+                    table = YahooFinanceHistDataPfInstr
+                else:
+                    table = YahooFinanceHistData
+                for ticker in df.columns:
+                    df_melt = pd.melt(df[ticker].reset_index(), id_vars='index', value_vars=ticker)
+                    cond = table.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
+                    cond = cond & (table.quote_type == str(col))
+                    query = session.query(table).where(cond)
+                    if query.count() and not overwrite:
+                        continue
+                    query.delete()
+                    session.flush()
+                    data = []
+                    for t in range(df_melt.shape[0]):
+                        data.append(
+                            table(
+                                ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
+                                date=df_melt['index'].iloc[t],
+                                quote_type=str(col),
+                                value=df_melt['value'].iloc[t],
+                            )
                         )
-                    )
-                conn.add_all(data)
-    db_commit(message=f'Added Yahoo Finance data of product {data_dict[YF_PROD_INFO_LABEL]}.')
+                    session.add_all(data)
+        _commit(session, message=f'Added Yahoo Finance data of product {data_dict[YF_PROD_INFO_LABEL]}.')
 
 
 def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
@@ -151,15 +156,14 @@ def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
         return
     table = YahooFinanceHistDataPfInstr
     quote_type = str(YFinHistCols.adj_close)
-    conn.execute(delete(table).where((table.ticker == ticker) & (table.quote_type == quote_type)))
-    conn.execute(
-        insert(table),
-        [
-            {'ticker': ticker, 'date': pd.Timestamp(ts).date(), 'quote_type': quote_type, 'value': float(val)}
-            for ts, val in ser.items()
-        ],
-    )
-    db_commit(message=f'Yahoo Finance adjusted prices of {ticker} ({len(ser)} rows)')
+    rows = [
+        {'ticker': ticker, 'date': pd.Timestamp(ts).date(), 'quote_type': quote_type, 'value': float(val)}
+        for ts, val in ser.items()
+    ]
+    with SessionLocal() as session:
+        session.execute(delete(table).where((table.ticker == ticker) & (table.quote_type == quote_type)))
+        session.execute(insert(table), rows)
+        _commit(session, message=f'Yahoo Finance adjusted prices of {ticker} ({len(ser)} rows)')
 
 
 def query_portfolio_instr_adj_close(tickers: list[str]) -> pd.DataFrame:
@@ -188,8 +192,9 @@ def upsert_yahoo_finance_info(ticker: str, info: dict[str, str]):
         index_elements=[YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.quote_type],
         set_={'value': stmt.excluded.value},
     )
-    conn.execute(stmt, rows)
-    db_commit()
+    with SessionLocal() as session:
+        session.execute(stmt, rows)
+        _commit(session)
 
 
 def query_yahoo_finance_info_field(tickers: list[str], field: str) -> dict[str, str]:
@@ -197,29 +202,32 @@ def query_yahoo_finance_info_field(tickers: list[str], field: str) -> dict[str, 
     stmt = select(YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.value).where(
         YahooFinanceProdInfo.ticker.in_(tickers) & (YahooFinanceProdInfo.quote_type == field)
     )
-    return dict(conn.execute(stmt).all())
+    with engine.connect() as connection:
+        return dict(connection.execute(stmt).all())
 
 
 def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
     stmt = sqlite_insert(DegiroYahooMap)
     stmt = stmt.on_conflict_do_update(index_elements=[DegiroYahooMap.product_id], set_={'ticker': stmt.excluded.ticker})
-    conn.execute(stmt, [{'product_id': int(p), 'ticker': ticker} for p in product_ids])
-    db_commit()
+    with SessionLocal() as session:
+        session.execute(stmt, [{'product_id': int(p), 'ticker': ticker} for p in product_ids])
+        _commit(session)
 
 
 def query_degiro_yahoo_map(product_ids: list[int]) -> dict[int, str]:
     stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker).where(
         DegiroYahooMap.product_id.in_([int(p) for p in product_ids])
     )
-    return dict(conn.execute(stmt).all())
+    with engine.connect() as connection:
+        return dict(connection.execute(stmt).all())
 
 
-def db_commit(message: str | None = None):
+def _commit(session: Session, message: str | None = None):
     try:
-        conn.commit()
+        session.commit()
     except IntegrityError as e:
-        # always roll back, otherwise the session stays in a failed state and the next commit is lost
-        conn.rollback()
+        # roll back the failed transaction, so that the session can still be used
+        session.rollback()
         if 'UNIQUE constraint failed' in str(e.orig):
             if message is not None:
                 print(f'Entry {message} already exists. Skipped.')
@@ -422,11 +430,13 @@ def query_yahoo_finance_hist_data(
 
 
 def get_product_types() -> float:
-    return conn.query(Product.product_type).distinct().all()
+    with SessionLocal() as session:
+        return session.query(Product.product_type).distinct().all()
 
 
 def get_max_product_id() -> int:
-    return conn.query(func.max(Product.id)).all()[0][0]
+    with SessionLocal() as session:
+        return session.query(func.max(Product.id)).all()[0][0]
 
 
 if __name__ == '__main__':

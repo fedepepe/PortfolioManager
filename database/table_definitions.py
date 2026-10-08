@@ -1,5 +1,8 @@
+import os
+
 from sqlalchemy import Boolean, Column, Date, Float, Index, Integer, Sequence, String, UniqueConstraint
 
+from config.definitions import DATA_DIR
 from database.db_conn import Base, engine
 
 
@@ -105,9 +108,11 @@ class DegiroYahooMap(Base):
     ticker = Column(String, nullable=False)
 
 
-# Create the table in the database
-Base.metadata.create_all(engine)
-# create_all does not add new indexes to existing tables
-for table in Base.metadata.sorted_tables:
-    for index in table.indexes:
-        index.create(engine, checkfirst=True)
+def init_db():
+    # create the database file, its missing tables and indexes (called once at start-up)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    Base.metadata.create_all(engine)
+    # create_all does not add new indexes to existing tables
+    for table in Base.metadata.sorted_tables:
+        for index in table.indexes:
+            index.create(engine, checkfirst=True)

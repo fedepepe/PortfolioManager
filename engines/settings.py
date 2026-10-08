@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 from config.definitions import STATE_DIR
@@ -22,6 +23,7 @@ class State:
             self._state = json.load(fp)
 
     def save_state(self):
+        os.makedirs(STATE_DIR, exist_ok=True)
         with open(self.get_state_file_path(), 'w') as fp:
             json.dump(self._state, fp)
 

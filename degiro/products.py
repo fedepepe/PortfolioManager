@@ -1,4 +1,3 @@
-import logging
 from enum import Enum
 
 import pandas as pd
@@ -12,8 +11,6 @@ from degiro.degiro_connection import get_degiro_connection
 from degiro.degiro_definitions import ProductTypes
 from degiro.transactions import load_tx_history
 from utils.file_utils import load_df_from_excel, save_df_to_excel
-
-logging.basicConfig(level=logging.DEBUG)
 
 
 def fetch_full_product_catalog(degiro_conn: API | None = None):

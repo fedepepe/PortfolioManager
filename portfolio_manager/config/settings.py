@@ -6,6 +6,8 @@ import os
 # portfolio_manager/config/settings.py -> project root (three levels up)
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')
+# Parquet working copies of the derived results (backtests, performance, catalogs)
+DERIVED_DIR = os.path.join(DATA_DIR, 'derived')
 CREDENTIALS_DIR = os.path.join(PROJECT_DIR, 'credentials')
 RESULTS_DIR = os.path.join(PROJECT_DIR, 'results')
 

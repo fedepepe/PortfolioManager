@@ -11,6 +11,9 @@ import os
 
 import pandas as pd
 
+from portfolio_manager.config.settings import DERIVED_DIR
+from portfolio_manager.storage.files import to_file_name
+
 DESCRIPTION_FILE = 'tables.json'
 _INDEX_COLUMN = '__index__'
 _TIMESTAMP_KEY = '__timestamp__'
@@ -76,6 +79,11 @@ def _decode(frame: pd.DataFrame, desc: dict) -> pd.DataFrame | pd.Series:
         series.name = desc['series_name']
         return series
     return frame
+
+
+def derived_folder(kind: str, name: str) -> str:
+    """Folder of the tables of a derived result, e.g. ('backtests', 'Portfolio CHF')."""
+    return os.path.join(DERIVED_DIR, kind, to_file_name(name))
 
 
 def save_tables(folder: str, tables: dict[str, pd.DataFrame | pd.Series | None], attributes: dict | None = None):

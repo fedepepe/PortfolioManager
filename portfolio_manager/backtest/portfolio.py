@@ -163,11 +163,11 @@ class Portfolio(PortfolioGeneric):
 
 @dataclass
 class PortfolioBacktestData:
-    """Results of a backtest, saved as the sheets of an Excel file."""
+    """Results of a backtest (saved as Parquet tables); tables not loaded are None."""
 
     name: str
-    nav: pd.Series
-    units: pd.DataFrame
+    nav: pd.Series | None = None
+    units: pd.DataFrame | None = None
     cum_pnl: pd.DataFrame = None
     yield_dividends: pd.DataFrame = None
     yield_total: pd.DataFrame = None

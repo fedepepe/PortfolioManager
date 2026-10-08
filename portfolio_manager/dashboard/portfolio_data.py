@@ -26,6 +26,10 @@ class AllocationRiskLabels:
     ISIN = Product.isin.name
 
 
+# tables of the portfolio backtest shown by the Portfolio page (the others are not loaded)
+PORTFOLIO_PAGE_FIELDS = ['nav_eff', 'effective_weights', 'close_adj', 'prices']
+
+
 # read-only view of the saved data of a portfolio, shared through dashboard.data_service: do not modify
 class PortfolioData:
     """Backtest, performance and products of an account, as shown on the Portfolio page."""
@@ -33,7 +37,7 @@ class PortfolioData:
     def __init__(self, account: Accounts | None = None, hist_data: PortfolioBacktestData | None = None):
         if account is not None:
             self.account = account
-            self.hist_data = load_backtest_data(name=self.account.name)
+            self.hist_data = load_backtest_data(name=self.account.name, fields=PORTFOLIO_PAGE_FIELDS)
             self.perf_dct = load_performance_data_portfolio(account=self.account)
             self.perf_bm_dct = load_performance_data_benchmark(account=self.account)
             self.prod_df = adjust_prod_column_labels(load_portfolio_products(account=self.account))

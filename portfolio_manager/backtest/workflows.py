@@ -1,6 +1,8 @@
 """Data update and backtests of the accounts, their benchmarks and optimized portfolios."""
 
+import os
 import re
+import time
 from dataclasses import asdict
 
 import pandas as pd
@@ -35,28 +37,79 @@ from portfolio_manager.degiro.transactions import (
 from portfolio_manager.optimization.optimizer import OptimizedWeights, compute_weights_optim_portfolio
 from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage import files as fu
+from portfolio_manager.storage.tables import (
+    derived_folder,
+    has_tables,
+    load_attributes,
+    load_tables,
+    save_tables,
+)
 from portfolio_manager.utils.dates import reset_time
+
+BACKTESTS = 'backtests'  # kind of derived result (folder of the Parquet tables)
+
+
+def _backtest_tables(hist_portfolio_data: PortfolioBacktestData) -> dict[str, pd.DataFrame | pd.Series]:
+    return {k: v for k, v in asdict(hist_portfolio_data).items() if isinstance(v, pd.DataFrame | pd.Series)}
 
 
 def save_backtest_data(hist_portfolio_data: PortfolioBacktestData):
-    """Save a backtest; with an id-symbol map also a copy with symbols as column labels."""
-    fu.save_df_dict_to_excel(
-        df_dict=asdict(hist_portfolio_data), file_name=hist_portfolio_data.name, folder_name=DATA_DIR
+    """Save a backtest: Parquet tables (working copy) and an Excel copy for inspection, with symbols instead of
+    product ids as column labels when the backtest has an id-symbol map (file name ending in _visual).
+    """
+    save_backtest_tables(hist_portfolio_data)
+    tables = _backtest_tables(hist_portfolio_data)
+    id_symbol_map = hist_portfolio_data.id_symbol_map
+    if id_symbol_map is not None:
+        tables = {k: v.rename(columns=id_symbol_map) if isinstance(v, pd.DataFrame) else v for k, v in tables.items()}
+    file_name = f'{hist_portfolio_data.name}_visual' if id_symbol_map is not None else hist_portfolio_data.name
+    fu.save_df_dict_to_excel(df_dict=tables, file_name=file_name, folder_name=DATA_DIR)
+
+
+def save_backtest_tables(hist_portfolio_data: PortfolioBacktestData, saved_at: float | None = None):
+    """Save the Parquet tables of a backtest; saved_at (default: now) is the time the backtest was computed."""
+    id_symbol_map = hist_portfolio_data.id_symbol_map
+    attributes = {
+        'freq': hist_portfolio_data.freq,
+        'id_symbol_map': [[k, v] for k, v in id_symbol_map.items()] if id_symbol_map is not None else None,
+        'saved_at': saved_at if saved_at is not None else time.time(),
+    }
+    folder = derived_folder(BACKTESTS, hist_portfolio_data.name)
+    save_tables(folder, _backtest_tables(hist_portfolio_data), attributes=attributes)
+
+
+def load_backtest_data(name: str, fields: list[str] | None = None) -> PortfolioBacktestData:
+    """Saved backtest with the given name: all its tables, or only the given fields (the others are None)."""
+    folder = derived_folder(BACKTESTS, name)
+    if not has_tables(folder):
+        return load_backtest_data_excel(name, fields=fields)  # saved before the Parquet tables
+    attributes = load_attributes(folder)
+    id_symbol_map = attributes.get('id_symbol_map')
+    return PortfolioBacktestData(
+        name=name,
+        freq=attributes.get('freq'),
+        id_symbol_map=dict(id_symbol_map) if id_symbol_map is not None else None,
+        **load_tables(folder, names=fields),
     )
-    if hist_portfolio_data.id_symbol_map is not None:
-        df_dict = {
-            k: v.rename(columns=hist_portfolio_data.id_symbol_map) if isinstance(v, pd.DataFrame) else v
-            for k, v in asdict(hist_portfolio_data).items()
-        }
-        fu.save_df_dict_to_excel(df_dict=df_dict, file_name=f'{hist_portfolio_data.name}_visual', folder_name=DATA_DIR)
+
+
+def backtest_saved_at(name: str) -> float | None:
+    """Time the saved backtest was computed, None if there is none."""
+    folder = derived_folder(BACKTESTS, name)
+    if has_tables(folder):
+        return load_attributes(folder)['saved_at']
+    excel_file = os.path.join(DATA_DIR, f'{fu.to_file_name(name)}.xlsx')
+    return os.path.getmtime(excel_file) if os.path.isfile(excel_file) else None
 
 
 BACKTEST_SERIES_FIELDS = ['nav', 'nav_eff', 'deposits']
 
 
-def load_backtest_data(name: str) -> PortfolioBacktestData:
-    """Saved backtest with the given name."""
+def load_backtest_data_excel(name: str, fields: list[str] | None = None) -> PortfolioBacktestData:
+    """Backtest saved as an Excel file (before the Parquet tables)."""
     data_dict = fu.load_df_dict_from_excel(file_name=name, folder_name=DATA_DIR)
+    if fields is not None:
+        data_dict = {k: v for k, v in data_dict.items() if k in fields}
     # series are saved as one-column sheets: restore them as series
     for field in BACKTEST_SERIES_FIELDS:
         if isinstance(data_dict.get(field), pd.DataFrame) and data_dict[field].shape[1] == 1:

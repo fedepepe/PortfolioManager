@@ -20,6 +20,7 @@ from portfolio_manager.storage.queries import (
     query_yahoo_finance_hist_data,
     query_yahoo_finance_prod_info,
 )
+from portfolio_manager.storage.tables import derived_folder, has_tables, load_tables, save_tables
 
 logger = logging.getLogger(__name__)
 
@@ -334,14 +335,31 @@ def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
     return data_dict[CATALOG_PERF_LABEL]
 
 
+CATALOGS = 'catalogs'  # kind of derived result (folder of the Parquet tables)
+
+
+def catalog_file_name(account: Accounts) -> str:
+    """Name of the ETF catalog files of an account."""
+    return f'{account.name}_catalog'
+
+
 def save_etf_catalog_data(account: Accounts, data_dict: dict[str | YFinHistCols, pd.DataFrame]):
-    """Save the ETF catalog of an account."""
+    """Save the ETF catalog of an account: Parquet tables and Excel file."""
     data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
-    save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
+    save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=catalog_file_name(account))
+    save_etf_catalog_tables(account, data_dict_renamed)
+
+
+def save_etf_catalog_tables(account: Accounts, data_dict: dict[str, pd.DataFrame]):
+    """Save the Parquet tables of the ETF catalog of an account (keys: sheet names)."""
+    save_tables(derived_folder(CATALOGS, catalog_file_name(account)), data_dict)
 
 
 def load_etf_catalog_data(account: Accounts) -> dict[str | YFinHistCols, pd.DataFrame]:
     """Keys: YFinHistCols for the price and volume sheets, YF_PROD_INFO_LABEL, and CATALOG_PERF_LABEL if computed."""
-    data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
-    data_dict_renamed = {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}
-    return data_dict_renamed
+    folder = derived_folder(CATALOGS, catalog_file_name(account))
+    if has_tables(folder):
+        data_dict = load_tables(folder)
+    else:  # saved before the Parquet tables
+        data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=catalog_file_name(account))
+    return {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}

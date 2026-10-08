@@ -2,7 +2,6 @@
 jobs (update, optimization).
 """
 
-# Single access point of the dashboard to portfolio data.
 # Data is cached per account and data version: the version changes whenever an update rewrites the account's
 # data files, so the cache never serves stale data and needs no explicit invalidation.
 # Cached objects are shared by all browser sessions: callers must treat them as read-only.
@@ -13,11 +12,15 @@ from typing import NamedTuple
 
 import pandas as pd
 
+from portfolio_manager.analytics.instruments import CATALOGS, catalog_file_name
+from portfolio_manager.analytics.performance import RESULTS, load_performance_data
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.backtest.workflows import (
+    BACKTESTS,
     OPTIMIZATION_SETTINGS_LABEL,
     backtest_portfolio_benchmark,
     backtest_portfolio_optimized,
+    backtest_saved_at,
     load_backtest_data,
     optimization_prices,
     optimized_portfolio_name,
@@ -28,7 +31,12 @@ from portfolio_manager.config.settings import DATA_DIR, RESULTS_DIR
 from portfolio_manager.dashboard.instruments_data import InstrumentsData
 from portfolio_manager.dashboard.portfolio_data import PortfolioData
 from portfolio_manager.optimization.settings import OptimizationSettings
-from portfolio_manager.storage.files import load_df_dict_from_excel, to_file_name
+from portfolio_manager.storage.files import to_file_name
+from portfolio_manager.storage.tables import derived_folder, tables_version
+
+# tables of the benchmark and optimized backtests shown by the dashboard (the others are not loaded)
+BENCHMARK_FIELDS = ['nav_eff']
+OPTIMIZED_FIELDS = ['nav_eff']
 
 # serializes the long-running jobs (data update, optimization)
 _UPDATE_LOCK = threading.Lock()
@@ -39,7 +47,7 @@ class OptimizedData(NamedTuple):
 
     hist_data: PortfolioBacktestData
     perf_dct: dict[str, pd.DataFrame] | None  # None if the performance results are missing
-    computed_at: float  # modification time of the saved backtest file
+    computed_at: float  # time the saved optimization was computed
     settings: OptimizationSettings  # settings of the saved optimization (defaults for files saved without them)
 
 
@@ -47,20 +55,28 @@ def _benchmark_name(account: Accounts) -> str:
     return f'{account.name}_benchmark'
 
 
-def _data_files(account: Accounts) -> list[str]:
-    name = to_file_name(account.name)
-    return [
-        f'{DATA_DIR}/{name}.xlsx',
-        f'{DATA_DIR}/{name}_benchmark.xlsx',
-        f'{DATA_DIR}/{name}_products_info.xlsx',
-        f'{RESULTS_DIR}/{name}.xlsx',
-        f'{RESULTS_DIR}/{name}_benchmark.xlsx',
-    ]
+def _file_version(path: str) -> float:
+    return os.path.getmtime(path) if os.path.isfile(path) else 0.0
+
+
+def _version(results: list[tuple[str, str, str]], files: list[str] = ()) -> str:
+    # latest save of the given derived results (kind, name, folder of their Excel file before the Parquet tables)
+    # and files
+    versions = [tables_version(derived_folder(kind, name)) for kind, name, _ in results]
+    versions += [_file_version(f'{folder}/{to_file_name(name)}.xlsx') for _, name, folder in results]
+    return str(max(versions + [_file_version(f) for f in files]))
 
 
 def data_version(account: Accounts) -> str:
-    """Latest modification time of the files read by the portfolio page (0 for missing files)."""
-    return str(max(os.path.getmtime(f) if os.path.isfile(f) else 0.0 for f in _data_files(account)))
+    """Latest save of the data read by the portfolio page."""
+    name = account.name
+    results = [
+        (BACKTESTS, name, DATA_DIR),
+        (BACKTESTS, _benchmark_name(account), DATA_DIR),
+        (RESULTS, name, RESULTS_DIR),
+        (RESULTS, _benchmark_name(account), RESULTS_DIR),
+    ]
+    return _version(results, files=[f'{DATA_DIR}/{to_file_name(name)}_products_info.xlsx'])
 
 
 @lru_cache(maxsize=4)
@@ -72,15 +88,15 @@ def _portfolio_data(account_name: str, version: str) -> PortfolioData:
 def _benchmark_data(account_name: str, version: str) -> PortfolioBacktestData:
     account = Accounts.get_account_by_name(account_name)
     try:
-        return load_backtest_data(name=_benchmark_name(account))
+        return load_backtest_data(name=_benchmark_name(account), fields=BENCHMARK_FIELDS)
     except FileNotFoundError:
         # no saved benchmark yet: compute it from Yahoo Finance data (this also saves it)
         index = get_portfolio_data(account).hist_data.nav_eff.index
         return backtest_portfolio_benchmark(account=account, index=index)
 
 
-def _catalog_file(account: Accounts) -> str:
-    return f'{RESULTS_DIR}/{to_file_name(account.name)}_catalog.xlsx'
+def _catalog_version(account: Accounts) -> str:
+    return _version([(CATALOGS, catalog_file_name(account), RESULTS_DIR)])
 
 
 @lru_cache(maxsize=2)
@@ -90,15 +106,15 @@ def _instruments_data(account_name: str, version: str) -> InstrumentsData:
 
 def get_instruments_data(account: Accounts) -> InstrumentsData | None:
     """None if the account has no ETF catalog."""
-    file = _catalog_file(account)
-    if not os.path.isfile(file):
+    version = _catalog_version(account)
+    if float(version) == 0.0:
         return None
-    return _instruments_data(account.name, str(os.path.getmtime(file)))
+    return _instruments_data(account.name, version)
 
 
-def _optimized_files(account: Accounts) -> list[str]:
-    name = to_file_name(optimized_portfolio_name(account))
-    return [f'{DATA_DIR}/{name}.xlsx', f'{RESULTS_DIR}/{name}.xlsx']
+def _optimized_version(account: Accounts) -> str:
+    name = optimized_portfolio_name(account)
+    return _version([(BACKTESTS, name, DATA_DIR), (RESULTS, name, RESULTS_DIR)])
 
 
 @lru_cache(maxsize=2)
@@ -106,27 +122,25 @@ def _optimized_data(account_name: str, version: str) -> OptimizedData:
     account = Accounts.get_account_by_name(account_name)
     name = optimized_portfolio_name(account)
     try:
-        perf_dct = load_df_dict_from_excel(file_name=name, folder_name=RESULTS_DIR)
+        perf_dct = load_performance_data(name)
     except FileNotFoundError:
         perf_dct = None
     settings = OptimizationSettings()
     if perf_dct is not None and OPTIMIZATION_SETTINGS_LABEL in perf_dct:
         settings = OptimizationSettings.from_series(perf_dct[OPTIMIZATION_SETTINGS_LABEL].iloc[:, 0])
     return OptimizedData(
-        hist_data=load_backtest_data(name=name),
+        hist_data=load_backtest_data(name=name, fields=OPTIMIZED_FIELDS),
         perf_dct=perf_dct,
-        computed_at=os.path.getmtime(_optimized_files(account)[0]),
+        computed_at=backtest_saved_at(name),
         settings=settings,
     )
 
 
 def get_optimized_data(account: Accounts) -> OptimizedData | None:
     """None if no optimization has been computed for the account."""
-    files = _optimized_files(account)
-    if not os.path.isfile(files[0]):
+    if backtest_saved_at(optimized_portfolio_name(account)) is None:
         return None
-    version = str(max(os.path.getmtime(f) if os.path.isfile(f) else 0.0 for f in files))
-    return _optimized_data(account.name, version)
+    return _optimized_data(account.name, _optimized_version(account))
 
 
 def get_portfolio_data(account: Accounts) -> PortfolioData:

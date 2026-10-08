@@ -74,7 +74,7 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     deposits_df = account_mvmts_df.loc[account_mvmts_df['description'].str.contains('Deposito|Prelievo'), :].copy()
     # forex rates
     products_df = adjust_prod_column_labels(load_portfolio_products(account=account))
-    curr_foreign_lst = list(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
+    curr_foreign_lst = sorted(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
     curr_foreign_lst = [c for c in curr_foreign_lst if c != account.currency]
     fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,
                                 account=account,

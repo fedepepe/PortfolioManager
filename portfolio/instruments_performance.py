@@ -135,7 +135,7 @@ def prices_to_base_curr(account: Accounts,
         curr_lst = [c.upper() for c in curr_info]
     else:
         raise TypeError
-    curr_foreign_lst = list(set([c for c in curr_lst if c != account.currency]))
+    curr_foreign_lst = sorted(set([c for c in curr_lst if c != account.currency]))
     fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,
                                 account=account,
                                 index=price_df.index)

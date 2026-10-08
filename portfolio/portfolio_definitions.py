@@ -25,7 +25,8 @@ class PortfolioGeneric:
                  max_target_dev: float = 0.,
                  txn_costs_prop_bp: int = 0,  # proportional transaction costs in basis points
                  txn_costs_fixed: float = 0.,
-                 min_cash_amount: float = 100.):
+                 min_cash_amount: float = 100.,
+                 min_cash_ratio: float = 0.):  # cash kept at rebalancing, as a fraction of the NAV
         self.tickers = tickers
         self.name: str = name
         self.currency_base: Currencies = base_currency
@@ -38,6 +39,7 @@ class PortfolioGeneric:
         self.txn_costs_prop = txn_costs_prop_bp / 1e4
         self.txn_costs_fixed = txn_costs_fixed
         self.min_cash_amount = min_cash_amount
+        self.min_cash_ratio = min_cash_ratio
 
     def get_dollar_values(self, current_prices) -> np.ndarray:
         return self.current_units * current_prices
@@ -80,7 +82,7 @@ class Portfolio(PortfolioGeneric):
         # compute effective trades
         current_units = self.compute_current_units(current_prices, target_exp, units, rebalance_type=rebalance_type)
         txn_values = self.compute_txn_values(current_prices, current_units)
-        if self.get_current_cash_balance() + np.nansum(txn_values) < 0:
+        if self.get_current_cash_balance() + np.nansum(txn_values - self.txn_costs_prop * np.abs(txn_values)) < 0:
             current_units = self.compute_current_units(current_prices, target_exp, units,
                                                        rebalance_type=PortfolioRebalanceType.FULL)
             txn_values = self.compute_txn_values(current_prices, current_units)
@@ -109,7 +111,8 @@ class Portfolio(PortfolioGeneric):
                 bool_trade = pd.Series(True, index=current_prices.index)
             else:
                 raise AttributeError
-            nav_available = self.get_nav(current_prices) - self.min_cash_amount - self.txn_costs.sum()
+            nav_available = (self.get_nav(current_prices) * (1. - self.min_cash_ratio) - self.min_cash_amount
+                             - self.txn_costs.sum())
             current_units = (nav_available * target_exp) / current_prices
             current_units[~bool_trade] = self.previous_units[~bool_trade]
             current_units[np.isnan(current_units)] = 0

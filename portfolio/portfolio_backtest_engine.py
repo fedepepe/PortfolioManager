@@ -79,7 +79,8 @@ def backtest_portfolio(prices_df: pd.DataFrame,
                               initial_cash_balance=initial_cash_balance,
                               txn_costs_prop_bp=10,
                               max_target_dev=0.01,
-                              min_cash_amount=0.05 * initial_cash_balance)
+                              min_cash_amount=0.,
+                              min_cash_ratio=0.001)  # 0.1% of the NAV kept in cash to pay the transaction costs
 
     # loop over t
     for t in np.arange(0, len(prices_df)):

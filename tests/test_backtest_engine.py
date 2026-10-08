@@ -44,3 +44,32 @@ def test_nan_target_weights_keep_units_in_minimal_rebalance(prices):
     units = data.units.drop(columns='Cash')
     assert (units.iloc[-1] > 0).all()
     assert units.iloc[-1].equals(units.loc[: idx[1]].iloc[-1])
+
+
+def test_account_replays_trades_dividends_and_deposits(prices):
+    from portfolio_manager.config.accounts import Accounts
+    from portfolio_manager.degiro.transactions import TxHistFields as F
+
+    prices = prices.iloc[:30, :2]
+    days = prices.index
+    trades = pd.DataFrame(
+        [{'Date': days[2], F.product_id: 'A0', F.quantity: 10, F.price: 100.0, F.total: -1000.0}]
+    ).assign(**{F.total_in_base_currency: -1000.0, F.total_fees_in_base_currency: -2.0})
+    dividends = pd.DataFrame({'Date': [days[10]], F.product_id: ['A0'], 'amount_base_currency': [5.0]})
+    deposits = pd.DataFrame({'Date': [days[0], days[20]], 'change': [2000.0, 500.0]})
+    data = backtest_portfolio(
+        prices_df=prices,
+        account=Accounts.DEGIRO_EUR,
+        tx_hist_df=trades,
+        initial_cash_balance=0.0,
+        div_hist_df=dividends,
+        dep_hist_df=deposits,
+    )
+    assert data.units['A0'].iloc[-1] == 10
+    assert data.units['Cash'].iloc[-1] == pytest.approx(2000.0 - 1000.0 - 2.0 + 5.0 + 500.0)
+    assert data.dividends['A0'].sum() == 5.0
+    assert data.deposits.sum() == 2500.0
+    # the effective NAV ignores deposits: the 500 deposit is not counted as a return
+    assert data.nav_eff.iloc[20] == pytest.approx(
+        data.nav_eff.iloc[19] * (data.nav.iloc[20] - 500.0) / data.nav.iloc[19]
+    )

@@ -1,10 +1,11 @@
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
 from portfolio_manager.backtest.degiro_portfolio import PortfolioDegiro
-from portfolio_manager.backtest.portfolio import Currencies, Portfolio, PortfolioBacktestData
+from portfolio_manager.backtest.portfolio import Currencies, Portfolio, PortfolioBacktestData, PortfolioGeneric
 from portfolio_manager.config.accounts import Accounts, Brokers
 from portfolio_manager.degiro.transactions import TxHistFields
 
@@ -24,6 +25,33 @@ def align_df_to_index(df: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame
     return df[~df.index.duplicated(keep='last')]
 
 
+@dataclass
+class _DailyRecords:
+    # values recorded for each day of the backtest (rows) and instrument (columns)
+    units: np.ndarray
+    effective_weights: np.ndarray
+    txn_values: np.ndarray
+    txn_costs: np.ndarray
+    dividends: np.ndarray
+    nav: np.ndarray
+    cash_balance: np.ndarray
+    deposits: np.ndarray
+
+    @classmethod
+    def empty(cls, prices_df: pd.DataFrame) -> '_DailyRecords':
+        n_days = len(prices_df)
+        return cls(
+            units=np.zeros_like(prices_df),
+            effective_weights=np.zeros_like(prices_df),
+            txn_values=np.zeros_like(prices_df),
+            txn_costs=np.zeros_like(prices_df),
+            dividends=np.zeros_like(prices_df),
+            nav=np.zeros(n_days),
+            cash_balance=np.zeros(n_days),
+            deposits=np.zeros(n_days),
+        )
+
+
 def backtest_portfolio(
     prices_df: pd.DataFrame,
     name: str | None = None,
@@ -40,26 +68,12 @@ def backtest_portfolio(
     freq_rebalancing: str | None = None,
     id_symbol_map: dict | None = None,
 ) -> PortfolioBacktestData:
+    # daily simulation of a portfolio driven by one of (in order of precedence): target weights (a frame by date,
+    # or fixed weights rebalanced every freq_rebalancing), target units by date, or the trades of an account
     if name is None and account is None:
         raise AttributeError
     if account is not None:
         name = account.name
-
-    # initialize
-    units = np.zeros_like(prices_df)
-    effective_weights = np.zeros_like(prices_df)
-    nav = np.zeros(len(prices_df))
-    cash_balance = np.zeros(len(prices_df))
-    txn_values = np.zeros_like(prices_df)
-    txn_costs = np.zeros_like(prices_df)
-    dividends = np.zeros_like(prices_df)
-    deposits = np.zeros(len(prices_df))
-
-    if freq_rebalancing is None:
-        rebalancing_dates = prices_df.index
-    else:
-        # last available trading date of each period
-        rebalancing_dates = pd.DatetimeIndex(prices_df.index.to_series().resample(freq_rebalancing).last().dropna())
 
     # align target dates to the price index (e.g. month-ends falling on weekends or holidays)
     if isinstance(target_exp, pd.DataFrame):
@@ -67,108 +81,164 @@ def backtest_portfolio(
     if target_units is not None:
         target_units = align_df_to_index(target_units, prices_df.index)
 
-    # build initial portfolio
-    if account is not None:
-        if account.broker == Brokers.DEGIRO:
-            portfolio = PortfolioDegiro(
-                tickers=prices_df.columns.to_list(),
-                base_currency=account.currency,
-                initial_cash_balance=initial_cash_balance,
-            )
-        else:
-            raise NotImplementedError
-    else:
-        portfolio = Portfolio(
-            tickers=prices_df.columns.to_list(),
-            base_currency=curr_base,
-            initial_cash_balance=initial_cash_balance,
-            txn_costs_prop_bp=10,
-            max_target_dev=0.01,
-            min_cash_amount=0.0,
-            min_cash_ratio=0.001,
-        )  # 0.1% of the NAV kept in cash to pay the transaction costs
+    portfolio = _build_portfolio(prices_df, account, curr_base, initial_cash_balance)
+    rebalancing_dates = _rebalancing_dates(prices_df.index, freq_rebalancing)
+    trade_dates = set(tx_hist_df['Date']) if tx_hist_df is not None else set()
+    records = _DailyRecords.empty(prices_df)
 
-    # loop over t
-    for t in np.arange(0, len(prices_df)):
+    for t, date in enumerate(prices_df.index):
         current_prices = prices_df.iloc[t, :]
-
-        # rebalance
-        if target_exp is not None:
-            if isinstance(target_exp, pd.DataFrame):
-                if prices_df.index[t] in target_exp.index:
-                    portfolio.rebalance(target_exp=target_exp.loc[prices_df.index[t], :], current_prices=current_prices)
-                    txn_values[t, :] = portfolio.txn_values
-                    txn_costs[t, :] = portfolio.txn_costs
-            elif isinstance(target_exp, list):
-                if t == 0 or prices_df.index[t] in rebalancing_dates:
-                    portfolio.rebalance(target_exp=np.array(target_exp), current_prices=current_prices)
-                    txn_values[t, :] = portfolio.txn_values
-                    txn_costs[t, :] = portfolio.txn_costs
-        elif target_units is not None:
-            if prices_df.index[t] in target_units.index:
-                portfolio.rebalance(units=target_units.loc[prices_df.index[t], :], current_prices=current_prices)
-                txn_values[t, :] = portfolio.txn_values
-                txn_costs[t, :] = portfolio.txn_costs
-        elif tx_hist_df is not None:
-            if prices_df.index[t] in tx_hist_df['Date'].to_list():
-                portfolio.rebalance(tx_hist_df=tx_hist_df.loc[tx_hist_df['Date'] == prices_df.index[t]])
-                txn_values[t, :] = portfolio.txn_values
-                txn_costs[t, :] = portfolio.txn_costs
-
-        # add dividends
+        rebalanced = _rebalance(
+            portfolio,
+            date,
+            current_prices,
+            target_exp,
+            target_units,
+            tx_hist_df,
+            trade_dates,
+            is_first_day=t == 0,
+            rebalancing_dates=rebalancing_dates,
+        )
+        if rebalanced:
+            records.txn_values[t, :] = portfolio.txn_values
+            records.txn_costs[t, :] = portfolio.txn_costs
         if div_hist_df is not None:
-            if prices_df.index[t] in div_hist_df['Date'].to_list():
-                div_hist_t = div_hist_df.loc[div_hist_df['Date'] == prices_df.index[t], :]
-                portfolio.add_cash(div_hist_t['amount_base_currency'].sum())
-                for n in range(len(div_hist_t)):
-                    idx = prices_df.columns.to_list().index(div_hist_t.iloc[n, :][TxHistFields.product_id])
-                    dividends[t, idx] += div_hist_t.iloc[n, :]['amount_base_currency']
-
-        # add deposits and subtract withdrawals
+            records.dividends[t, :] += _add_dividends(portfolio, date, div_hist_df, prices_df.columns.to_list())
         if dep_hist_df is not None:
-            if prices_df.index[t] in dep_hist_df['Date'].to_list():
-                deposit = dep_hist_df.loc[dep_hist_df['Date'] == prices_df.index[t], 'change'].sum()
-                portfolio.add_cash(deposit)
-                deposits[t] = deposit
+            records.deposits[t] = _add_deposits(portfolio, date, dep_hist_df)
+        records.units[t, :] = portfolio.current_units
+        records.cash_balance[t] = portfolio.get_current_cash_balance()
+        records.effective_weights[t, :] = portfolio.get_effective_weights(current_prices=current_prices)
+        records.nav[t] = portfolio.get_nav(current_prices=current_prices)
 
-        # store
-        units[t, :] = portfolio.current_units
-        cash_balance[t] = portfolio.get_current_cash_balance()
-        effective_weights[t, :] = portfolio.get_effective_weights(current_prices=current_prices)
-        nav[t] = portfolio.get_nav(current_prices=current_prices)
+    return _to_backtest_data(name, prices_df, records, fx_rates_df, close_adj_df, id_symbol_map)
 
-    units = pd.DataFrame(units, columns=prices_df.columns, index=prices_df.index)
-    effective_weights_df = pd.DataFrame(effective_weights, columns=prices_df.columns, index=prices_df.index)
-    effective_weights_df['Cash'] = cash_balance / nav
-    nav = pd.Series(nav, name='NAV', index=prices_df.index)
-    txn_values = pd.DataFrame(txn_values, columns=prices_df.columns, index=prices_df.index)
-    txn_costs = pd.DataFrame(txn_costs, columns=prices_df.columns, index=prices_df.index)
-    dividends = pd.DataFrame(dividends, columns=prices_df.columns, index=prices_df.index)
+
+def _build_portfolio(
+    prices_df: pd.DataFrame, account: Accounts | None, curr_base: Currencies, initial_cash_balance: float
+) -> PortfolioGeneric:
+    # an account replays its trades; otherwise a simulated portfolio rebalanced to targets
+    tickers = prices_df.columns.to_list()
+    if account is not None:
+        if account.broker != Brokers.DEGIRO:
+            raise NotImplementedError
+        return PortfolioDegiro(
+            tickers=tickers, base_currency=account.currency, initial_cash_balance=initial_cash_balance
+        )
+    return Portfolio(
+        tickers=tickers,
+        base_currency=curr_base,
+        initial_cash_balance=initial_cash_balance,
+        txn_costs_prop_bp=10,
+        max_target_dev=0.01,
+        min_cash_amount=0.0,
+        min_cash_ratio=0.001,  # 0.1% of the NAV kept in cash to pay the transaction costs
+    )
+
+
+def _rebalancing_dates(index: pd.DatetimeIndex, freq_rebalancing: str | None) -> pd.DatetimeIndex:
+    # every day, or the last available trading date of each period
+    if freq_rebalancing is None:
+        return index
+    return pd.DatetimeIndex(index.to_series().resample(freq_rebalancing).last().dropna())
+
+
+def _rebalance(
+    portfolio: PortfolioGeneric,
+    date: pd.Timestamp,
+    current_prices: pd.Series,
+    target_exp: pd.DataFrame | list | None,
+    target_units: pd.DataFrame | None,
+    tx_hist_df: pd.DataFrame | None,
+    trade_dates: set,
+    is_first_day: bool,
+    rebalancing_dates: pd.DatetimeIndex,
+) -> bool:
+    # rebalances the portfolio if the date calls for it; returns whether it did
+    if target_exp is not None:
+        if isinstance(target_exp, pd.DataFrame):
+            if date not in target_exp.index:
+                return False
+            portfolio.rebalance(target_exp=target_exp.loc[date, :], current_prices=current_prices)
+        elif isinstance(target_exp, list):
+            if not (is_first_day or date in rebalancing_dates):
+                return False
+            portfolio.rebalance(target_exp=np.array(target_exp), current_prices=current_prices)
+        else:
+            return False
+    elif target_units is not None:
+        if date not in target_units.index:
+            return False
+        portfolio.rebalance(units=target_units.loc[date, :], current_prices=current_prices)
+    elif tx_hist_df is not None:
+        if date not in trade_dates:
+            return False
+        portfolio.rebalance(tx_hist_df=tx_hist_df.loc[tx_hist_df['Date'] == date])
+    else:
+        return False
+    return True
+
+
+def _add_dividends(
+    portfolio: PortfolioGeneric, date: pd.Timestamp, div_hist_df: pd.DataFrame, tickers: list
+) -> np.ndarray:
+    # credits the dividends paid on the date; returns them by instrument
+    dividends = np.zeros(len(tickers))
+    div_day = div_hist_df.loc[div_hist_df['Date'] == date, :]
+    if div_day.empty:
+        return dividends
+    portfolio.add_cash(div_day['amount_base_currency'].sum())
+    for product_id, amount in zip(div_day[TxHistFields.product_id], div_day['amount_base_currency'], strict=True):
+        dividends[tickers.index(product_id)] += amount
+    return dividends
+
+
+def _add_deposits(portfolio: PortfolioGeneric, date: pd.Timestamp, dep_hist_df: pd.DataFrame) -> float:
+    # credits the deposits (negative: withdrawals) of the date; returns their total
+    dep_day = dep_hist_df.loc[dep_hist_df['Date'] == date, 'change']
+    if dep_day.empty:
+        return 0.0
+    deposit = dep_day.sum()
+    portfolio.add_cash(deposit)
+    return deposit
+
+
+def _to_backtest_data(
+    name: str,
+    prices_df: pd.DataFrame,
+    records: _DailyRecords,
+    fx_rates_df: pd.DataFrame | None,
+    close_adj_df: pd.DataFrame | None,
+    id_symbol_map: dict | None,
+) -> PortfolioBacktestData:
+    index, columns = prices_df.index, prices_df.columns
+
+    def daily_frame(values: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame(values, columns=columns, index=index)
+
+    units = daily_frame(records.units)
+    effective_weights = daily_frame(records.effective_weights)
+    effective_weights['Cash'] = records.cash_balance / records.nav
+    nav = pd.Series(records.nav, name='NAV', index=index)
+    txn_values = daily_frame(records.txn_values)
+    txn_costs = daily_frame(records.txn_costs)
+    dividends = daily_frame(records.dividends)
+    deposits = pd.Series(records.deposits, name='Deposits', index=index)
+
+    # amount invested in each instrument (trades and costs while held), for the yields
     amounts_invested = -(txn_values + txn_costs).where(units > 0).cumsum().shift(1)
     amounts_invested = amounts_invested.replace(0, np.nan).bfill(limit=1).ffill(limit=1)
     yield_dividends = dividends.div(amounts_invested).resample('Y').sum()
-    deposits = pd.Series(deposits, name='Deposits', index=prices_df.index)
-    returns = (nav - deposits).div(nav.shift(1)).sub(1.0).fillna(0.0)
-    nav_eff = 100.0 * returns.add(1.0).cumprod().rename('NAV Effective')
     cum_pnl = prices_df.mul(units).diff().add(dividends).add(txn_values).add(txn_costs).cumsum()
     yield_total_tmp = cum_pnl.resample('Y').last().div(amounts_invested.resample('Y').mean())
     yield_total = yield_total_tmp.diff().fillna(yield_total_tmp)
     yield_total.loc['Total', :] = yield_total.sum()
-    units['Cash'] = cash_balance
+    # NAV without the effect of deposits and withdrawals, starting at 100
+    returns = (nav - deposits).div(nav.shift(1)).sub(1.0).fillna(0.0)
+    nav_eff = 100.0 * returns.add(1.0).cumprod().rename('NAV Effective')
+    units['Cash'] = records.cash_balance
 
-    if close_adj_df is not None:
-        # restrict to the backtest period; instruments without adjusted prices use the backtest prices
-        close_adj_df = close_adj_df.reindex(index=prices_df.index).ffill()
-        missing_tickers = [t for t in prices_df if t not in close_adj_df]
-        if len(missing_tickers) == prices_df.shape[1]:
-            logger.warning(
-                '%s: no adjusted prices match the instruments of the portfolio, using unadjusted prices for all',
-                name,
-            )
-        close_adj_df[missing_tickers] = prices_df[missing_tickers]
-        close_adj_df = close_adj_df[prices_df.columns]
-
-    hist_portfolio_data = PortfolioBacktestData(
+    return PortfolioBacktestData(
         name=name,
         nav=nav,
         cum_pnl=cum_pnl,
@@ -176,7 +246,7 @@ def backtest_portfolio(
         yield_total=yield_total,
         units=units,
         target_weights=None,
-        effective_weights=effective_weights_df,
+        effective_weights=effective_weights,
         transaction_value=txn_values,
         transaction_costs=txn_costs,
         prices=prices_df,
@@ -184,7 +254,20 @@ def backtest_portfolio(
         fx_rates=fx_rates_df,
         deposits=deposits,
         nav_eff=nav_eff,
-        close_adj=close_adj_df,
+        close_adj=_complete_adjusted_prices(name, prices_df, close_adj_df),
         id_symbol_map=id_symbol_map,
     )
-    return hist_portfolio_data
+
+
+def _complete_adjusted_prices(name: str, prices_df: pd.DataFrame, close_adj_df: pd.DataFrame | None):
+    # adjusted prices over the backtest period; instruments without them use the backtest prices
+    if close_adj_df is None:
+        return None
+    close_adj_df = close_adj_df.reindex(index=prices_df.index).ffill()
+    missing_tickers = [t for t in prices_df if t not in close_adj_df]
+    if len(missing_tickers) == prices_df.shape[1]:
+        logger.warning(
+            '%s: no adjusted prices match the instruments of the portfolio, using unadjusted prices for all', name
+        )
+    close_adj_df[missing_tickers] = prices_df[missing_tickers]
+    return close_adj_df[prices_df.columns]

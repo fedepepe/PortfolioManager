@@ -24,8 +24,9 @@ class PortfolioGeneric:
                  initial_cash_balance: float = 1e6,
                  max_target_dev: float = 0.,
                  txn_costs_prop_bp: int = 0,  # proportional transaction costs in basis points
-                 txn_costs_fixed: float = 0.,
-                 min_cash_amount: float = 100.,
+                 txn_costs_fixed: float = 0.,  # fixed transaction costs per asset traded
+                 txn_costs_max: Optional[float] = None,  # max transaction costs per asset traded (None: no cap)
+                 min_cash_amount: float = 0.,
                  min_cash_ratio: float = 0.):  # cash kept at rebalancing, as a fraction of the NAV
         self.tickers = tickers
         self.name: str = name
@@ -38,6 +39,7 @@ class PortfolioGeneric:
         self.max_target_dev = max_target_dev
         self.txn_costs_prop = txn_costs_prop_bp / 1e4
         self.txn_costs_fixed = txn_costs_fixed
+        self.txn_costs_max = txn_costs_max
         self.min_cash_amount = min_cash_amount
         self.min_cash_ratio = min_cash_ratio
 
@@ -78,19 +80,26 @@ class Portfolio(PortfolioGeneric):
         self.txn_costs = 0 * current_prices
         current_units = self.compute_current_units(current_prices, target_exp, units, rebalance_type=rebalance_type)
         txn_values = self.compute_txn_values(current_prices, current_units)
-        self.txn_costs = self.txn_costs_prop * np.abs(txn_values) + self.txn_costs_fixed
+        self.txn_costs = self.compute_txn_costs(txn_values)
         # compute effective trades
         current_units = self.compute_current_units(current_prices, target_exp, units, rebalance_type=rebalance_type)
         txn_values = self.compute_txn_values(current_prices, current_units)
-        if self.get_current_cash_balance() + np.nansum(txn_values - self.txn_costs_prop * np.abs(txn_values)) < 0:
+        if self.get_current_cash_balance() + np.nansum(txn_values - self.compute_txn_costs(txn_values)) < 0:
             current_units = self.compute_current_units(current_prices, target_exp, units,
                                                        rebalance_type=PortfolioRebalanceType.FULL)
             txn_values = self.compute_txn_values(current_prices, current_units)
         self.current_units = current_units
         self.txn_values = txn_values
-        self.txn_costs = self.txn_costs_prop * np.abs(txn_values) + self.txn_costs_fixed * (txn_values != 0)
+        self.txn_costs = self.compute_txn_costs(txn_values)
         self.add_cash(self.txn_values.sum() - self.txn_costs.sum())
         self.previous_units = self.current_units.copy()
+
+    def compute_txn_costs(self, txn_values: np.ndarray | pd.Series) -> np.ndarray | pd.Series:
+        # proportional costs, plus the fixed cost of each instrument actually traded, capped per instrument
+        txn_costs = self.txn_costs_prop * np.abs(txn_values) + self.txn_costs_fixed * (txn_values != 0)
+        if self.txn_costs_max is not None:
+            txn_costs = np.minimum(txn_costs, self.txn_costs_max)
+        return txn_costs
 
     def compute_txn_values(self, current_prices: np.ndarray | pd.Series, current_units: np.ndarray | pd.Series
                            ) -> np.ndarray | pd.Series:

@@ -1,8 +1,8 @@
 import pytest
 
-import dashboard.data_service as data_service
+import portfolio_manager.dashboard.data_service as data_service
 import tasks
-from config.accounts import Accounts
+from portfolio_manager.config.accounts import Accounts
 
 
 @pytest.fixture

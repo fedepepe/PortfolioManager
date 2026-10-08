@@ -5,9 +5,9 @@ import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
-import database.sql as sql
-import database.table_definitions as tables
-from database.table_definitions import Product
+import portfolio_manager.storage.models as tables
+import portfolio_manager.storage.queries as sql
+from portfolio_manager.storage.models import Product
 
 
 @pytest.fixture

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from portfolio.portfolio_backtest_engine import align_df_to_index, backtest_portfolio
+from portfolio_manager.backtest.engine import align_df_to_index, backtest_portfolio
 
 
 def test_align_df_to_index_moves_dates_to_last_available_date():

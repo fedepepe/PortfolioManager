@@ -6,8 +6,8 @@ from fastapi import FastAPI
 from fastapi.middleware.wsgi import WSGIMiddleware
 from fastapi.responses import RedirectResponse
 
-from dashboard.dash_main import app
-from database.table_definitions import init_db
+from portfolio_manager.dashboard.app import app
+from portfolio_manager.storage.models import init_db
 
 
 @asynccontextmanager

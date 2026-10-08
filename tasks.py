@@ -11,8 +11,8 @@ import argparse
 import logging
 from collections.abc import Callable
 
-from config.accounts import Accounts
-from database.table_definitions import init_db
+from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.storage.models import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ def selected_accounts(args: argparse.Namespace) -> list[Accounts]:
 
 def update(args: argparse.Namespace):
     """Download the account data from DeGiro, then recompute backtests and performance (like the Update button)."""
-    from dashboard.data_service import update_account
+    from portfolio_manager.dashboard.data_service import update_account
 
     for account in selected_accounts(args):
         update_account(account)
@@ -34,8 +34,8 @@ def update(args: argparse.Namespace):
 
 def backtest(args: argparse.Namespace):
     """Recompute backtests and performance of portfolio and benchmark from the saved DeGiro data."""
-    from portfolio.portfolio_backtest import backtest_portfolio_account, backtest_portfolio_benchmark
-    from portfolio.portfolio_performance import compute_portfolio_performance
+    from portfolio_manager.analytics.performance import compute_portfolio_performance
+    from portfolio_manager.backtest.workflows import backtest_portfolio_account, backtest_portfolio_benchmark
 
     for account in selected_accounts(args):
         portfolio_data = backtest_portfolio_account(account=account)
@@ -48,8 +48,8 @@ def backtest(args: argparse.Namespace):
 
 def optimize(args: argparse.Namespace):
     """Rerun the optimization with the settings of the saved one (defaults if there is none), like Run optimization."""
-    from dashboard.data_service import get_optimized_data, run_optimization
-    from strategy.strategy_definitions import OptimizationSettings
+    from portfolio_manager.dashboard.data_service import get_optimized_data, run_optimization
+    from portfolio_manager.optimization.settings import OptimizationSettings
 
     for account in selected_accounts(args):
         saved = get_optimized_data(account)
@@ -60,35 +60,35 @@ def optimize(args: argparse.Namespace):
 
 def instruments_performance(args: argparse.Namespace):
     """Performance metrics of the instruments held in the portfolios (all accounts)."""
-    from portfolio.instruments_performance import compute_portfolio_instruments_performance
+    from portfolio_manager.analytics.instruments import compute_portfolio_instruments_performance
 
     compute_portfolio_instruments_performance()
 
 
 def etf_performance(args: argparse.Namespace):
     """Performance metrics of one ETF, from its Yahoo Finance history."""
-    from portfolio.instruments_performance import compute_single_etf_performance
+    from portfolio_manager.analytics.instruments import compute_single_etf_performance
 
     logger.info('Performance of %s:\n%s', args.isin, compute_single_etf_performance(isin=args.isin))
 
 
 def fetch_product_catalog(args: argparse.Namespace):
     """Download the full DeGiro product catalog into the database (long)."""
-    from degiro.products import fetch_full_product_catalog
+    from portfolio_manager.degiro.products import fetch_full_product_catalog
 
     fetch_full_product_catalog()
 
 
 def fetch_etf_catalog(args: argparse.Namespace):
     """Download the Yahoo Finance history of every tradable ETF of the DeGiro catalog (long)."""
-    from portfolio.instruments_performance import fetch_etf_catalog_data
+    from portfolio_manager.analytics.instruments import fetch_etf_catalog_data
 
     fetch_etf_catalog_data()
 
 
 def build_etf_catalog(args: argparse.Namespace):
     """Build the ETF catalog of an account from the downloaded data, with its performance metrics."""
-    from portfolio.instruments_performance import build_etf_catalog_data
+    from portfolio_manager.analytics.instruments import build_etf_catalog_data
 
     for account in selected_accounts(args):
         build_etf_catalog_data(account=account)
@@ -97,7 +97,7 @@ def build_etf_catalog(args: argparse.Namespace):
 
 def catalog_performance(args: argparse.Namespace):
     """Add the performance metrics to an existing ETF catalog, from its saved data only."""
-    from portfolio.instruments_performance import compute_catalog_performance
+    from portfolio_manager.analytics.instruments import compute_catalog_performance
 
     for account in selected_accounts(args):
         compute_catalog_performance(account=account)

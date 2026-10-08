@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from degiro.portfolio_backtest import PortfolioDegiro
-from degiro.transactions import TxHistFields as F
+from portfolio_manager.backtest.degiro_portfolio import PortfolioDegiro
+from portfolio_manager.degiro.transactions import TxHistFields as F
 
 
 def trade(product_id, quantity, price, total):

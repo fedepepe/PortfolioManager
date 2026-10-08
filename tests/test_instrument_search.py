@@ -1,9 +1,9 @@
 import pytest
 from sqlalchemy import create_engine, insert
 
-import database.sql as sql
-from database.db_conn import Base
-from database.table_definitions import YahooFinanceProdInfo
+import portfolio_manager.storage.queries as sql
+from portfolio_manager.storage.db import Base
+from portfolio_manager.storage.models import YahooFinanceProdInfo
 
 INSTRUMENTS = {
     'HYLD.L': {

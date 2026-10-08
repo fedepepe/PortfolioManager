@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs, compute_portfolio_metrics
+from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs, compute_portfolio_metrics, downside_deviation
+from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 
 
 def metrics(nav, **kwargs) -> pd.Series:
@@ -52,6 +53,7 @@ def test_historical_metrics_use_all_data_up_to_each_date(prices):
     risk = metrics(nav)
     assert hist[Metrics.PA_RETURN.name].iloc[-1] == pytest.approx(risk[Metrics.PA_RETURN.name])
     assert hist[Metrics.VOLATILITY.name].iloc[-1] == pytest.approx(risk[Metrics.VOLATILITY.name])
+    assert hist[Metrics.SORTINO_RATIO.name].iloc[-1] == pytest.approx(risk[Metrics.SORTINO_RATIO.name])
 
 
 def test_young_portfolio_has_empty_historical_metrics():
@@ -76,3 +78,18 @@ def test_minimum_history_counts_periods_not_rows():
     assert young.isna().all().all()
     hist = _historical_metrics(every_other_day(200), 'B')  # 100 values, 199 business days
     assert len(hist) == 199 and hist[Metrics.VOLATILITY.name].notna().any()
+
+
+def test_downside_deviation_counts_positive_returns_as_zero():
+    returns = pd.Series([0.02, -0.01, 0.03, -0.03])
+    assert downside_deviation(returns) == pytest.approx(np.sqrt((0.01**2 + 0.03**2) / 4))
+
+
+def test_turnover_counts_purchases_and_sales():
+    index = pd.bdate_range('2021-01-01', periods=300)
+    nav = pd.Series(np.linspace(1000.0, 1100.0, len(index)), index=index, name='NAV')
+    trades = pd.DataFrame(0.0, index=index, columns=['A', 'B'])
+    trades.iloc[100] = [-50.0, 50.0]  # rebalancing: buy A for 50, sell B for 50 (net zero)
+    data = PortfolioBacktestData(name='x', nav=nav, units=trades, nav_eff=nav, transaction_value=trades, freq='B')
+    turnover = compute_portfolio_metrics(hist_portfolio_data=data, print_results=False)[PerfDataTabs.TURNOVER]
+    assert turnover.iloc[99] == pytest.approx(100.0 / nav.iloc[100])  # day 100 (the first day is left out)

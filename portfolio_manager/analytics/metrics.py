@@ -8,14 +8,12 @@ import pandas as pd
 import statsmodels.api as sm
 
 from portfolio_manager.backtest.portfolio import DEFAULT_FREQ_HIST_DATA, PortfolioBacktestData
-from portfolio_manager.config.settings import DEFAULT_CORR_DATA_FREQ, RESULTS_DIR
+from portfolio_manager.config.settings import DEFAULT_CORR_DATA_FREQ, RESULTS_DIR, RISK_FREE_RATE
 from portfolio_manager.storage.files import PD_DATA_TYPES, save_df_dict_to_excel
 from portfolio_manager.utils.dates import ANN_FACTOR_DICT
 
 logger = logging.getLogger(__name__)
 
-# risk-free rate of the Sharpe and Sortino ratios of the reports
-METRICS_RISK_FREE_RATE = 0.0
 MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6, '2M': 3, 'Q': 2, '2Q': 2, 'Y': 2}
 
 
@@ -67,6 +65,11 @@ def compute_pa_return(nav: pd.Series, freq: str) -> float:
     # annualized return over the whole NAV
     n_years = (len(nav.resample(freq).last()) - 1) / ANN_FACTOR_DICT[freq]
     return (1.0 + compute_total_return(nav)) ** (1.0 / n_years) - 1
+
+
+def downside_deviation(returns: pd.Series) -> float:
+    # root mean square of the negative returns over all periods (positive returns count as 0)
+    return math.sqrt(returns.clip(upper=0.0).pow(2).mean())
 
 
 def compute_portfolio_metrics(
@@ -130,13 +133,13 @@ def _yearly_returns(nav: pd.Series) -> pd.Series:
 
 
 def _turnover(hist_portfolio_data: PortfolioBacktestData | None, freq: str) -> tuple[pd.Series, float]:
-    # daily traded value relative to the NAV, and its average (only for backtest data)
+    # daily traded value (purchases and sales, gross) relative to the NAV, and its average (only for backtest data)
     if hist_portfolio_data is None:
         return pd.Series(), np.nan
     turnover = (
-        hist_portfolio_data.transaction_value.sum(axis=1)
+        hist_portfolio_data.transaction_value.abs()
+        .sum(axis=1)
         .iloc[1:]
-        .abs()
         .div(hist_portfolio_data.nav.iloc[1:])
         .rename(PerfDataTabs.TURNOVER)
     )
@@ -154,7 +157,8 @@ def _risk_metrics(
     ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
     pa_return = compute_pa_return(nav, freq)
     volatility = ann_factor * returns_resampled.std()
-    volatility_downside = ann_factor * returns_resampled[returns_resampled < 0].std()
+    # no losses: no downside deviation, so no Sortino ratio (instead of an infinite one)
+    volatility_downside = ann_factor * downside_deviation(returns_resampled) or np.nan
     nav_cummax = nav.cummax()
     if strategy_benchmark is not None:
         alpha, beta, pval_alpha = regress_strat_vs_bm(nav, strategy_benchmark)
@@ -170,8 +174,8 @@ def _risk_metrics(
             Metrics.ANN_3Y_RETURN.name: compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=3),
             Metrics.ANN_5Y_RETURN.name: compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=5),
             Metrics.VOLATILITY.name: volatility,
-            Metrics.SHARPE_RATIO.name: (pa_return - METRICS_RISK_FREE_RATE) / volatility,
-            Metrics.SORTINO_RATIO.name: (pa_return - METRICS_RISK_FREE_RATE) / volatility_downside,
+            Metrics.SHARPE_RATIO.name: (pa_return - RISK_FREE_RATE) / volatility,
+            Metrics.SORTINO_RATIO.name: (pa_return - RISK_FREE_RATE) / volatility_downside,
             Metrics.BEST_MONTH.name: returns_monthly.max(),
             Metrics.WORST_MONTH.name: returns_monthly.min(),
             Metrics.MAX_DD.name: (nav.subtract(nav_cummax).div(nav_cummax)).abs().max(),
@@ -199,12 +203,18 @@ def _historical_metrics(nav: pd.Series, freq: str) -> pd.DataFrame:
         return pd.DataFrame(np.nan, index=nav_resampled.index, columns=names)
     returns = nav_resampled.pct_change()
     ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
-    pa_return = nav_resampled.expanding(min_periods=min_periods).apply(lambda x: compute_pa_return(x, freq))
-    pa_return = pa_return.rename(Metrics.PA_RETURN.name)
+    # annualized return from the start (as compute_pa_return): k periods elapsed after the k-th period
+    periods_elapsed = np.arange(len(nav_resampled), dtype=float)
+    with np.errstate(divide='ignore'):
+        exponent = ANN_FACTOR_DICT[freq] / periods_elapsed
+    pa_return = (nav_resampled / nav_resampled.iloc[0]) ** exponent - 1
+    pa_return = pa_return.where(periods_elapsed + 1 >= min_periods).rename(Metrics.PA_RETURN.name)
     volatility = (ann_factor * returns.expanding(min_periods=min_periods).std()).rename(Metrics.VOLATILITY.name)
-    down_volatility = ann_factor * returns.expanding(min_periods=min_periods).apply(lambda r: r[r < 0].std())
-    sharpe_ratio = ((pa_return - METRICS_RISK_FREE_RATE) / volatility).rename(Metrics.SHARPE_RATIO.name)
-    sortino_ratio = ((pa_return - METRICS_RISK_FREE_RATE) / down_volatility).rename(Metrics.SORTINO_RATIO.name)
+    # downside deviation up to each period (as downside_deviation)
+    down_volatility = ann_factor * returns.clip(upper=0.0).pow(2).expanding(min_periods=min_periods).mean().pow(0.5)
+    down_volatility = down_volatility.replace(0.0, np.nan)
+    sharpe_ratio = ((pa_return - RISK_FREE_RATE) / volatility).rename(Metrics.SHARPE_RATIO.name)
+    sortino_ratio = ((pa_return - RISK_FREE_RATE) / down_volatility).rename(Metrics.SORTINO_RATIO.name)
     return pd.concat([pa_return, volatility, sharpe_ratio, sortino_ratio], axis=1)
 
 

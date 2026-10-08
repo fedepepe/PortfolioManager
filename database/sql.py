@@ -313,6 +313,37 @@ def query_yahoo_finance_prod_info(isin: Optional[str | List[str]] = None,
     return df
 
 
+def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame:
+    # instruments whose Yahoo ticker or ISIN starts with text or, from 3 characters, whose name contains it;
+    # one row per ticker (ticker, name, isin, currency): ticker matches first, then ISIN, then name matches
+    columns = ['ticker', 'name', 'isin', 'currency']
+    text = text.strip()
+    if not text:
+        return pd.DataFrame(columns=columns)
+    pattern = text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')  # typed text taken literally
+    info = YahooFinanceProdInfo
+    names = [YFinInfoCols.name_long.value, YFinInfoCols.name_short.value]
+    conditions = [info.ticker.ilike(f'{pattern}%', escape='\\'),
+                  (info.quote_type == YFinInfoCols.isin.value) & info.value.ilike(f'{pattern}%', escape='\\')]
+    if len(text) >= 3:
+        conditions.append(info.quote_type.in_(names) & info.value.ilike(f'%{pattern}%', escape='\\'))
+    tickers = []
+    for cond in conditions:
+        stmt = select(info.ticker).where(cond).distinct().order_by(info.ticker).limit(limit)
+        tickers += [t for t in pd.read_sql(stmt, engine)[info.ticker.name] if t not in tickers]
+    tickers = tickers[:limit]
+    if not tickers:
+        return pd.DataFrame(columns=columns)
+    stmt = select(info.ticker, info.quote_type, info.value).where(
+        info.ticker.in_(tickers) & info.quote_type.in_(names + [YFinInfoCols.isin.value, YFinInfoCols.currency.value]))
+    df = pd.read_sql(stmt, engine).pivot_table(index=info.ticker.name, columns=info.quote_type.name,
+                                                values=info.value.name, aggfunc='first')
+    df = df.reindex(index=tickers, columns=names + [YFinInfoCols.isin.value, YFinInfoCols.currency.value])
+    df['name'] = df[names[0]].where(df[names[0]].notna() & (df[names[0]] != ''), df[names[1]])
+    return df.rename(columns={YFinInfoCols.isin.value: 'isin', YFinInfoCols.currency.value: 'currency'}
+                     ).reset_index().rename(columns={info.ticker.name: 'ticker'})[columns]
+
+
 def query_yahoo_finance_hist_data(tickers: Optional[str | List[str]] = None,
                                   isin: Optional[str] = None,
                                   columns: Optional[str | List[str] | YFinHistCols | List[YFinHistCols]] = None,

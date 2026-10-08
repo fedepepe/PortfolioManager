@@ -2,7 +2,6 @@ import time
 from typing import Optional, List, Tuple
 
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.graph_objects as go
 from dash import html, dcc, Input, Output, State, callback, ctx
 from dash.exceptions import PreventUpdate
@@ -12,7 +11,7 @@ from dashboard.dash_common import loading_wrapper, card_wrapper, compute_corr_ma
 from dashboard.dash_common import get_fig_empty, get_fig_metrics_table
 from dashboard.dash_portfolio_data import PortfolioData, AllocationRiskLabels
 from dashboard.data_service import get_portfolio_data, get_benchmark_data, update_account
-from database.sql import query_yahoo_finance_prod_info
+from database.sql import query_yahoo_finance_prod_info, search_yahoo_finance_instruments
 from engines.reporting import PerfDataTabs, Metrics
 from portfolio.instruments_performance import prices_to_base_curr, fetch_instr_hist_data
 from portfolio.portfolio_definitions import PortfolioBacktestData
@@ -54,7 +53,9 @@ def build_content_portfolio(account: Accounts):
             html.Br(),
             dbc.Row([
                 dbc.Col([
-                    dbc.Row([dbc.Input(id='input_isin', placeholder="Enter ISIN or ticker...", size="sm"),
+                    # options are filled while typing from the instruments in the database
+                    dbc.Row([dcc.Dropdown(id='dropdown_instr', options=[], placeholder="Enter ticker, ISIN or name...",
+                                          searchable=True, clearable=True),
                              loading_wrapper(dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())),
                              ], align='center')
                 ], style={"width": "15%"}),
@@ -322,28 +323,48 @@ def run_update(n_clicks, account_name: str) -> Tuple:
     return time.time(), f'Updated {time.strftime("%H:%M")}'
 
 
-# update instrument chart
+# list the instruments matching the typed text as "{ticker} - {name}" (database only, no download)
+@callback(
+    Output('dropdown_instr', 'options'),
+    Input('dropdown_instr', 'search_value'),
+    State('dropdown_instr', 'value'),
+    State('dropdown_instr', 'options'),
+    prevent_initial_call=True
+)
+def search_instruments(search_value: Optional[str], value: Optional[str], options: Optional[List]) -> List:
+    if not search_value or not search_value.strip():
+        raise PreventUpdate  # keep the current options, so that the selected instrument stays displayed
+    results_df = search_yahoo_finance_instruments(text=search_value)
+    new_options = [{'label': f'{r.ticker} - {r.name}' if isinstance(r.name, str) and r.name else r.ticker,
+                    'value': r.ticker,
+                    # the dropdown also filters the options while typing: let it match ticker, ISIN and name
+                    'search': ' '.join(str(v) for v in (r.ticker, r.isin, r.name) if isinstance(v, str))}
+                   for r in results_df.itertuples()]
+    # the selected instrument must stay among the options to remain displayed
+    if value is not None and value not in [o['value'] for o in new_options]:
+        new_options += [o for o in (options or []) if o['value'] == value]
+    return new_options
+
+
+# update instrument chart with the selected instrument
 @callback(
     Output('fig_instr_adj_close', 'figure'),
-    Input('input_isin', 'value'),
+    Input('dropdown_instr', 'value'),
     State('dropdown-portfolio', 'value'),
     prevent_initial_call=True
 )
-def update_instr_adj_close_fig(isin, account_name: str) -> go.Figure:
-    # cleared or blank input: show the empty chart (an empty pattern would match every ticker)
-    isin = (isin or '').strip()
-    if not isin:
+def update_instr_adj_close_fig(ticker: Optional[str], account_name: str) -> go.Figure:
+    if not ticker:  # cleared selection
         return get_fig_instr_adj_close()
     account = Accounts.get_account_by_name(name=account_name)
-    results_df = query_yahoo_finance_prod_info(ticker=isin)
-    if len(isin) >= 4:
-        results_df = pd.concat([results_df, query_yahoo_finance_prod_info(isin=isin)], axis=1)
-    if results_df.empty:
-        return get_fig_instr_adj_close(title=f'No instrument found for "{isin}"')
-    ticker = results_df.iloc[:, 0][YFinInfoCols.symbol.value]
-    name = results_df.iloc[:, 0][YFinInfoCols.name_long.value]
-    currency = results_df.iloc[:, 0][YFinInfoCols.currency.value]
-    df = fetch_instr_hist_data(isin_lst=isin,
+    results_df = query_yahoo_finance_prod_info(ticker=ticker)
+    if ticker not in results_df.columns:
+        return get_fig_instr_adj_close(title=f'No instrument found for "{ticker}"')
+    info = results_df[ticker]
+    name = info.get(YFinInfoCols.name_long.value) or info.get(YFinInfoCols.name_short.value) or ticker
+    currency = info[YFinInfoCols.currency.value]
+    # download only the selected listing (by ticker, not by a search returning several listings)
+    df = fetch_instr_hist_data(isin_lst=[None],
                                columns=YFinHistCols.adj_close,
                                ticker_lst=ticker,
                                name_lst=name)[YFinHistCols.adj_close]

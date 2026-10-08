@@ -1,7 +1,6 @@
 import logging
 import time
 from difflib import SequenceMatcher
-from enum import Enum
 
 import pandas as pd
 
@@ -16,7 +15,7 @@ from database.table_definitions import Product
 from degiro.charts import load_fx_rates, load_portfolio_products
 from degiro.degiro_definitions import Exchanges, ProductTypes
 from engines.reporting import PerfDataTabs, compute_portfolio_metrics
-from utils.file_utils import PD_DATA_TYPES, load_df_dict_from_excel, load_df_from_excel, save_df_dict_to_excel
+from utils.file_utils import PD_DATA_TYPES, load_df_dict_from_excel, save_df_dict_to_excel
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols, search_fetch_history
 from yahoo_finance.yahoo_finance import Exchanges as ExchangesYF
 
@@ -174,7 +173,6 @@ def fetch_instr_adj_prices(
     isin_lst: list,
     name_lst: list | None = None,
     tick_lst: list | None = None,
-    to_portfolio_instr_table: bool = True,
 ) -> pd.DataFrame:
     data = fetch_instr_hist_data(
         isin_lst=isin_lst, columns=YFinHistCols.adj_close, ticker_lst=tick_lst, name_lst=name_lst
@@ -279,10 +277,6 @@ def fetch_etf_catalog_data():
         time.sleep(0.5)
 
 
-def load_etf_catalog_performance() -> pd.DataFrame:
-    return load_df_from_excel(file_name='ETF_performance', folder_name=RESULTS_DIR)
-
-
 def build_etf_catalog_data(account: Accounts) -> dict[YFinHistCols, pd.DataFrame]:
     volume_df = query_yahoo_finance_hist_data(columns=YFinHistCols.volume)
     volume_3m_df = volume_df.rolling(90).mean().dropna(how='all', axis=1)
@@ -330,40 +324,3 @@ def load_etf_catalog_data(account: Accounts) -> dict[str | YFinHistCols, pd.Data
     data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=f'{account.name}_catalog')
     data_dict_renamed = {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}
     return data_dict_renamed
-
-
-class UnitTests(Enum):
-    COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE = 1
-    FETCH_ETF_CATALOG_DATA = 2
-    COMPUTE_SINGLE_ETF_PERFORMANCE = 4
-    FETCH_SINGLE_ETF_ADJ_PRICE = 5
-    LOAD_ETF_CATALOG_DATA = 6
-    BUILD_ETF_CATALOG_DATA = 7
-
-
-def run_unit_test(unit_test: UnitTests):
-    if unit_test == UnitTests.COMPUTE_PORTFOLIO_INSTRUMENTS_PERFORMANCE:
-        compute_portfolio_instruments_performance()
-    elif unit_test == UnitTests.FETCH_ETF_CATALOG_DATA:
-        fetch_etf_catalog_data()
-    elif unit_test == UnitTests.COMPUTE_SINGLE_ETF_PERFORMANCE:
-        compute_single_etf_performance(isin='IE00B7N3YW49')
-    elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
-        data = fetch_instr_hist_data(
-            isin_lst='IE00BWC52G65',
-            # ticker_lst='STHC.SW',
-            columns=YFinHistCols.adj_close,
-        )
-        print(data)  # noqa: T201 (manual script, moved out in the cleanup step)
-    elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
-        df = load_etf_catalog_data(account=Accounts.DEGIRO_CHF)
-        print(df)  # noqa: T201 (manual script, moved out in the cleanup step)
-    elif unit_test == UnitTests.BUILD_ETF_CATALOG_DATA:
-        build_etf_catalog_data(account=Accounts.DEGIRO_CHF)
-    else:
-        raise NotImplementedError
-
-
-if __name__ == '__main__':
-    unit_test = UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE
-    run_unit_test(unit_test=unit_test)

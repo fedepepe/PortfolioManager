@@ -45,20 +45,6 @@ def save_df_dict_to_excel(
                 df.to_excel(writer, sheet_name=df_name)
 
 
-def save_df_to_parquet(df: PD_DATA_TYPES, file_name: str, folder_name: str = None, append: bool = False):
-    if folder_name is not None:
-        file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.parquet')
-    else:
-        file_path = os.path.abspath(f'{to_file_name(file_name)}.parquet')
-    if append and os.path.isfile(file_path):
-        df_old = pd.read_parquet(file_path)
-        df = pd.concat([df_old, df], axis=0)
-        df = df[~df.index.duplicated(keep='last')]
-        df = df.sort_index()
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    df.to_parquet(file_path)
-
-
 def load_df_from_excel(file_name: str, folder_name: str = None, sheet_name: str | list[str] = 'Sheet1') -> pd.DataFrame:
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
@@ -74,13 +60,4 @@ def load_df_dict_from_excel(file_name: str, folder_name: str = None) -> dict[str
     else:
         file_path = os.path.abspath(f'{to_file_name(file_name)}.xlsx')
     df = pd.read_excel(f'{file_path}', sheet_name=None, index_col=0)
-    return df
-
-
-def load_df_from_parquet(file_name: str, folder_name: str = None):
-    if folder_name is not None:
-        file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.parquet')
-    else:
-        file_path = os.path.abspath(f'{to_file_name(file_name)}.parquet')
-    df = pd.read_parquet(f'{file_path}')
     return df

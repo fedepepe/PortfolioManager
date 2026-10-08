@@ -1,11 +1,9 @@
-from enum import Enum
-
 import pandas as pd
 from degiro_connector.trading.api import API
 
 from config.accounts import Accounts
 from config.definitions import DATA_DIR
-from database.sql import insert_product, query_products
+from database.sql import insert_product
 from database.table_definitions import Product
 from degiro.degiro_connection import get_degiro_connection
 from degiro.degiro_definitions import ProductTypes
@@ -40,12 +38,6 @@ def fetch_full_product_catalog(degiro_conn: API | None = None):
     return product_info
 
 
-def fetch_single_product(degiro_conn: API, product_id: int):
-    product_info = degiro_conn.get_products_info(product_list=[product_id], raw=False)
-    if hasattr(product_info, 'data'):
-        insert_product(product_info.data[product_id])
-
-
 def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[int] = 11853206) -> pd.DataFrame:
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
@@ -72,10 +64,6 @@ def fetch_portfolio_products_info(account: Accounts, degiro_conn: API | None = N
     save_product_info(account=account, product_info_df=product_df)
 
 
-def get_product_info_from_isin(product_isin: str) -> pd.DataFrame:
-    return query_products(product_isin=product_isin)
-
-
 def load_portfolio_products(account: Accounts) -> pd.DataFrame:
     product_df = load_df_from_excel(file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
     return product_df
@@ -89,27 +77,3 @@ def adjust_prod_column_labels(prod_df: pd.DataFrame) -> pd.DataFrame:
         prod_duplicate, [Product.symbol.name, Product.currency.name]
     ].agg('_'.join, axis=1)
     return prod_df
-
-
-class UnitTests(Enum):
-    FETCH_FULL_PRODUCT_CATALOG = 1
-    LOAD_ETF_CATALOG = 2
-    GET_PRODUCT_INFO_FROM_ISIN = 3
-
-
-def run_unit_test(unit_test: UnitTests):
-    if unit_test == UnitTests.FETCH_FULL_PRODUCT_CATALOG:
-        fetch_full_product_catalog()
-    elif unit_test == UnitTests.LOAD_ETF_CATALOG:
-        results_df = query_products(product_type=ProductTypes.ETF, tradable=True)
-        print(results_df)  # noqa: T201 (manual script, moved out in the cleanup step)
-    elif unit_test == UnitTests.GET_PRODUCT_INFO_FROM_ISIN:
-        results_df = get_product_info_from_isin('IE00B7N3YW49')
-        print(results_df)  # noqa: T201 (manual script, moved out in the cleanup step)
-    else:
-        raise NotImplementedError
-
-
-if __name__ == '__main__':
-    unit_test = UnitTests.GET_PRODUCT_INFO_FROM_ISIN
-    run_unit_test(unit_test=unit_test)

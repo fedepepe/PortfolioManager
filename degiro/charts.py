@@ -8,9 +8,10 @@ from degiro_connector.trading.api import API
 
 from config.accounts import Accounts
 from config.definitions import DATA_DIR, FX_RATES_CHART_FILE_NAME, PRODUCTS_CHART_FILE_NAME
-from database.sql import insert_degiro_hist
+from database.sql import insert_degiro_hist, query_products
 from degiro.degiro_connection import get_degiro_connection
-from degiro.products import ProductTypes, fetch_product_info, load_portfolio_products, query_products
+from degiro.degiro_definitions import ProductTypes
+from degiro.products import fetch_product_info, load_portfolio_products
 from utils.file_utils import load_df_from_excel, save_df_to_excel
 
 logger = logging.getLogger(__name__)

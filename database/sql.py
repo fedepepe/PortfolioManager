@@ -271,14 +271,6 @@ def query_products(
     return df
 
 
-def query_tradable_products(product_type: ProductTypes) -> pd.DataFrame:
-    etf_info_df = pd.DataFrame()
-    for exc in Exchanges:
-        df = query_products(product_type=product_type, tradable=True, exchange=exc.value)
-        etf_info_df = pd.concat([etf_info_df, df])
-    return etf_info_df
-
-
 def query_degiro_hist(
     product_ids: int | list[int],
     columns: str | list[str] | None = None,
@@ -432,24 +424,6 @@ def query_yahoo_finance_hist_data(
         return data
 
 
-def get_product_types() -> float:
-    with SessionLocal() as session:
-        return session.query(Product.product_type).distinct().all()
-
-
 def get_max_product_id() -> int:
     with SessionLocal() as session:
         return session.query(func.max(Product.id)).all()[0][0]
-
-
-if __name__ == '__main__':
-    # df = query_yahoo_finance_hist_data(column=YFinHistCols.adj_close, ticker='EXSI.DE')  # , isin='IE00BNKF6C99')
-    df = query_yahoo_finance_prod_info()
-    # df = query_products(product_type=ProductTypes.ETF, tradable=True)
-    # df = query_products(product_type=ProductTypes.ETF,
-    #                     tradable=True
-    #                     )[[Product.isin.name,
-    #                        Product.symbol.name,
-    #                        Product.name.name
-    #                        ]]
-    print(df)  # noqa: T201 (manual script, moved out in the cleanup step)

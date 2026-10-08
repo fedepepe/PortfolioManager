@@ -1,7 +1,6 @@
 import re
 from dataclasses import asdict
 from datetime import datetime
-from enum import Enum
 
 import pandas as pd
 
@@ -264,51 +263,3 @@ def backtest_portfolio_optimized(
     save_performance_data(results_dict=results_dict, file_name=portfolio_name)
     save_backtest_data(hist_portfolio_data=backtest_data_optimized)
     return backtest_data_optimized, optimized_weights
-
-
-def backtest_equity_portfolio_strat():
-    import numpy as np
-
-    from utils.file_utils import load_df_from_excel
-
-    prices_df = load_df_from_excel(file_name='prices', folder_name=DATA_DIR)
-    units_df = load_df_from_excel(file_name='holdings', folder_name=DATA_DIR).drop(columns=['cash'])
-    portfolio_name = 'Equity Strategy'
-    backtest_data_optimized = backtest_portfolio(
-        name=portfolio_name,
-        prices_df=prices_df[units_df.columns],
-        target_units=units_df.replace(np.nan, 0),
-        initial_cash_balance=1e5,
-    )
-    results_dict = compute_results_from_navs(navs=backtest_data_optimized.nav, file_name=portfolio_name)
-    save_backtest_data(hist_portfolio_data=backtest_data_optimized)
-    save_performance_data(results_dict=results_dict, file_name=portfolio_name)
-
-
-class UnitTests(Enum):
-    UPDATE_DATA = 1
-    BACKTEST_PORTFOLIO_ACCOUNT = 2
-    BACKTEST_PORTFOLIO_OPTIMIZED = 3
-    BACKTEST_EQUITY_PORTFOLIO_STRAT = 4
-
-
-def run_unit_test(unit_test: UnitTests):
-    if unit_test == UnitTests.UPDATE_DATA:
-        for account in Accounts:
-            update_data(account=account)
-    elif unit_test == UnitTests.BACKTEST_PORTFOLIO_ACCOUNT:
-        for account in Accounts:
-            backtest_portfolio_account(account=account)
-    elif unit_test == UnitTests.BACKTEST_PORTFOLIO_OPTIMIZED:
-        for account in Accounts:
-            index = load_backtest_data(name=account.name).nav_eff.index
-            backtest_portfolio_optimized(account=account, index=index)
-    elif unit_test == UnitTests.BACKTEST_EQUITY_PORTFOLIO_STRAT:
-        backtest_equity_portfolio_strat()
-    else:
-        raise NotImplementedError
-
-
-if __name__ == '__main__':
-    unit_test = UnitTests.BACKTEST_EQUITY_PORTFOLIO_STRAT
-    run_unit_test(unit_test=unit_test)

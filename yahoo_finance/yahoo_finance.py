@@ -167,9 +167,3 @@ def search_fetch_history(
         for key in data_ticker:
             data[key] = pd.concat([data[key], data_ticker[key]], axis=1)
     return data
-
-
-if __name__ == '__main__':
-    isin = 'IE00077FRP95'
-    data = search_fetch_history(isin=isin)
-    pass

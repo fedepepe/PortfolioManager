@@ -1,5 +1,3 @@
-from enum import Enum
-
 import pandas as pd
 
 from config.accounts import Accounts
@@ -7,13 +5,6 @@ from config.definitions import RESULTS_DIR
 from engines.reporting import PerfDataTabs, compute_portfolio_metrics
 from portfolio.portfolio_definitions import PortfolioBacktestData
 from utils.file_utils import load_df_dict_from_excel, save_df_dict_to_excel
-
-
-class UnitTests(Enum):
-    UPDATE_DATA = 1
-    COMPUTE_PORTFOLIO_PERFORMANCE = 2
-    LOAD_PORTFOLIO_PERFORMANCE = 3
-    UPDATE_DATA_COMPUTE_PERFORMANCE = 4
 
 
 def compute_portfolio_performance(
@@ -40,31 +31,3 @@ def load_performance_data_benchmark(account: Accounts) -> dict[str, pd.DataFrame
 
 def save_performance_data(results_dict: dict[str, pd.DataFrame], file_name: str):
     save_df_dict_to_excel(df_dict=results_dict, folder_name=RESULTS_DIR, file_name=file_name)
-
-
-def run_unit_test(unit_test: UnitTests):
-    # imported here: portfolio.portfolio_backtest imports this module
-    from portfolio.portfolio_backtest import load_backtest_data, refresh_account, update_data
-
-    if unit_test == UnitTests.UPDATE_DATA:
-        for account in Accounts:
-            update_data(account=account)
-    elif unit_test == UnitTests.COMPUTE_PORTFOLIO_PERFORMANCE:
-        for account in Accounts:
-            compute_portfolio_performance(
-                account=account,
-                hist_portfolio_data=load_backtest_data(name=account.name),
-                hist_benchmark_data=load_backtest_data(name=f'{account.name}_benchmark'),
-            )
-    elif unit_test == UnitTests.LOAD_PORTFOLIO_PERFORMANCE:
-        print(load_performance_data_portfolio(account=Accounts.DEGIRO_CHF))  # noqa: T201 (manual script, moved out in the cleanup step)
-    elif unit_test == UnitTests.UPDATE_DATA_COMPUTE_PERFORMANCE:
-        for account in Accounts:
-            refresh_account(account=account)
-    else:
-        raise NotImplementedError
-
-
-if __name__ == '__main__':
-    unit_test = UnitTests.UPDATE_DATA_COMPUTE_PERFORMANCE
-    run_unit_test(unit_test=unit_test)

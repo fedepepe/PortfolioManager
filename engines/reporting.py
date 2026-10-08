@@ -52,10 +52,6 @@ class Metrics(Metric, Enum):
     PVAL_ALPHA = Metric('pval alpha')
 
 
-def lin_reg(y: pd.Series, x: pd.Series) -> (tuple[float], tuple[float], float):
-    return poly_reg(y=y, x=x, degree=1)
-
-
 def poly_reg(y: pd.Series, x: pd.Series, degree: int = 2) -> (tuple[float], tuple[float], float):
     df = pd.concat([y, x], axis=1).dropna()
     df = df.replace([np.inf, -np.inf], np.nan).dropna()

@@ -1,7 +1,6 @@
 pandas~=2.0.3
 SQLAlchemy~=2.0.36
 numpy~=1.25.1
-matplotlib~=3.10.0
 statsmodels~=0.14.4
 yfinance~=0.2.52
 curl_cffi~=0.16.3
@@ -17,3 +16,4 @@ degiro-connector~=3.0.36
 openpyxl~=3.1.5
 # optional: engines/instrument_price_forecasting.py
 # arch
+# matplotlib~=3.10.0

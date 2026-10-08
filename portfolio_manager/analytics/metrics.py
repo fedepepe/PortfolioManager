@@ -91,7 +91,7 @@ def compute_portfolio_metrics(
     returns_monthly = nav.resample('M').last().pct_change().dropna().rename('return')
     turnover, turnover_mean_daily = _turnover(hist_portfolio_data, freq)
 
-    risk_metrics = _risk_metrics(nav, nav_resampled, freq, returns_monthly, strategy_benchmark, turnover_mean_daily)
+    risk_metrics = _risk_metrics(nav_resampled, freq, returns_monthly, strategy_benchmark, turnover_mean_daily)
     if print_results:
         logger.info('Risk metrics of %s:\n%s', nav.name, risk_metrics)
     results_dict = {
@@ -150,17 +150,22 @@ def _turnover(hist_portfolio_data: PortfolioBacktestData | None, freq: str) -> t
 
 
 def _risk_metrics(
-    nav: pd.Series,
     nav_resampled: pd.Series,
     freq: str,
     returns_monthly: pd.Series,
     strategy_benchmark: pd.Series | None,
     turnover_mean_daily: float,
 ) -> pd.Series:
+    """Risk and return metrics of the NAV resampled at freq.
+
+    The same as on the original NAV as long as freq is not coarser than the NAV sampling (it is the NAV frequency,
+    or business days for the business-day NAVs of the backtests): otherwise the total return would start from the
+    first period end and the drawdown would only see the period ends.
+    """
     ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
     periods_per_year = ANN_FACTOR_DICT[freq]
     returns_resampled = nav_resampled.pct_change()
-    pa_return = annualize_return(compute_total_return(nav), len(nav_resampled) - 1, freq)
+    pa_return = annualize_return(compute_total_return(nav_resampled), len(nav_resampled) - 1, freq)
 
     def return_last_n_years(n_years: int) -> float:
         # annualized return of the last n years (NaN with a shorter history)
@@ -170,16 +175,16 @@ def _risk_metrics(
     volatility = ann_factor * returns_resampled.std()
     # no losses: no downside deviation, so no Sortino ratio (instead of an infinite one)
     volatility_downside = ann_factor * downside_deviation(returns_resampled) or np.nan
-    nav_cummax = nav.cummax()
+    nav_cummax = nav_resampled.cummax()
     if strategy_benchmark is not None:
-        alpha, beta, pval_alpha = regress_strat_vs_bm(nav, strategy_benchmark)
-        _, beta_neg, _ = regress_strat_vs_bm(nav, strategy_benchmark, return_sign='neg')
-        _, beta_pos, _ = regress_strat_vs_bm(nav, strategy_benchmark, return_sign='pos')
+        alpha, beta, pval_alpha = regress_strat_vs_bm(nav_resampled, strategy_benchmark)
+        _, beta_neg, _ = regress_strat_vs_bm(nav_resampled, strategy_benchmark, return_sign='neg')
+        _, beta_pos, _ = regress_strat_vs_bm(nav_resampled, strategy_benchmark, return_sign='pos')
     else:
         alpha, beta, pval_alpha, beta_neg, beta_pos = np.nan, np.nan, np.nan, np.nan, np.nan
     return pd.Series(
         {
-            Metrics.TOTAL_RETURN.name: compute_total_return(nav),
+            Metrics.TOTAL_RETURN.name: compute_total_return(nav_resampled),
             Metrics.PA_RETURN.name: pa_return,
             Metrics.LAST_YEAR_RETURN.name: nav_resampled.pct_change(periods_per_year).iloc[-1],
             Metrics.ANN_3Y_RETURN.name: return_last_n_years(3),
@@ -189,7 +194,7 @@ def _risk_metrics(
             Metrics.SORTINO_RATIO.name: (pa_return - RISK_FREE_RATE) / volatility_downside,
             Metrics.BEST_MONTH.name: returns_monthly.max(),
             Metrics.WORST_MONTH.name: returns_monthly.min(),
-            Metrics.MAX_DD.name: (nav.subtract(nav_cummax).div(nav_cummax)).abs().max(),
+            Metrics.MAX_DD.name: (nav_resampled.subtract(nav_cummax).div(nav_cummax)).abs().max(),
             Metrics.BETA_OVERALL.name: beta,
             Metrics.BETA_UP_MONTH.name: beta_pos,
             Metrics.BETA_DOWN_MONTH.name: beta_neg,
@@ -199,7 +204,7 @@ def _risk_metrics(
             Metrics.BETA.name: beta,
             Metrics.PVAL_ALPHA.name: pval_alpha,
         },
-        name=nav.name,
+        name=nav_resampled.name,
     )
 
 

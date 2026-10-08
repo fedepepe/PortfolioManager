@@ -14,6 +14,8 @@ from portfolio_manager.utils.dates import ANN_FACTOR_DICT
 
 logger = logging.getLogger(__name__)
 
+# risk-free rate of the Sharpe and Sortino ratios of the reports
+METRICS_RISK_FREE_RATE = 0.0
 MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6, '2M': 3, 'Q': 2, '2Q': 2, 'Y': 2}
 
 
@@ -52,24 +54,19 @@ class Metrics(Metric, Enum):
     PVAL_ALPHA = Metric('pval alpha')
 
 
-def poly_reg(y: pd.Series, x: pd.Series, degree: int = 2) -> (tuple[float], tuple[float], float):
-    df = pd.concat([y, x], axis=1).dropna()
-    df = df.replace([np.inf, -np.inf], np.nan).dropna()
-    y = df.iloc[:, 0].values
-    _x = df.iloc[:, 1].values
-    x = np.ones_like(_x)
-    for n in range(degree):
-        x = np.column_stack((x, np.power(_x, n + 1).T))
-    model = sm.OLS(y, x).fit()
-    coeffs = model.params
-    pvalues = model.pvalues
-    r2 = model.rsquared
-    return coeffs, pvalues, r2
-
-
 def compute_pa_return_last_n_years(nav: pd.Series, freq: str, n_years: int = None) -> float:
     num_periods = n_years * ANN_FACTOR_DICT[freq]
     return (1.0 + nav.resample(freq).last().ffill().pct_change(num_periods).iloc[-1]) ** (1.0 / n_years) - 1
+
+
+def compute_total_return(nav: pd.Series) -> float:
+    return nav.iloc[-1] / nav.iloc[0] - 1
+
+
+def compute_pa_return(nav: pd.Series, freq: str) -> float:
+    # annualized return over the whole NAV
+    n_years = (len(nav.resample(freq).last()) - 1) / ANN_FACTOR_DICT[freq]
+    return (1.0 + compute_total_return(nav)) ** (1.0 / n_years) - 1
 
 
 def compute_portfolio_metrics(
@@ -79,131 +76,109 @@ def compute_portfolio_metrics(
     compute_hist_metrics: bool = True,
     print_results: bool = True,
 ) -> dict[str, PD_DATA_TYPES]:
+    # performance of a NAV (or of the effective NAV of a backtest): returns, risk metrics and their history
     if hist_portfolio_data is not None:
         nav = hist_portfolio_data.nav_eff
+    nav = nav.loc[nav.first_valid_index() :]  # remove initial nans
+    freq = _sampling_freq(nav, hist_portfolio_data)
+    returns_resampled = nav.resample(freq).last().ffill().pct_change()
+    returns_monthly = nav.resample('M').last().pct_change().dropna().rename('return')
+    turnover, turnover_mean_daily = _turnover(hist_portfolio_data, freq)
 
-    # remove initial nans from NAV
-    first_idx = nav.first_valid_index()
-    nav = nav.loc[first_idx:]
+    risk_metrics = _risk_metrics(nav, freq, returns_resampled, returns_monthly, strategy_benchmark, turnover_mean_daily)
+    if print_results:
+        logger.info('Risk metrics of %s:\n%s', nav.name, risk_metrics)
+    results_dict = {
+        PerfDataTabs.RETURNS_YEARLY: _yearly_returns(nav),
+        PerfDataTabs.RETURNS_MONTHLY: returns_monthly,
+        PerfDataTabs.RISK_METRICS: risk_metrics,
+        PerfDataTabs.TURNOVER: turnover,
+    }
+    if compute_hist_metrics:
+        results_dict[PerfDataTabs.HIST_PERF_METRICS] = _historical_metrics(nav, freq, returns_resampled)
+    # correlation of the weekly returns of adjusted closing prices (as shown in the dashboard)
+    if hist_portfolio_data is not None and hist_portfolio_data.close_adj is not None:
+        returns_weekly = hist_portfolio_data.close_adj.resample(DEFAULT_CORR_DATA_FREQ).last().pct_change()
+        results_dict[PerfDataTabs.CORRELATION] = returns_weekly.corr()
+    return results_dict
 
-    initial_cash_pos = nav.iloc[0]
-    # detect the sampling frequency
-    if hist_portfolio_data is None:
-        freq = pd.infer_freq(nav.index)
-        logger.debug('Inferred sampling frequency: %s', freq)
-    elif hist_portfolio_data.freq is None:
-        freq = pd.infer_freq(nav.index)
-        logger.debug('Inferred sampling frequency: %s', freq)
-    else:
+
+def _sampling_freq(nav: pd.Series, hist_portfolio_data: PortfolioBacktestData | None) -> str:
+    # frequency of the backtest data if known, otherwise inferred from the NAV (default if that fails)
+    if hist_portfolio_data is not None and hist_portfolio_data.freq is not None:
         freq = hist_portfolio_data.freq
         logger.debug('Using input sampling frequency: %s', freq)
+    else:
+        freq = pd.infer_freq(nav.index)
+        logger.debug('Inferred sampling frequency: %s', freq)
     if freq is None:
         freq = DEFAULT_FREQ_HIST_DATA
         logger.debug('Switching to default sampling frequency: %s', freq)
+    return freq
 
-    total_return_all_samples = nav.iloc[-1] / initial_cash_pos - 1
+
+def _yearly_returns(nav: pd.Series) -> pd.Series:
+    # calendar-year returns (the first year from the first NAV value), latest first, plus the total return
     prices_eoy = nav.resample('Y').last()
     if nav.index[0] not in prices_eoy.index:
         prices_eoy = pd.concat([nav.iloc[[0]], prices_eoy])
     returns_yearly = prices_eoy.pct_change().dropna().rename('return')
     returns_yearly.index = returns_yearly.index.year
     returns_yearly.index.name = 'Year'
-    returns_yearly['Total'] = total_return_all_samples
-    returns_yearly = returns_yearly.reindex(index=returns_yearly.index[::-1])
-    returns_monthly = nav.resample('M').last().pct_change().dropna().rename('return')
-    return_1y = nav.resample(freq).last().ffill().pct_change(ANN_FACTOR_DICT[freq]).iloc[-1]
-    return_3y_ann = compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=3)
-    return_5y_ann = compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=5)
+    returns_yearly['Total'] = compute_total_return(nav)
+    return returns_yearly.reindex(index=returns_yearly.index[::-1])
 
-    """ calculate portfolio alpha and beta """
+
+def _turnover(hist_portfolio_data: PortfolioBacktestData | None, freq: str) -> tuple[pd.Series, float]:
+    # daily traded value relative to the NAV, and its average (only for backtest data)
+    if hist_portfolio_data is None:
+        return pd.Series(), np.nan
+    turnover = (
+        hist_portfolio_data.transaction_value.sum(axis=1)
+        .iloc[1:]
+        .abs()
+        .div(hist_portfolio_data.nav.iloc[1:])
+        .rename(PerfDataTabs.TURNOVER)
+    )
+    return turnover, turnover.resample(freq).sum().mean() / 365 * ANN_FACTOR_DICT[freq]
+
+
+def _risk_metrics(
+    nav: pd.Series,
+    freq: str,
+    returns_resampled: pd.Series,
+    returns_monthly: pd.Series,
+    strategy_benchmark: pd.Series | None,
+    turnover_mean_daily: float,
+) -> pd.Series:
+    ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
+    pa_return = compute_pa_return(nav, freq)
+    volatility = ann_factor * returns_resampled.std()
+    volatility_downside = ann_factor * returns_resampled[returns_resampled < 0].std()
+    nav_cummax = nav.cummax()
     if strategy_benchmark is not None:
         alpha, beta, pval_alpha = regress_strat_vs_bm(nav, strategy_benchmark)
         _, beta_neg, _ = regress_strat_vs_bm(nav, strategy_benchmark, return_sign='neg')
         _, beta_pos, _ = regress_strat_vs_bm(nav, strategy_benchmark, return_sign='pos')
     else:
         alpha, beta, pval_alpha, beta_neg, beta_pos = np.nan, np.nan, np.nan, np.nan, np.nan
-
-    """ calculate risk metrics """
-
-    # calculate per-annum return
-    def compute_total_return(nav: pd.Series) -> float:
-        return nav.iloc[-1] / nav.iloc[0] - 1
-
-    def compute_n_years(nav: pd.Series) -> float:
-        return (len(nav.resample(freq).last()) - 1) / ANN_FACTOR_DICT[freq]
-
-    def compute_pa_return(nav: pd.Series) -> float:
-        n_years = compute_n_years(nav)
-        total_return = compute_total_return(nav)
-        return (1.0 + total_return) ** (1.0 / n_years) - 1
-
-    total_return = compute_total_return(nav)
-    pa_return = compute_pa_return(nav)
-    # calculate the portfolio standard deviation (volatility)
-    returns_resampled = nav.resample(freq).last().ffill().pct_change()
-    volatility = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.std()
-    # calculate sharpe ratio
-    risk_free_rate = 0.0
-    sharpe_ratio = (pa_return - risk_free_rate) / volatility
-    # sortino ratio
-    volatility_downside = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled[returns_resampled < 0].std()
-    sortino_ratio = (pa_return - risk_free_rate) / volatility_downside
-    # calculate skewness
-    portfolios_skew = returns_resampled.skew()
-    # calculate max drawdown (maxdd)
-    nav_cummax = nav.cummax()
-    max_dd = (nav.subtract(nav_cummax).div(nav_cummax)).abs().max()
-    # turnover
-    if hist_portfolio_data is not None:
-        turnover = (
-            hist_portfolio_data.transaction_value.sum(axis=1)
-            .iloc[1:]
-            .abs()
-            .div(hist_portfolio_data.nav.iloc[1:])
-            .rename(PerfDataTabs.TURNOVER)
-        )
-        turnover_mean_daily = turnover.resample(freq).sum().mean() / 365 * ANN_FACTOR_DICT[freq]
-    else:
-        turnover = pd.Series()
-        turnover_mean_daily = np.nan
-    # historical performance metrics
-    if compute_hist_metrics:
-        min_periods = MIN_PERIODS_DICT[freq]
-        pa_return_hist = (
-            nav.rolling(len(nav), min_periods=min_periods).apply(compute_pa_return).rename(Metrics.PA_RETURN.name)
-        )
-        volatility_hist = (
-            math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(len(nav), min_periods=min_periods).std()
-        )
-        volatility_hist = volatility_hist.rename(Metrics.VOLATILITY.name)
-        sharpe_ratio_hist = ((pa_return_hist - risk_free_rate) / volatility_hist).rename(Metrics.SHARPE_RATIO.name)
-
-        def compute_downside_volatility(returns: pd.Series) -> float:
-            return returns[returns < 0].std()
-
-        down_vol_hist = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(
-            len(nav), min_periods=min_periods
-        ).apply(compute_downside_volatility)
-        sortino_ratio_hist = ((pa_return_hist - risk_free_rate) / down_vol_hist).rename(Metrics.SORTINO_RATIO.name)
-
-    # put all together in a dictionary
-    risk_metrics = pd.Series(
+    return pd.Series(
         {
-            Metrics.TOTAL_RETURN.name: total_return,
+            Metrics.TOTAL_RETURN.name: compute_total_return(nav),
             Metrics.PA_RETURN.name: pa_return,
-            Metrics.LAST_YEAR_RETURN.name: return_1y,
-            Metrics.ANN_3Y_RETURN.name: return_3y_ann,
-            Metrics.ANN_5Y_RETURN.name: return_5y_ann,
+            Metrics.LAST_YEAR_RETURN.name: nav.resample(freq).last().ffill().pct_change(ANN_FACTOR_DICT[freq]).iloc[-1],
+            Metrics.ANN_3Y_RETURN.name: compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=3),
+            Metrics.ANN_5Y_RETURN.name: compute_pa_return_last_n_years(nav=nav, freq=freq, n_years=5),
             Metrics.VOLATILITY.name: volatility,
-            Metrics.SHARPE_RATIO.name: sharpe_ratio,
-            Metrics.SORTINO_RATIO.name: sortino_ratio,
+            Metrics.SHARPE_RATIO.name: (pa_return - METRICS_RISK_FREE_RATE) / volatility,
+            Metrics.SORTINO_RATIO.name: (pa_return - METRICS_RISK_FREE_RATE) / volatility_downside,
             Metrics.BEST_MONTH.name: returns_monthly.max(),
             Metrics.WORST_MONTH.name: returns_monthly.min(),
-            Metrics.MAX_DD.name: max_dd,
+            Metrics.MAX_DD.name: (nav.subtract(nav_cummax).div(nav_cummax)).abs().max(),
             Metrics.BETA_OVERALL.name: beta,
             Metrics.BETA_UP_MONTH.name: beta_pos,
             Metrics.BETA_DOWN_MONTH.name: beta_neg,
-            Metrics.SKEWNESS.name: portfolios_skew,
+            Metrics.SKEWNESS.name: returns_resampled.skew(),
             Metrics.TURNOVER.name: turnover_mean_daily,
             Metrics.ALPHA.name: alpha,
             Metrics.BETA.name: beta,
@@ -211,24 +186,22 @@ def compute_portfolio_metrics(
         },
         name=nav.name,
     )
-    if print_results:
-        logger.info('Risk metrics of %s:\n%s', nav.name, risk_metrics)
-    results_dict = {
-        PerfDataTabs.RETURNS_YEARLY: returns_yearly,
-        PerfDataTabs.RETURNS_MONTHLY: returns_monthly,
-        PerfDataTabs.RISK_METRICS: risk_metrics,
-        PerfDataTabs.TURNOVER: turnover,
-    }
-    if compute_hist_metrics:
-        results_dict[PerfDataTabs.HIST_PERF_METRICS] = pd.concat(
-            [pa_return_hist, volatility_hist, sharpe_ratio_hist, sortino_ratio_hist], axis=1
-        )
-    # correlation of the weekly returns of adjusted closing prices (as shown in the dashboard)
-    if hist_portfolio_data is not None:
-        if hist_portfolio_data.close_adj is not None:
-            returns_weekly = hist_portfolio_data.close_adj.resample(DEFAULT_CORR_DATA_FREQ).last().pct_change()
-            results_dict[PerfDataTabs.CORRELATION] = returns_weekly.corr()
-    return results_dict
+
+
+def _historical_metrics(nav: pd.Series, freq: str, returns_resampled: pd.Series) -> pd.DataFrame:
+    # return, volatility, Sharpe and Sortino ratios at each date, from the start of the NAV up to that date
+    names = [m.name for m in (Metrics.PA_RETURN, Metrics.VOLATILITY, Metrics.SHARPE_RATIO, Metrics.SORTINO_RATIO)]
+    if len(nav) < MIN_PERIODS_DICT[freq]:
+        # young portfolio: not enough history for any value
+        return pd.DataFrame(np.nan, index=nav.index, columns=names)
+    ann_factor = math.sqrt(ANN_FACTOR_DICT[freq])
+    expanding = {'window': len(nav), 'min_periods': MIN_PERIODS_DICT[freq]}
+    pa_return = nav.rolling(**expanding).apply(lambda x: compute_pa_return(x, freq)).rename(Metrics.PA_RETURN.name)
+    volatility = (ann_factor * returns_resampled.rolling(**expanding).std()).rename(Metrics.VOLATILITY.name)
+    down_volatility = ann_factor * returns_resampled.rolling(**expanding).apply(lambda r: r[r < 0].std())
+    sharpe_ratio = ((pa_return - METRICS_RISK_FREE_RATE) / volatility).rename(Metrics.SHARPE_RATIO.name)
+    sortino_ratio = ((pa_return - METRICS_RISK_FREE_RATE) / down_volatility).rename(Metrics.SORTINO_RATIO.name)
+    return pd.concat([pa_return, volatility, sharpe_ratio, sortino_ratio], axis=1)
 
 
 def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES):

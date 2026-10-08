@@ -15,11 +15,12 @@ class PortfolioDegiro(PortfolioGeneric):
         self.current_units = self.previous_units.copy()
         for n in range(len(tx_hist_df)):
             idx = self.tickers.index(tx_hist_df.iloc[n, :][TxHistFields.product_id])
-            # check that units reflect price directly
+            # units normally equal the quantity (quantity x price = total, up to rounding); bonds are quoted in %
+            # of the nominal, so quantity x price is 100 times the total and the units follow from the total
             quantity = tx_hist_df.iloc[n, :][TxHistFields.quantity]
             price = tx_hist_df.iloc[n, :][TxHistFields.price]
             total = tx_hist_df.iloc[n, :][TxHistFields.total]
-            if quantity * price == - total:
+            if np.isclose(quantity * price, - total, rtol=1e-3):
                 self.current_units[idx] += quantity
             else:
                 self.current_units[idx] += - total / price

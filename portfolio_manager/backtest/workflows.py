@@ -72,71 +72,41 @@ def update_data(account: Accounts):
     account.state.set('last_data_update', datetime.now().strftime('%d%b%Y'))
 
 
+# descriptions of the DeGiro cash movements (in the language of the account: Italian)
+DIVIDEND_PATTERN = 'Dividendo|Cedola'  # dividends, coupons (and their taxes)
+FX_PATTERN = 'Credito FX|Prelievo FX'  # currency conversions of the cash account
+DEPOSIT_PATTERN = 'Deposito|Prelievo'  # deposits and withdrawals
+SPLIT_PATTERN = 'FRAZIONAMENTO'  # split adjustment: one movement out (old units), one in (new units)
+PRODUCT_CHANGE_PATTERN = 'CAMBIO'  # product change: a sale of the old product and a purchase of the new one
+
+
 def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
-    # prices
+    # backtest of the account from its saved DeGiro data (trades, cash movements, prices), saved to its file
     prices_df = load_portfolio_charts(account=account)
-    # transaction history
     tx_hist_df = load_tx_history(account=account)
-    # account movements
-    account_mvmts_df = load_account_movements(account=account)
-    # dividends
-    dividends_df = account_mvmts_df.loc[account_mvmts_df['description'].str.contains('Dividendo|Cedola'), :].copy()
-    # deposits/withdrawals
-    account_mvmts_df = account_mvmts_df.loc[~account_mvmts_df['description'].str.contains('Credito FX|Prelievo FX'), :]
-    deposits_df = account_mvmts_df.loc[account_mvmts_df['description'].str.contains('Deposito|Prelievo'), :].copy()
-    # forex rates
+    movements_df = load_account_movements(account=account)
+    dividends_df = movements_df.loc[movements_df['description'].str.contains(DIVIDEND_PATTERN), :].copy()
+    movements_df = movements_df.loc[~movements_df['description'].str.contains(FX_PATTERN), :]
+    deposits_df = movements_df.loc[movements_df['description'].str.contains(DEPOSIT_PATTERN), :].copy()
+
     products_df = adjust_prod_column_labels(load_portfolio_products(account=account))
+    products_df['symbol'] = products_df['symbol'].fillna(products_df['name'])
     curr_foreign_lst = sorted(set(products_df['currency'].to_list() + dividends_df['currency'].to_list()))
     curr_foreign_lst = [c for c in curr_foreign_lst if c != account.currency]
     fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, account=account, index=prices_df.index)
 
     product_ids = list(set(tx_hist_df[TxHistFields.product_id].to_list()))
-    products_df['symbol'] = products_df['symbol'].fillna(products_df['name'])
-    product_symbols = products_df.loc[product_ids, 'symbol'].to_list()
-    product_curr = products_df.loc[product_ids, 'currency'].to_list()
     tx_hist_df = tx_hist_df.dropna(subset=['order_type_id'])
-
-    # compute initial cash balance
     initial_cash_balance = deposits_df.loc[deposits_df.index <= tx_hist_df.index[0], 'change'].sum()
 
-    # splits and product changes
-    splits_df = account_mvmts_df[account_mvmts_df['description'].str.contains('FRAZIONAMENTO')].copy()
-    splits_df['mult'] = [int(re.search(r'\d+', s).group()) for s in splits_df['description']]
-    splits_df['mult'] = splits_df['mult'].where(splits_df['change'] < 0, 1.0 / splits_df['mult'])
-    splits_df = splits_df.groupby([splits_df.index.name, 'product_id'])['mult'].prod().reset_index(level=1)
-
-    def adjust_tx_for_split(tx_hist_df: pd.DataFrame, splits_df: pd.DataFrame):
-        for ts, prod_id, mult in zip(
-            splits_df.index, splits_df['product_id'].to_list(), splits_df['mult'].to_list(), strict=True
-        ):
-            bool_mask = (tx_hist_df.index <= ts) & (tx_hist_df['product_id'] == prod_id)
-            tx_hist_df.loc[bool_mask, TxHistFields.quantity] = tx_hist_df.loc[bool_mask, TxHistFields.quantity].mul(
-                mult
-            )
-            tx_hist_df.loc[bool_mask, TxHistFields.price] = tx_hist_df.loc[bool_mask, TxHistFields.price].div(mult)
-
-    adjust_tx_for_split(tx_hist_df=tx_hist_df, splits_df=splits_df)
-    prod_change_df = account_mvmts_df[account_mvmts_df['description'].str.contains('CAMBIO')].copy()
-    prod_change_df = prod_change_df.set_index('value_date')
-    prod_change_df['product'] = [re.search(r'\d+(.*?)@', s).group(1) for s in prod_change_df['description']]
-
-    def product_change_fun(x):
-        prod_id_old = x.loc[x['description'].str.contains('Vendita'), 'product_id'].iloc[0]
-        prod_id_new = x.loc[x['description'].str.contains('Acquisto'), 'product_id'].iloc[0]
-        return pd.DataFrame(prod_id_new, index=[prod_id_old], columns=['product_id'])
-
-    prod_change_df = prod_change_df.groupby([prod_change_df.index.name, 'product']).apply(product_change_fun)
-    if not prod_change_df.empty:
-        prod_change_dct = prod_change_df.reset_index(level=[0, 1])[TxHistFields.product_id].to_dict()
-    else:
-        prod_change_dct = {}
-
-    for id_old, id_new in prod_change_dct.items():
+    # trades and dividends of a product replaced by another one are attributed to the new product, then the
+    # trades before a split are converted into post-split units
+    for id_old, id_new in product_changes(movements_df).items():
         tx_hist_df[TxHistFields.product_id] = tx_hist_df[TxHistFields.product_id].replace(id_old, id_new)
         dividends_df[TxHistFields.product_id] = dividends_df[TxHistFields.product_id].replace(id_old, id_new)
-    adjust_tx_for_split(tx_hist_df=tx_hist_df, splits_df=splits_df)
+    adjust_tx_for_splits(tx_hist_df, split_multipliers(movements_df))
 
-    # reset datetime and restrict to a suitable timeframe
+    # dates without time, from the day before the first trade
     tx_hist_df[TxHistFields.symbol] = products_df.loc[tx_hist_df[TxHistFields.product_id], 'symbol'].to_list()
     tx_hist_df[TxHistFields.symbol] = tx_hist_df[TxHistFields.symbol].fillna(tx_hist_df.product_id)
     tx_hist_df.loc[:, 'Date'] = [reset_time(ts) for ts in tx_hist_df.index]
@@ -148,27 +118,13 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     prices_df = prices_df.loc[prices_df.index >= ts_start, product_ids].ffill()
     fx_rates_df = fx_rates_df.loc[fx_rates_df.index >= ts_start, :].reindex(prices_df.index).ffill()
     deposits_df = deposits_df.loc[deposits_df.index >= ts_start, :]
+    assert all(d in prices_df.index for d in dividends_df['Date'])
+    assert all(d in prices_df.index for d in deposits_df['Date'])
 
-    # check all dividend dates are in the price datetime index
-    assert all([d in prices_df.index for d in dividends_df['Date']])
-    assert all([d in prices_df.index for d in deposits_df['Date']])
+    product_curr = products_df.loc[product_ids, 'currency'].to_list()
+    prices_df = _prices_to_base_currency(prices_df, product_ids, product_curr, fx_rates_df, account.currency)
+    dividends_df = _dividends_to_base_currency(dividends_df, fx_rates_df, account.currency)
 
-    # currency conversion to base currency
-    for prod_id, curr in zip(product_ids, product_curr, strict=True):
-        prices_df.loc[:, prod_id] = prices_df[prod_id].mul(
-            fx_rates_df.loc[prices_df.index, f'{curr}/{account.currency}']
-        )
-    fx_rates = [
-        fx_rates_df.loc[dividends_df.iloc[n]['Date'], f'{curr}/{account.currency}']
-        for n, curr in enumerate(dividends_df['currency'])
-    ]
-    dividends_df.loc[:, 'fx_rate'] = fx_rates
-    dividends_df.loc[:, 'amount_base_currency'] = dividends_df['change'].mul(dividends_df['fx_rate'])
-
-    # adjusted closing prices from Yahoo Finance (or the database when offline), labelled by product id
-    close_adj_df = get_portfolio_adj_prices(account=account).prices
-
-    # compute historical portfolio data
     backtest_data = backtest_portfolio(
         account=account,
         prices_df=prices_df,
@@ -178,11 +134,61 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
         div_hist_df=dividends_df,
         fx_rates_df=fx_rates_df,
         dep_hist_df=deposits_df,
-        close_adj_df=close_adj_df,
-        id_symbol_map={p_id: p_sym for p_id, p_sym in zip(product_ids, product_symbols, strict=True)},
+        # adjusted closing prices from Yahoo Finance (or the database when offline), labelled by product id
+        close_adj_df=get_portfolio_adj_prices(account=account).prices,
+        id_symbol_map=dict(zip(product_ids, products_df.loc[product_ids, 'symbol'].to_list(), strict=True)),
     )
     save_backtest_data(hist_portfolio_data=backtest_data)
     return backtest_data
+
+
+def split_multipliers(movements_df: pd.DataFrame) -> pd.DataFrame:
+    # unit multiplier of each split, by date (index) and product: e.g. 36 units becoming 900 gives 25
+    splits_df = movements_df[movements_df['description'].str.contains(SPLIT_PATTERN)].copy()
+    splits_df['mult'] = [int(re.search(r'\d+', s).group()) for s in splits_df['description']]
+    # the units leaving the account (negative change) multiply, the units entering divide
+    splits_df['mult'] = splits_df['mult'].where(splits_df['change'] < 0, 1.0 / splits_df['mult'])
+    return splits_df.groupby([splits_df.index.name, 'product_id'])['mult'].prod().reset_index(level=1)
+
+
+def adjust_tx_for_splits(tx_hist_df: pd.DataFrame, splits_df: pd.DataFrame):
+    # converts the trades before each split into post-split units and prices (in place)
+    for ts, prod_id, mult in zip(splits_df.index, splits_df['product_id'], splits_df['mult'], strict=True):
+        mask = (tx_hist_df.index <= ts) & (tx_hist_df['product_id'] == prod_id)
+        tx_hist_df.loc[mask, TxHistFields.quantity] = tx_hist_df.loc[mask, TxHistFields.quantity].mul(mult)
+        tx_hist_df.loc[mask, TxHistFields.price] = tx_hist_df.loc[mask, TxHistFields.price].div(mult)
+
+
+def product_changes(movements_df: pd.DataFrame) -> dict:
+    # old product id -> new product id, from the sale and purchase movements of each product change
+    changes_df = movements_df[movements_df['description'].str.contains(PRODUCT_CHANGE_PATTERN)].copy()
+    changes_df = changes_df.set_index('value_date')
+    changes_df['product'] = [re.search(r'\d+(.*?)@', s).group(1) for s in changes_df['description']]
+    changes = {}
+    for _, change in changes_df.groupby([changes_df.index.name, 'product']):
+        id_old = change.loc[change['description'].str.contains('Vendita'), 'product_id'].iloc[0]
+        id_new = change.loc[change['description'].str.contains('Acquisto'), 'product_id'].iloc[0]
+        changes[id_old] = id_new
+    return changes
+
+
+def _prices_to_base_currency(
+    prices_df: pd.DataFrame, product_ids: list, product_curr: list, fx_rates_df: pd.DataFrame, base_currency: str
+) -> pd.DataFrame:
+    for prod_id, curr in zip(product_ids, product_curr, strict=True):
+        prices_df.loc[:, prod_id] = prices_df[prod_id].mul(fx_rates_df.loc[prices_df.index, f'{curr}/{base_currency}'])
+    return prices_df
+
+
+def _dividends_to_base_currency(
+    dividends_df: pd.DataFrame, fx_rates_df: pd.DataFrame, base_currency: str
+) -> pd.DataFrame:
+    dividends_df.loc[:, 'fx_rate'] = [
+        fx_rates_df.loc[date, f'{curr}/{base_currency}']
+        for date, curr in zip(dividends_df['Date'], dividends_df['currency'], strict=True)
+    ]
+    dividends_df.loc[:, 'amount_base_currency'] = dividends_df['change'].mul(dividends_df['fx_rate'])
+    return dividends_df
 
 
 def backtest_portfolio_benchmark(account: Accounts, index: pd.DatetimeIndex) -> PortfolioBacktestData:

@@ -5,3 +5,4 @@
 /results
 /state/
 __pycache__/
+.pytest_cache/

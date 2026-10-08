@@ -1,0 +1,10 @@
+[project]
+name = "portfolio-manager"
+version = "0.1.0"
+description = "Dashboard to track, backtest and optimize DeGiro portfolios"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# the project modules are imported from the repository root
+pythonpath = ["."]

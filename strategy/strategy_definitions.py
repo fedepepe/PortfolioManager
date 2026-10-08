@@ -101,8 +101,9 @@ class OptimizationSettings:
         return None
 
     def describe(self) -> str:
+        freq = OPTIMIZATION_FREQ_LABELS.get(self.optimization_freq, self.optimization_freq).lower()
         text = (
-            f'{ALLOCATION_STRATS_LABELS[self.method]}, {OPTIMIZATION_FREQ_LABELS.get(self.optimization_freq, self.optimization_freq).lower()}, '
+            f'{ALLOCATION_STRATS_LABELS[self.method]}, {freq}, '
             f'weight {self.min_asset_exposure:.0%}-{self.max_asset_exposure:.0%}, '
             f'invested {self.min_pf_exposure:.0%}-{self.max_pf_exposure:.0%}'
         )

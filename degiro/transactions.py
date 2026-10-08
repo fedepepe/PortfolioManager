@@ -57,7 +57,7 @@ class CashMovements(str, Enum):
 def field_list_to_df(data: Any) -> pd.DataFrame:
     df = pd.DataFrame()
     for field in data:
-        columns, values = zip(*field)
+        columns, values = zip(*field, strict=True)
         ser = pd.Series(values, columns)
         df = pd.concat([df, ser.to_frame().T])
     for col in [c for c in df.columns if 'date' in c.lower()]:

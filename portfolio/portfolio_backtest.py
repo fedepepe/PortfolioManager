@@ -98,7 +98,9 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     splits_df = splits_df.groupby([splits_df.index.name, 'product_id'])['mult'].prod().reset_index(level=1)
 
     def adjust_tx_for_split(tx_hist_df: pd.DataFrame, splits_df: pd.DataFrame):
-        for ts, prod_id, mult in zip(splits_df.index, splits_df['product_id'].to_list(), splits_df['mult'].to_list()):
+        for ts, prod_id, mult in zip(
+            splits_df.index, splits_df['product_id'].to_list(), splits_df['mult'].to_list(), strict=True
+        ):
             bool_mask = (tx_hist_df.index <= ts) & (tx_hist_df['product_id'] == prod_id)
             tx_hist_df.loc[bool_mask, TxHistFields.quantity] = tx_hist_df.loc[bool_mask, TxHistFields.quantity].mul(
                 mult
@@ -144,7 +146,7 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     assert all([d in prices_df.index for d in deposits_df['Date']])
 
     # currency conversion to base currency
-    for prod_id, curr in zip(product_ids, product_curr):
+    for prod_id, curr in zip(product_ids, product_curr, strict=True):
         prices_df.loc[:, prod_id] = prices_df[prod_id].mul(
             fx_rates_df.loc[prices_df.index, f'{curr}/{account.currency}']
         )
@@ -169,7 +171,7 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
         fx_rates_df=fx_rates_df,
         dep_hist_df=deposits_df,
         close_adj_df=close_adj_df,
-        id_symbol_map={p_id: p_sym for p_id, p_sym in zip(product_ids, product_symbols)},
+        id_symbol_map={p_id: p_sym for p_id, p_sym in zip(product_ids, product_symbols, strict=True)},
     )
     save_backtest_data(hist_portfolio_data=backtest_data)
     return backtest_data

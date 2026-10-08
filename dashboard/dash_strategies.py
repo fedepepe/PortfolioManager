@@ -168,7 +168,9 @@ def build_content_strategies(account: Accounts):
 
 
 def settings_to_controls(settings: OptimizationSettings) -> tuple:
-    pct = lambda v: None if v is None else round(100 * v, 2)
+    def pct(v):
+        return None if v is None else round(100 * v, 2)
+
     return (
         settings.method.value,
         settings.optimization_freq,
@@ -184,7 +186,9 @@ def settings_to_controls(settings: OptimizationSettings) -> tuple:
 def controls_to_settings(
     method, freq, max_assets, weight_range, min_position, invested_range, max_vol, target_vol
 ) -> OptimizationSettings:
-    frac = lambda v: None if v in (None, '') else float(v) / 100.0
+    def frac(v):
+        return None if v in (None, '') else float(v) / 100.0
+
     return OptimizationSettings(
         method=AllocationStrats(method),
         optimization_freq=freq,

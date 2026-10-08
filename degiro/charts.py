@@ -90,7 +90,7 @@ def fetch_charts(
     product_info_df = product_info_df[product_info_df['vwd_id'].notna()]
     product_ids = product_info_df['id'].astype(int).to_list()
     vwd_ids = [product_info_df.loc[prod_id, 'vwd_id'] for prod_id in product_ids]
-    for vwd_id, product_id in zip(vwd_ids, product_ids):
+    for vwd_id, product_id in zip(vwd_ids, product_ids, strict=True):
         hist_df = fetch_hist_data_single(
             chart_fetcher=chart_fetcher, vwd_id=vwd_id, period=period, resolution=resolution
         )
@@ -171,7 +171,9 @@ def load_fx_rates(
             ser = (1.0 / fx_rates_df_tmp[f'{account.currency}/{cur}']).rename(f'{cur}/{account.currency}')
             fx_rates_df = pd.concat([fx_rates_df, ser], axis=1)
         else:
-            warnings.warn(f'Warning! Missing foreign exchange historical time series for {cur}/{account.currency}')
+            warnings.warn(
+                f'Warning! Missing foreign exchange historical time series for {cur}/{account.currency}', stacklevel=2
+            )
     if fx_rates_df.empty:
         fx_rates_df = fx_rates_df.reindex(index=index)
     # dummy column of ones for domestic currency

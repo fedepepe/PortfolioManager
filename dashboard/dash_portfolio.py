@@ -303,7 +303,7 @@ def get_fig_pf_instr_adj_close(
     close_adj_df = pf_data.hist_data.close_adj.dropna(how='all')
     rebase = not all(is_visible)
     if rebase:
-        visible_df = pf_data.hist_data.close_adj[[c for c, v in zip(instruments, is_visible) if v]]
+        visible_df = pf_data.hist_data.close_adj[[c for c, v in zip(instruments, is_visible, strict=True) if v]]
         visible_df = visible_df.ffill().dropna(how='all')
         visible_df = visible_df.apply(lambda x: x.div(x.dropna().iloc[0]).mul(100))
     y_label = 'Adjusted Closing Price (rebased to 100)' if rebase else f'Adjusted Closing Price [{currency}]'
@@ -311,7 +311,7 @@ def get_fig_pf_instr_adj_close(
         layout=go.Layout(xaxis_title=dict(text='Date'), yaxis_title=dict(text=y_label), template=LAYOUT_TEMPLATE)
     )
     col_name_dct = dict(pf_data.prod_df['symbol'])
-    for col, visible in zip(instruments, is_visible):
+    for col, visible in zip(instruments, is_visible, strict=True):
         ser = visible_df[col] if rebase and visible else close_adj_df[col].ffill()
         fig_pf_instr_adj_close.add_trace(
             go.Scatter(

@@ -139,13 +139,15 @@ def prices_to_base_curr(
     fx_rates_df = fx_rates_df.reindex(index=price_df.index).ffill()
     # convert to base currency; a ticker appearing in several columns (e.g. several exchanges) is averaged
     price_base_df = pd.DataFrame()
-    for ticker, curr in zip(price_df.columns, curr_lst):
+    for ticker, curr in zip(price_df.columns, curr_lst, strict=True):
         if ticker in price_base_df:
             continue
         try:
             fx_rate = fx_rates_df.loc[price_df.index, f'{curr}/{account.currency}']
         except KeyError:
-            warnings.warn(f'Warning! Missing foreign exchange historical time series for {curr}/{account.currency}')
+            warnings.warn(
+                f'Warning! Missing foreign exchange historical time series for {curr}/{account.currency}', stacklevel=2
+            )
             continue
         ser = price_df[ticker]
         if isinstance(ser, pd.DataFrame):
@@ -177,9 +179,6 @@ def fetch_instr_adj_prices(
     data = fetch_instr_hist_data(
         isin_lst=isin_lst, columns=YFinHistCols.adj_close, ticker_lst=tick_lst, name_lst=name_lst
     )
-    # dump collected data into the database
-    # if to_portfolio_instr_table:  # and datetime.strptime(account.state.get('last_data_update'), '%d%b%Y') < datetime.now():
-    #     insert_yahoo_finance_data(data_dict=data, to_portfolio_instr_table=to_portfolio_instr_table)
     # convert prices to domestic currency
     close_adj_base_curr_df = prices_to_base_curr(
         account=account,
@@ -188,7 +187,9 @@ def fetch_instr_adj_prices(
     )
     rename_dict = {
         old: new
-        for (old, new) in zip(data[YF_PROD_INFO_LABEL].loc['symbol'], data[YF_PROD_INFO_LABEL].loc['symbol_ext'])
+        for (old, new) in zip(
+            data[YF_PROD_INFO_LABEL].loc['symbol'], data[YF_PROD_INFO_LABEL].loc['symbol_ext'], strict=True
+        )
     }
     close_adj_base_curr_df = close_adj_base_curr_df.rename(columns=rename_dict)
     return close_adj_base_curr_df
@@ -261,9 +262,9 @@ def fetch_etf_catalog_data():
     isin_lst = etf_info_df[Product.isin.name].to_list()
     ticker_lst = etf_info_df[Product.symbol.name].to_list()
     name_lst = etf_info_df[Product.name.name].to_list()
-    for n, (isin, ticker, name) in enumerate(zip(isin_lst, ticker_lst, name_lst)):
+    for n, (isin, ticker, name) in enumerate(zip(isin_lst, ticker_lst, name_lst, strict=True)):
         print(f'({n + 1}/{len(isin_lst)} - Fetching data for {isin}')
-        for attempt in range(5):
+        for _attempt in range(5):
             try:
                 fetch_instr_hist_data(
                     isin_lst=isin,

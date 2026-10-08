@@ -42,7 +42,7 @@ class CustomColors(CustomColor, Enum):
 
 def plot_standard_time_series(df: pd.DataFrame, fig_name: str, title: str) -> plt.Figure:
     fig = plt.figure()
-    for col, color in zip(df.columns.to_list(), [color for color in CustomColors]):
+    for col, color in zip(df.columns.to_list(), [color for color in CustomColors], strict=True):
         plt.plot(df[col].index, df[col].values, c=color.to_scaled(), label=col)
     plt.legend()
     plt.grid(axis='y')

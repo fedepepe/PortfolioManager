@@ -1,9 +1,8 @@
 import os
-from typing import Union
 
 import pandas as pd
 
-PD_DATA_TYPES = Union[pd.Series, pd.DataFrame]
+PD_DATA_TYPES = pd.Series | pd.DataFrame
 
 
 def to_file_name(file_name: str) -> str:

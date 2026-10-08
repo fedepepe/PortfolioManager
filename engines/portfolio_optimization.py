@@ -21,7 +21,7 @@ class PortfolioOptimizer:
     def __init__(
         self,
         optimization_type: AllocationStrats,
-        returns: pd.DataFrame | None = pd.DataFrame(),
+        returns: pd.DataFrame | None = None,
         min_pf_exposure: float = 0.0,
         max_pf_exposure: float = 1.0,
         bounds_weights: tuple[float, float] | None = None,
@@ -51,7 +51,7 @@ class PortfolioOptimizer:
     def reset(
         self,
         optimization_type: AllocationStrats,
-        returns: pd.DataFrame | None = pd.DataFrame(),
+        returns: pd.DataFrame | None = None,
         min_pf_exposure: float = 0.0,
         max_pf_exposure: float = 1.0,
         bounds_weights: tuple[float, float] | None = None,
@@ -64,7 +64,7 @@ class PortfolioOptimizer:
         risk_free_rate: float | None = 0,
     ):
         self.optimization_type = optimization_type
-        self.returns = returns
+        self.returns = returns if returns is not None else pd.DataFrame()
         self.min_pf_exposure = min_pf_exposure
         self.max_pf_exposure = max_pf_exposure
         self.returns_clean = self.clean_returns_df(severity='low')

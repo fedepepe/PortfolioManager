@@ -4,7 +4,6 @@ from enum import Enum
 from typing import NamedTuple
 
 from portfolio_manager.backtest.portfolio import Currencies
-from portfolio_manager.config.account_state import State
 
 
 class Brokers(Enum):
@@ -15,13 +14,12 @@ class Brokers(Enum):
 
 
 class Account(NamedTuple):
-    """Settings of one account: name, broker, base currency, credentials file, state and benchmark."""
+    """Settings of one account: name, broker, base currency, credentials file and benchmark."""
 
     name: str
     broker: Brokers
     currency: Currencies
     config_file: str
-    state: State
     benchmark: dict[str, tuple[float, str, str | None]] | None = None
 
 
@@ -33,7 +31,6 @@ class Accounts(Account, Enum):
         broker=Brokers.DEGIRO,
         currency=Currencies.CHF,
         config_file='config.json',
-        state=State('Portfolio CHF'),
         benchmark={
             'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
             'HYLD': (0.2, 'M', 'HYLD.L'),
@@ -45,7 +42,6 @@ class Accounts(Account, Enum):
         currency=Currencies.EUR,
         broker=Brokers.DEGIRO,
         config_file='config_2.json',
-        state=State('Portfolio EUR'),
         benchmark={
             'SPYI': (0.6, 'M', 'SPYI.DE'),
             'HYLE': (0.2, 'M', 'HYLE.DE'),

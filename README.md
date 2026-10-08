@@ -69,7 +69,6 @@ Nothing in these folders is committed:
 |---|---|
 | `data/` | the SQLite database (`degiro.db`), the Degiro downloads and the backtests (Excel) |
 | `results/` | performance results and the ETF catalogs (Excel) |
-| `state/` | per-account state |
 | `credentials/` | the Degiro credentials |
 
 Adjusted prices come from Yahoo Finance when it is reachable and are stored in the database, so that the backtests
@@ -82,7 +81,7 @@ the accounts): see `portfolio_manager/backtest/workflows.py`.
 main.py                    web server (FastAPI) serving the dashboard
 tasks.py                   command-line maintenance tasks
 portfolio_manager/
-├── config/                accounts, paths and constants, account state
+├── config/                accounts, paths and constants
 ├── degiro/                Degiro API: connection, products, transactions, price charts
 ├── market_data/           Yahoo Finance
 ├── storage/               database (models, queries) and Excel files

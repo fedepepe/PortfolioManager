@@ -2,7 +2,6 @@
 
 import re
 from dataclasses import asdict
-from datetime import datetime
 
 import pandas as pd
 
@@ -74,7 +73,6 @@ def update_data(account: Accounts):
     fetch_account_movements(account=account, degiro_conn=conn)
     fetch_portfolio_charts(account=account, degiro_conn=conn)
     fetch_fx_charts(account=account, degiro_conn=conn)
-    account.state.set('last_data_update', datetime.now().strftime('%d%b%Y'))
 
 
 # descriptions of the Degiro cash movements (in the language of the account: Italian)

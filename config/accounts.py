@@ -20,22 +20,30 @@ class Account(NamedTuple):
 
 
 class Accounts(Account, Enum):
-    DEGIRO_CHF = Account(name='Portfolio CHF',
-                         broker=Brokers.DEGIRO,
-                         currency=Currencies.CHF,
-                         config_file='config.json',
-                         state=State('Portfolio CHF'),
-                         benchmark={'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
-                                    'HYLD': (0.2, 'M', 'HYLD.L'),
-                                    'STHC': (0.2, 'M', 'STHC.SW'), })
-    DEGIRO_EUR = Account(name='Portfolio EUR',
-                         currency=Currencies.EUR,
-                         broker=Brokers.DEGIRO,
-                         config_file='config_2.json',
-                         state=State('Portfolio EUR'),
-                         benchmark={'SPYI': (0.6, 'M', 'SPYI.DE'),
-                                    'HYLE': (0.2, 'M', 'HYLE.DE'),
-                                    'IGLA': (0.2, 'M', 'IE00BYZ28V50'), })
+    DEGIRO_CHF = Account(
+        name='Portfolio CHF',
+        broker=Brokers.DEGIRO,
+        currency=Currencies.CHF,
+        config_file='config.json',
+        state=State('Portfolio CHF'),
+        benchmark={
+            'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
+            'HYLD': (0.2, 'M', 'HYLD.L'),
+            'STHC': (0.2, 'M', 'STHC.SW'),
+        },
+    )
+    DEGIRO_EUR = Account(
+        name='Portfolio EUR',
+        currency=Currencies.EUR,
+        broker=Brokers.DEGIRO,
+        config_file='config_2.json',
+        state=State('Portfolio EUR'),
+        benchmark={
+            'SPYI': (0.6, 'M', 'SPYI.DE'),
+            'HYLE': (0.2, 'M', 'HYLE.DE'),
+            'IGLA': (0.2, 'M', 'IE00BYZ28V50'),
+        },
+    )
 
     @classmethod
     def get_default_account(cls):

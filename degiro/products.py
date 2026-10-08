@@ -26,15 +26,17 @@ def fetch_full_product_catalog(degiro_conn: Optional[API] = None):
         n_start = 0
     n = n_start
     while True:
-        product_info = (degiro_conn
-                        .get_products_info(product_list=[i for i in range(n, n + 1000)], raw=False, ))
+        product_info = degiro_conn.get_products_info(
+            product_list=[i for i in range(n, n + 1000)],
+            raw=False,
+        )
         if hasattr(product_info, 'data'):
             for prod_id in product_info.data:
-                if (product_info.data[prod_id].product_type in [ProductTypes.CURRENCY,
-                                                                ProductTypes.STOCK,
-                                                                ProductTypes.ETF,
-                                                                ProductTypes.BOND] and
-                        product_info.data[prod_id].active is True):
+                if (
+                    product_info.data[prod_id].product_type
+                    in [ProductTypes.CURRENCY, ProductTypes.STOCK, ProductTypes.ETF, ProductTypes.BOND]
+                    and product_info.data[prod_id].active is True
+                ):
                     insert_product(product_info.data[prod_id])
         if n > n_start + 40e6:
             break
@@ -48,9 +50,7 @@ def fetch_single_product(degiro_conn: API, product_id: int):
         insert_product(product_info.data[product_id])
 
 
-def fetch_product_info(degiro_conn: Optional[API] = None,
-                       product_ids: int | List[int] = 11853206
-                       ) -> pd.DataFrame:
+def fetch_product_info(degiro_conn: Optional[API] = None, product_ids: int | List[int] = 11853206) -> pd.DataFrame:
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
     if isinstance(product_ids, int):
@@ -65,13 +65,11 @@ def fetch_product_info(degiro_conn: Optional[API] = None,
     return product_info_df
 
 
-def save_product_info(account: Accounts,
-                      product_info_df: pd.DataFrame):
+def save_product_info(account: Accounts, product_info_df: pd.DataFrame):
     save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
 
 
-def fetch_portfolio_products_info(account: Accounts,
-                                  degiro_conn: Optional[API] = None):
+def fetch_portfolio_products_info(account: Accounts, degiro_conn: Optional[API] = None):
     tx_history_df = load_tx_history(account=account)
     product_ids = list(set(tx_history_df['product_id'].astype(int).to_list()))
     product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)
@@ -92,7 +90,8 @@ def adjust_prod_column_labels(prod_df: pd.DataFrame) -> pd.DataFrame:
     prod_df[Product.name.name] = prod_df[Product.name.name].fillna(prod_df[Product.isin.name])
     prod_duplicate = prod_df.duplicated(Product.symbol.name, keep=False)
     prod_df.loc[prod_duplicate, Product.symbol.name] = prod_df.loc[
-        prod_duplicate, [Product.symbol.name, Product.currency.name]].agg('_'.join, axis=1)
+        prod_duplicate, [Product.symbol.name, Product.currency.name]
+    ].agg('_'.join, axis=1)
     return prod_df
 
 

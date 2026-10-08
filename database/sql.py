@@ -19,42 +19,43 @@ DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
 
 
 def insert_product(product: ProductItem):
-    data = Product(active=product.active,
-                   buy_order_types=list_to_str(product.buy_order_types),
-                   category=product.category,
-                   close_price=product.close_price,
-                   close_price_date=str_to_date(product.close_price_date),
-                   contract_size=product.contract_size,
-                   currency=product.currency,
-                   exchange_id=product.exchange_id,
-                   feed_quality=product.feed_quality,
-                   feed_quality_secondary=product.feed_quality_secondary,
-                   id=product.id,
-                   is_shortable=product.is_shortable,
-                   isin=product.isin,
-                   name=product.name,
-                   only_eod_prices=product.only_eod_prices,
-                   order_book_depth=product.order_book_depth,
-                   order_book_depth_secondary=product.order_book_depth_secondary,
-                   order_time_types=list_to_str(product.order_time_types),
-                   product_bit_types=list_to_str(product.product_bit_types),
-                   product_type=product.product_type,
-                   product_type_id=product.product_type_id,
-                   quality_switch_free=product.quality_switch_free,
-                   quality_switch_free_secondary=product.quality_switch_free_secondary,
-                   quality_switchable=product.quality_switchable,
-                   quality_switchable_secondary=product.quality_switchable_secondary,
-                   sell_order_types=list_to_str(product.sell_order_types),
-                   strike_price=product.strike_price,
-                   symbol=product.symbol,
-                   tradable=product.tradable,
-                   vwd_id=product.vwd_id,
-                   vwd_id_secondary=product.vwd_id_secondary,
-                   vwd_identifier_type=product.vwd_identifier_type,
-                   vwd_identifier_type_secondary=product.vwd_identifier_type_secondary,
-                   vwd_module_id=product.vwd_module_id,
-                   vwd_module_id_secondary=product.vwd_module_id_secondary,
-                   )
+    data = Product(
+        active=product.active,
+        buy_order_types=list_to_str(product.buy_order_types),
+        category=product.category,
+        close_price=product.close_price,
+        close_price_date=str_to_date(product.close_price_date),
+        contract_size=product.contract_size,
+        currency=product.currency,
+        exchange_id=product.exchange_id,
+        feed_quality=product.feed_quality,
+        feed_quality_secondary=product.feed_quality_secondary,
+        id=product.id,
+        is_shortable=product.is_shortable,
+        isin=product.isin,
+        name=product.name,
+        only_eod_prices=product.only_eod_prices,
+        order_book_depth=product.order_book_depth,
+        order_book_depth_secondary=product.order_book_depth_secondary,
+        order_time_types=list_to_str(product.order_time_types),
+        product_bit_types=list_to_str(product.product_bit_types),
+        product_type=product.product_type,
+        product_type_id=product.product_type_id,
+        quality_switch_free=product.quality_switch_free,
+        quality_switch_free_secondary=product.quality_switch_free_secondary,
+        quality_switchable=product.quality_switchable,
+        quality_switchable_secondary=product.quality_switchable_secondary,
+        sell_order_types=list_to_str(product.sell_order_types),
+        strike_price=product.strike_price,
+        symbol=product.symbol,
+        tradable=product.tradable,
+        vwd_id=product.vwd_id,
+        vwd_id_secondary=product.vwd_id_secondary,
+        vwd_identifier_type=product.vwd_identifier_type,
+        vwd_identifier_type_secondary=product.vwd_identifier_type_secondary,
+        vwd_module_id=product.vwd_module_id,
+        vwd_module_id_secondary=product.vwd_module_id_secondary,
+    )
     conn.add(data)
     print([k for k, v in product.dict().items() if isinstance(v, list)])
     db_commit(message=f'{product.id} - {product.name}')
@@ -66,20 +67,24 @@ def insert_degiro_hist(product_id: int, df: pd.DataFrame):
     df = df.reindex(columns=DEGIRO_HIST_COLS).dropna(how='all')
     if df.empty:
         return
-    rows = [{'product_id': int(product_id),
-             'date': pd.Timestamp(ts).date(),
-             **{col: (None if pd.isna(val) else float(val)) for col, val in row.items()}}
-            for ts, row in df.iterrows()]
+    rows = [
+        {
+            'product_id': int(product_id),
+            'date': pd.Timestamp(ts).date(),
+            **{col: (None if pd.isna(val) else float(val)) for col, val in row.items()},
+        }
+        for ts, row in df.iterrows()
+    ]
     stmt = sqlite_insert(DegiroHistData)
     stmt = stmt.on_conflict_do_update(
         index_elements=[DegiroHistData.product_id, DegiroHistData.date],
-        set_={col: func.coalesce(stmt.excluded[col], DegiroHistData.__table__.c[col]) for col in DEGIRO_HIST_COLS})
+        set_={col: func.coalesce(stmt.excluded[col], DegiroHistData.__table__.c[col]) for col in DEGIRO_HIST_COLS},
+    )
     conn.execute(stmt, rows)
     db_commit(message=f'Degiro historical data of product {product_id} ({len(rows)} rows)')
 
 
-def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
-                              to_portfolio_instr_table: bool = True):
+def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame], to_portfolio_instr_table: bool = True):
     if data_dict[YF_PROD_INFO_LABEL].empty:
         return
     for col, df in data_dict.items():
@@ -89,8 +94,9 @@ def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
         if col == YF_PROD_INFO_LABEL:
             # write into product info table
             for ticker in df.columns:
-                cond = YahooFinanceProdInfo.ticker == data_dict[YF_PROD_INFO_LABEL].loc[
-                    YFinInfoCols.symbol.value, ticker]
+                cond = (
+                    YahooFinanceProdInfo.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
+                )
                 query = conn.query(YahooFinanceProdInfo).where(cond)
                 if query.count() and not overwrite:
                     continue
@@ -98,10 +104,13 @@ def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
                 conn.flush()
                 data = []
                 for t in range(df.shape[0]):
-                    data.append(YahooFinanceProdInfo(
-                        ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
-                        quote_type=df.index[t],
-                        value=df[ticker].iloc[t]))
+                    data.append(
+                        YahooFinanceProdInfo(
+                            ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
+                            quote_type=df.index[t],
+                            value=df[ticker].iloc[t],
+                        )
+                    )
                 conn.add_all(data)
         else:
             # write into historical data table
@@ -120,11 +129,14 @@ def insert_yahoo_finance_data(data_dict: Dict[YFinHistCols, pd.DataFrame],
                 conn.flush()
                 data = []
                 for t in range(df_melt.shape[0]):
-                    data.append(table(
-                        ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
-                        date=df_melt['index'].iloc[t],
-                        quote_type=str(col),
-                        value=df_melt['value'].iloc[t]))
+                    data.append(
+                        table(
+                            ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
+                            date=df_melt['index'].iloc[t],
+                            quote_type=str(col),
+                            value=df_melt['value'].iloc[t],
+                        )
+                    )
                 conn.add_all(data)
     db_commit(message=f'Added Yahoo Finance data of product {data_dict[YF_PROD_INFO_LABEL]}.')
 
@@ -137,8 +149,13 @@ def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
     table = YahooFinanceHistDataPfInstr
     quote_type = str(YFinHistCols.adj_close)
     conn.execute(delete(table).where((table.ticker == ticker) & (table.quote_type == quote_type)))
-    conn.execute(insert(table), [{'ticker': ticker, 'date': pd.Timestamp(ts).date(), 'quote_type': quote_type,
-                                  'value': float(val)} for ts, val in ser.items()])
+    conn.execute(
+        insert(table),
+        [
+            {'ticker': ticker, 'date': pd.Timestamp(ts).date(), 'quote_type': quote_type, 'value': float(val)}
+            for ts, val in ser.items()
+        ],
+    )
     db_commit(message=f'Yahoo Finance adjusted prices of {ticker} ({len(ser)} rows)')
 
 
@@ -146,7 +163,8 @@ def query_portfolio_instr_adj_close(tickers: List[str]) -> pd.DataFrame:
     # stored adjusted prices: date x ticker (exact ticker match)
     table = YahooFinanceHistDataPfInstr
     stmt = select(table.ticker, table.date, table.value).where(
-        table.ticker.in_(tickers) & (table.quote_type == str(YFinHistCols.adj_close)))
+        table.ticker.in_(tickers) & (table.quote_type == str(YFinHistCols.adj_close))
+    )
     df = pd.read_sql(stmt, engine)
     if df.empty:
         return pd.DataFrame()
@@ -155,13 +173,18 @@ def query_portfolio_instr_adj_close(tickers: List[str]) -> pd.DataFrame:
 
 
 def upsert_yahoo_finance_info(ticker: str, info: Dict[str, str]):
-    rows = [{'ticker': ticker, 'quote_type': field, 'value': str(value)}
-            for field, value in info.items() if value is not None and not pd.isna(value)]
+    rows = [
+        {'ticker': ticker, 'quote_type': field, 'value': str(value)}
+        for field, value in info.items()
+        if value is not None and not pd.isna(value)
+    ]
     if not rows:
         return
     stmt = sqlite_insert(YahooFinanceProdInfo)
-    stmt = stmt.on_conflict_do_update(index_elements=[YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.quote_type],
-                                      set_={'value': stmt.excluded.value})
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.quote_type],
+        set_={'value': stmt.excluded.value},
+    )
     conn.execute(stmt, rows)
     db_commit()
 
@@ -169,7 +192,8 @@ def upsert_yahoo_finance_info(ticker: str, info: Dict[str, str]):
 def query_yahoo_finance_info_field(tickers: List[str], field: str) -> Dict[str, str]:
     # one info field per ticker (exact ticker match)
     stmt = select(YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.value).where(
-        YahooFinanceProdInfo.ticker.in_(tickers) & (YahooFinanceProdInfo.quote_type == field))
+        YahooFinanceProdInfo.ticker.in_(tickers) & (YahooFinanceProdInfo.quote_type == field)
+    )
     return dict(conn.execute(stmt).all())
 
 
@@ -182,7 +206,8 @@ def upsert_degiro_yahoo_map(product_ids: List[int], ticker: str):
 
 def query_degiro_yahoo_map(product_ids: List[int]) -> Dict[int, str]:
     stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker).where(
-        DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
+        DegiroYahooMap.product_id.in_([int(p) for p in product_ids])
+    )
     return dict(conn.execute(stmt).all())
 
 
@@ -201,14 +226,15 @@ def db_commit(message: Optional[str] = None):
         print(f'Added entry {message}.')
 
 
-def query_products(product_name: Optional[str] = None,
-                   product_id: Optional[int] = None,
-                   product_isin: Optional[str] = None,
-                   product_symbol: Optional[str] = None,
-                   product_type: Optional[ProductTypes] = None,
-                   tradable: Optional[bool] = None,
-                   exchange: Optional[Exchanges | int] = None,
-                   ) -> pd.DataFrame:
+def query_products(
+    product_name: Optional[str] = None,
+    product_id: Optional[int] = None,
+    product_isin: Optional[str] = None,
+    product_symbol: Optional[str] = None,
+    product_type: Optional[ProductTypes] = None,
+    tradable: Optional[bool] = None,
+    exchange: Optional[Exchanges | int] = None,
+) -> pd.DataFrame:
     query = select(Product)
     if isinstance(exchange, Exchanges):
         exchange = exchange.value
@@ -239,11 +265,12 @@ def query_tradable_products(product_type: ProductTypes) -> pd.DataFrame:
     return etf_info_df
 
 
-def query_degiro_hist(product_ids: int | List[int],
-                      columns: Optional[str | List[str]] = None,
-                      date_start: Optional[pd.Timestamp] = None,
-                      date_stop: Optional[pd.Timestamp] = None
-                      ) -> pd.DataFrame | Dict[str, pd.DataFrame]:
+def query_degiro_hist(
+    product_ids: int | List[int],
+    columns: Optional[str | List[str]] = None,
+    date_start: Optional[pd.Timestamp] = None,
+    date_stop: Optional[pd.Timestamp] = None,
+) -> pd.DataFrame | Dict[str, pd.DataFrame]:
     # returns a date x product_id dataframe per requested field (a single dataframe if one field is requested)
     if isinstance(product_ids, int):
         product_ids = [product_ids]
@@ -256,8 +283,9 @@ def query_degiro_hist(product_ids: int | List[int],
         cond = cond & (DegiroHistData.date >= pd.Timestamp(date_start).date())
     if date_stop is not None:
         cond = cond & (DegiroHistData.date < pd.Timestamp(date_stop).date())
-    stmt = select(DegiroHistData.product_id, DegiroHistData.date,
-                  *[DegiroHistData.__table__.c[col] for col in columns]).where(cond)
+    stmt = select(
+        DegiroHistData.product_id, DegiroHistData.date, *[DegiroHistData.__table__.c[col] for col in columns]
+    ).where(cond)
     df = pd.read_sql(stmt, engine)
     df['date'] = pd.to_datetime(df['date'])
     data = {col: df.pivot(columns='product_id', index='date', values=col).sort_index() for col in columns}
@@ -266,15 +294,14 @@ def query_degiro_hist(product_ids: int | List[int],
     return data
 
 
-def query_yahoo_finance_prod_info(isin: Optional[str | List[str]] = None,
-                                  ticker: Optional[str | List[str]] = None
-                                  ) -> pd.DataFrame:
-    def _query_yahoo_finance_prod_info_single(isin: str = None,
-                                              ticker: str = None
-                                              ) -> pd.DataFrame:
+def query_yahoo_finance_prod_info(
+    isin: Optional[str | List[str]] = None, ticker: Optional[str | List[str]] = None
+) -> pd.DataFrame:
+    def _query_yahoo_finance_prod_info_single(isin: str = None, ticker: str = None) -> pd.DataFrame:
         if isin is not None:
-            cond = ((YahooFinanceProdInfo.quote_type == YFinInfoCols.isin.value)
-                    & (YahooFinanceProdInfo.value.ilike(f'{isin}%')))
+            cond = (YahooFinanceProdInfo.quote_type == YFinInfoCols.isin.value) & (
+                YahooFinanceProdInfo.value.ilike(f'{isin}%')
+            )
             stmt = select(YahooFinanceProdInfo.ticker).where(cond)
             ticker_lst = pd.read_sql(stmt, engine)[YahooFinanceProdInfo.ticker.name].to_list()
             if ticker_lst:
@@ -290,9 +317,11 @@ def query_yahoo_finance_prod_info(isin: Optional[str | List[str]] = None,
             cond = True
         stmt = select(YahooFinanceProdInfo).where(cond)
         df = pd.read_sql(stmt, engine)
-        df = df.pivot(columns=YahooFinanceProdInfo.ticker.name,
-                      index=YahooFinanceProdInfo.quote_type.name,
-                      values=YahooFinanceProdInfo.value.name)
+        df = df.pivot(
+            columns=YahooFinanceProdInfo.ticker.name,
+            index=YahooFinanceProdInfo.quote_type.name,
+            values=YahooFinanceProdInfo.value.name,
+        )
         return df
 
     df = pd.DataFrame()
@@ -323,8 +352,10 @@ def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame
     pattern = text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')  # typed text taken literally
     info = YahooFinanceProdInfo
     names = [YFinInfoCols.name_long.value, YFinInfoCols.name_short.value]
-    conditions = [info.ticker.ilike(f'{pattern}%', escape='\\'),
-                  (info.quote_type == YFinInfoCols.isin.value) & info.value.ilike(f'{pattern}%', escape='\\')]
+    conditions = [
+        info.ticker.ilike(f'{pattern}%', escape='\\'),
+        (info.quote_type == YFinInfoCols.isin.value) & info.value.ilike(f'{pattern}%', escape='\\'),
+    ]
     if len(text) >= 3:
         conditions.append(info.quote_type.in_(names) & info.value.ilike(f'%{pattern}%', escape='\\'))
     tickers = []
@@ -335,19 +366,25 @@ def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame
     if not tickers:
         return pd.DataFrame(columns=columns)
     stmt = select(info.ticker, info.quote_type, info.value).where(
-        info.ticker.in_(tickers) & info.quote_type.in_(names + [YFinInfoCols.isin.value, YFinInfoCols.currency.value]))
-    df = pd.read_sql(stmt, engine).pivot_table(index=info.ticker.name, columns=info.quote_type.name,
-                                                values=info.value.name, aggfunc='first')
+        info.ticker.in_(tickers) & info.quote_type.in_(names + [YFinInfoCols.isin.value, YFinInfoCols.currency.value])
+    )
+    df = pd.read_sql(stmt, engine).pivot_table(
+        index=info.ticker.name, columns=info.quote_type.name, values=info.value.name, aggfunc='first'
+    )
     df = df.reindex(index=tickers, columns=names + [YFinInfoCols.isin.value, YFinInfoCols.currency.value])
     df['name'] = df[names[0]].where(df[names[0]].notna() & (df[names[0]] != ''), df[names[1]])
-    return df.rename(columns={YFinInfoCols.isin.value: 'isin', YFinInfoCols.currency.value: 'currency'}
-                     ).reset_index().rename(columns={info.ticker.name: 'ticker'})[columns]
+    return (
+        df.rename(columns={YFinInfoCols.isin.value: 'isin', YFinInfoCols.currency.value: 'currency'})
+        .reset_index()
+        .rename(columns={info.ticker.name: 'ticker'})[columns]
+    )
 
 
-def query_yahoo_finance_hist_data(tickers: Optional[str | List[str]] = None,
-                                  isin: Optional[str] = None,
-                                  columns: Optional[str | List[str] | YFinHistCols | List[YFinHistCols]] = None,
-                                  ) -> pd.DataFrame | Dict[str, pd.DataFrame]:
+def query_yahoo_finance_hist_data(
+    tickers: Optional[str | List[str]] = None,
+    isin: Optional[str] = None,
+    columns: Optional[str | List[str] | YFinHistCols | List[YFinHistCols]] = None,
+) -> pd.DataFrame | Dict[str, pd.DataFrame]:
     if isinstance(tickers, List):  # list of tickers is only possible in case of Yahoo tickers
         ticker_lst = tickers
     else:
@@ -367,9 +404,11 @@ def query_yahoo_finance_hist_data(tickers: Optional[str | List[str]] = None,
         df = pd.read_sql(stmt, engine)
         if df.empty:
             continue
-        df = df.pivot(columns=YahooFinanceHistData.ticker.name,
-                      index=YahooFinanceHistData.date.name,
-                      values=YahooFinanceHistData.value.name)
+        df = df.pivot(
+            columns=YahooFinanceHistData.ticker.name,
+            index=YahooFinanceHistData.date.name,
+            values=YahooFinanceHistData.value.name,
+        )
         df.index = pd.to_datetime(df.index)
         df = df.sort_index()
         data[col] = df

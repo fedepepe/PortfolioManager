@@ -23,21 +23,22 @@ def align_df_to_index(df: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame
     return df[~df.index.duplicated(keep='last')]
 
 
-def backtest_portfolio(prices_df: pd.DataFrame,
-                       name: Optional[str] = None,
-                       account: Optional[Accounts] = None,
-                       target_exp: Optional[pd.DataFrame | List] = None,
-                       target_units: Optional[pd.DataFrame] = None,
-                       tx_hist_df: Optional[pd.DataFrame] = None,
-                       curr_base: Currencies = Currencies.USD,
-                       initial_cash_balance: float = 1e6,
-                       div_hist_df: Optional[pd.DataFrame] = None,
-                       fx_rates_df: Optional[pd.DataFrame] = None,
-                       dep_hist_df: Optional[pd.DataFrame] = None,
-                       close_adj_df: Optional[pd.DataFrame] = None,
-                       freq_rebalancing: Optional[str] = None,
-                       id_symbol_map: Optional[Dict] = None
-                       ) -> PortfolioBacktestData:
+def backtest_portfolio(
+    prices_df: pd.DataFrame,
+    name: Optional[str] = None,
+    account: Optional[Accounts] = None,
+    target_exp: Optional[pd.DataFrame | List] = None,
+    target_units: Optional[pd.DataFrame] = None,
+    tx_hist_df: Optional[pd.DataFrame] = None,
+    curr_base: Currencies = Currencies.USD,
+    initial_cash_balance: float = 1e6,
+    div_hist_df: Optional[pd.DataFrame] = None,
+    fx_rates_df: Optional[pd.DataFrame] = None,
+    dep_hist_df: Optional[pd.DataFrame] = None,
+    close_adj_df: Optional[pd.DataFrame] = None,
+    freq_rebalancing: Optional[str] = None,
+    id_symbol_map: Optional[Dict] = None,
+) -> PortfolioBacktestData:
     if name is None and account is None:
         raise AttributeError
     if account is not None:
@@ -68,19 +69,23 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     # build initial portfolio
     if account is not None:
         if account.broker == Brokers.DEGIRO:
-            portfolio = PortfolioDegiro(tickers=prices_df.columns.to_list(),
-                                        base_currency=account.currency,
-                                        initial_cash_balance=initial_cash_balance)
+            portfolio = PortfolioDegiro(
+                tickers=prices_df.columns.to_list(),
+                base_currency=account.currency,
+                initial_cash_balance=initial_cash_balance,
+            )
         else:
             raise NotImplementedError
     else:
-        portfolio = Portfolio(tickers=prices_df.columns.to_list(),
-                              base_currency=curr_base,
-                              initial_cash_balance=initial_cash_balance,
-                              txn_costs_prop_bp=10,
-                              max_target_dev=0.01,
-                              min_cash_amount=0.,
-                              min_cash_ratio=0.001)  # 0.1% of the NAV kept in cash to pay the transaction costs
+        portfolio = Portfolio(
+            tickers=prices_df.columns.to_list(),
+            base_currency=curr_base,
+            initial_cash_balance=initial_cash_balance,
+            txn_costs_prop_bp=10,
+            max_target_dev=0.01,
+            min_cash_amount=0.0,
+            min_cash_ratio=0.001,
+        )  # 0.1% of the NAV kept in cash to pay the transaction costs
 
     # loop over t
     for t in np.arange(0, len(prices_df)):
@@ -138,12 +143,12 @@ def backtest_portfolio(prices_df: pd.DataFrame,
     txn_values = pd.DataFrame(txn_values, columns=prices_df.columns, index=prices_df.index)
     txn_costs = pd.DataFrame(txn_costs, columns=prices_df.columns, index=prices_df.index)
     dividends = pd.DataFrame(dividends, columns=prices_df.columns, index=prices_df.index)
-    amounts_invested = - (txn_values + txn_costs).where(units > 0).cumsum().shift(1)
+    amounts_invested = -(txn_values + txn_costs).where(units > 0).cumsum().shift(1)
     amounts_invested = amounts_invested.replace(0, np.nan).bfill(limit=1).ffill(limit=1)
     yield_dividends = dividends.div(amounts_invested).resample('Y').sum()
     deposits = pd.Series(deposits, name='Deposits', index=prices_df.index)
-    returns = (nav - deposits).div(nav.shift(1)).sub(1.).fillna(0.)
-    nav_eff = 100. * returns.add(1.).cumprod().rename('NAV Effective')
+    returns = (nav - deposits).div(nav.shift(1)).sub(1.0).fillna(0.0)
+    nav_eff = 100.0 * returns.add(1.0).cumprod().rename('NAV Effective')
     cum_pnl = prices_df.mul(units).diff().add(dividends).add(txn_values).add(txn_costs).cumsum()
     yield_total_tmp = cum_pnl.resample('Y').last().div(amounts_invested.resample('Y').mean())
     yield_total = yield_total_tmp.diff().fillna(yield_total_tmp)
@@ -155,26 +160,30 @@ def backtest_portfolio(prices_df: pd.DataFrame,
         close_adj_df = close_adj_df.reindex(index=prices_df.index).ffill()
         missing_tickers = [t for t in prices_df if t not in close_adj_df]
         if len(missing_tickers) == prices_df.shape[1]:
-            logging.warning(f'{name}: no adjusted prices match the instruments of the portfolio, '
-                            f'using unadjusted prices for all of them')
+            logging.warning(
+                f'{name}: no adjusted prices match the instruments of the portfolio, '
+                f'using unadjusted prices for all of them'
+            )
         close_adj_df[missing_tickers] = prices_df[missing_tickers]
         close_adj_df = close_adj_df[prices_df.columns]
 
-    hist_portfolio_data = PortfolioBacktestData(name=name,
-                                                nav=nav,
-                                                cum_pnl=cum_pnl,
-                                                yield_dividends=yield_dividends,
-                                                yield_total=yield_total,
-                                                units=units,
-                                                target_weights=None,
-                                                effective_weights=effective_weights_df,
-                                                transaction_value=txn_values,
-                                                transaction_costs=txn_costs,
-                                                prices=prices_df,
-                                                dividends=dividends.resample('M').sum(),
-                                                fx_rates=fx_rates_df,
-                                                deposits=deposits,
-                                                nav_eff=nav_eff,
-                                                close_adj=close_adj_df,
-                                                id_symbol_map=id_symbol_map)
+    hist_portfolio_data = PortfolioBacktestData(
+        name=name,
+        nav=nav,
+        cum_pnl=cum_pnl,
+        yield_dividends=yield_dividends,
+        yield_total=yield_total,
+        units=units,
+        target_weights=None,
+        effective_weights=effective_weights_df,
+        transaction_value=txn_values,
+        transaction_costs=txn_costs,
+        prices=prices_df,
+        dividends=dividends.resample('M').sum(),
+        fx_rates=fx_rates_df,
+        deposits=deposits,
+        nav_eff=nav_eff,
+        close_adj=close_adj_df,
+        id_symbol_map=id_symbol_map,
+    )
     return hist_portfolio_data

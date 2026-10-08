@@ -20,8 +20,9 @@ class AdjPrices(NamedTuple):
     summary: str  # where the prices come from, for logs and the dashboard
 
 
-def _fetch_from_yahoo(isin: Optional[str], symbol: Optional[str], name: Optional[str]
-                      ) -> Optional[Tuple[str, pd.Series, Dict]]:
+def _fetch_from_yahoo(
+    isin: Optional[str], symbol: Optional[str], name: Optional[str]
+) -> Optional[Tuple[str, pd.Series, Dict]]:
     # (Yahoo ticker, adjusted prices in the instrument currency, instrument info), None if no data is found
     data = fetch_instr_hist_data(isin_lst=[isin], columns=YFinHistCols.adj_close, ticker_lst=[symbol], name_lst=[name])
     prices_df = data[YFinHistCols.adj_close].dropna(axis=1, how='all')
@@ -45,9 +46,11 @@ def get_portfolio_adj_prices(account: Accounts) -> AdjPrices:
         result = None
         if online:
             try:
-                result = _fetch_from_yahoo(isin=None if is_missing(first['isin']) else first['isin'],
-                                           symbol=None if is_missing(first['symbol']) else first['symbol'],
-                                           name=None if is_missing(first['name']) else first['name'])
+                result = _fetch_from_yahoo(
+                    isin=None if is_missing(first['isin']) else first['isin'],
+                    symbol=None if is_missing(first['symbol']) else first['symbol'],
+                    name=None if is_missing(first['name']) else first['name'],
+                )
             except Exception as e:  # any download problem: fall back to the stored prices
                 logging.warning(f'Yahoo Finance download failed for {first["name"]}: {e}')
         if result is not None:
@@ -72,8 +75,9 @@ def get_portfolio_adj_prices(account: Accounts) -> AdjPrices:
     missing.extend([p for p, t in ticker_by_product.items() if t not in tickers])
     prices = pd.DataFrame()
     if tickers:
-        base_df = prices_to_base_curr(account=account, price_df=raw_df[tickers],
-                                      curr_info=[currencies[t] for t in tickers])
+        base_df = prices_to_base_curr(
+            account=account, price_df=raw_df[tickers], curr_info=[currencies[t] for t in tickers]
+        )
         prices = pd.DataFrame({p: base_df[t] for p, t in ticker_by_product.items() if t in base_df.columns})
 
     parts = [f'{len(downloaded)} downloaded from Yahoo Finance'] if online else []

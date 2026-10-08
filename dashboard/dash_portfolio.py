@@ -22,88 +22,160 @@ from yahoo_finance.yahoo_finance import YFinHistCols, YFinInfoCols
 def build_content_portfolio(account: Accounts):
     # layout only: the figures are filled by the render callbacks, which also run when the page is loaded
     return html.Div(
-        dbc.Card([
-            dbc.Row([
-                dbc.Col([dcc.Dropdown([acc.name for acc in Accounts], account.name,
-                                      id='dropdown-portfolio', clearable=False)],
-                        style={"width": "15%"}),
-                dbc.Col([dbc.Button("Update", id="button-update", className="me-2", n_clicks=0)],
-                        style={"width": "10%"}),
-                dbc.Col([loading_wrapper(html.Div(id='update-status'))], style={"width": "10%"}),
-                dbc.Col([], style={"width": "10%"}),
-            ], align='center'),
-            html.Br(),
-            dbc.Row([
-                dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_empty()))), style={'width': '10%'}),
-                dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_empty()))), style={'width': '10%'}),
-                dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_empty()))), style={'width': '10%'}),
-                dbc.Col(loading_wrapper(card_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_empty()))), style={'width': '10%'}),
-            ], align='center'),
-            html.Br(),
-            dbc.Row([
-                dbc.Col(loading_wrapper(
-                    card_wrapper(dcc.Graph(id='fig_pf_hist_sharpe', figure=get_fig_empty()))), style={'width': '10%'}),
-                dbc.Col(loading_wrapper(
-                    card_wrapper(dcc.Graph(id='fig_risk_contrib', figure=get_fig_empty()))), style={'width': '10%'}),
-                dbc.Col(loading_wrapper(
-                    card_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_empty()))), style={'width': '10%'}),
-                dbc.Col(loading_wrapper(
-                    card_wrapper(dcc.Graph(id='fig_monthly_ret', figure=get_fig_empty()))), style={'width': '10%'}),
-            ], align='center'),
-            html.Br(),
-            dbc.Row([
-                dbc.Col([
-                    # options are filled while typing from the instruments in the database
-                    dbc.Row([dcc.Dropdown(id='dropdown_instr', options=[], placeholder="Enter ticker, ISIN or name...",
-                                          searchable=True, clearable=True),
-                             loading_wrapper(dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())),
-                             ], align='center')
-                ], style={"width": "15%"}),
-            ], align='center'),
-            html.Br()
-        ], body=True, color='dark'
+        dbc.Card(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dcc.Dropdown(
+                                    [acc.name for acc in Accounts],
+                                    account.name,
+                                    id='dropdown-portfolio',
+                                    clearable=False,
+                                )
+                            ],
+                            style={'width': '15%'},
+                        ),
+                        dbc.Col(
+                            [dbc.Button('Update', id='button-update', className='me-2', n_clicks=0)],
+                            style={'width': '10%'},
+                        ),
+                        dbc.Col([loading_wrapper(html.Div(id='update-status'))], style={'width': '10%'}),
+                        dbc.Col([], style={'width': '10%'}),
+                    ],
+                    align='center',
+                ),
+                html.Br(),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_empty()))),
+                            style={'width': '10%'},
+                        ),
+                        dbc.Col(
+                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_empty()))),
+                            style={'width': '10%'},
+                        ),
+                        dbc.Col(
+                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_empty()))),
+                            style={'width': '10%'},
+                        ),
+                        dbc.Col(
+                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_empty()))),
+                            style={'width': '10%'},
+                        ),
+                    ],
+                    align='center',
+                ),
+                html.Br(),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_pf_hist_sharpe', figure=get_fig_empty()))),
+                            style={'width': '10%'},
+                        ),
+                        dbc.Col(
+                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_risk_contrib', figure=get_fig_empty()))),
+                            style={'width': '10%'},
+                        ),
+                        dbc.Col(
+                            loading_wrapper(
+                                card_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_empty()))
+                            ),
+                            style={'width': '10%'},
+                        ),
+                        dbc.Col(
+                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_monthly_ret', figure=get_fig_empty()))),
+                            style={'width': '10%'},
+                        ),
+                    ],
+                    align='center',
+                ),
+                html.Br(),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                # options are filled while typing from the instruments in the database
+                                dbc.Row(
+                                    [
+                                        dcc.Dropdown(
+                                            id='dropdown_instr',
+                                            options=[],
+                                            placeholder='Enter ticker, ISIN or name...',
+                                            searchable=True,
+                                            clearable=True,
+                                        ),
+                                        loading_wrapper(
+                                            dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())
+                                        ),
+                                    ],
+                                    align='center',
+                                )
+                            ],
+                            style={'width': '15%'},
+                        ),
+                    ],
+                    align='center',
+                ),
+                html.Br(),
+            ],
+            body=True,
+            color='dark',
         ),
     )
 
 
 # NAV ADJUSTED LINE PLOT
 def get_fig_navs(pf_data: PortfolioData, bm_data: PortfolioBacktestData) -> go.Figure:
-    fig_navs = go.Figure(data=[go.Scatter(x=pf_data.hist_data.nav_eff.index,
-                                          y=pf_data.hist_data.nav_eff.values,
-                                          name='Portfolio',
-                                          mode='lines',
-                                          hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>')],
-                         layout=go.Layout(xaxis_title=dict(text='Date'),
-                                          yaxis_title=dict(text='NAV (adjusted)'),
-                                          template=LAYOUT_TEMPLATE,
-                                          legend=dict(orientation="h",
-                                                      yanchor="bottom",
-                                                      y=1.0,
-                                                      xanchor="right",
-                                                      x=1))
-                         )
-    fig_navs.add_trace(go.Scatter(x=bm_data.nav_eff.index,
-                                  y=bm_data.nav_eff.values,
-                                  name='Benchmark',
-                                  mode='lines',
-                                  hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+    fig_navs = go.Figure(
+        data=[
+            go.Scatter(
+                x=pf_data.hist_data.nav_eff.index,
+                y=pf_data.hist_data.nav_eff.values,
+                name='Portfolio',
+                mode='lines',
+                hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+            )
+        ],
+        layout=go.Layout(
+            xaxis_title=dict(text='Date'),
+            yaxis_title=dict(text='NAV (adjusted)'),
+            template=LAYOUT_TEMPLATE,
+            legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='right', x=1),
+        ),
+    )
+    fig_navs.add_trace(
+        go.Scatter(
+            x=bm_data.nav_eff.index,
+            y=bm_data.nav_eff.values,
+            name='Benchmark',
+            mode='lines',
+            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+        )
+    )
     return fig_navs
 
 
 # PORTFOLIO ALLOCATION PIE CHART
 def get_fig_allocation(pf_data: PortfolioData) -> go.Figure:
-    return go.Figure(data=[go.Pie(labels=pf_data.alloc_risk_df[AllocationRiskLabels.SYMBOL],
-                                  values=pf_data.alloc_risk_df[AllocationRiskLabels.ALLOCATION],
-                                  customdata=pf_data.alloc_risk_df[[AllocationRiskLabels.NAME]],
-                                  hovertemplate="%{customdata[0]}<br>%{value:.2%}<br><extra></extra>",
-                                  direction='clockwise',
-                                  hole=.4,
-                                  sort=False)],
-                     layout=go.Layout(
-                         title=dict(text="Portfolio allocation"),
-                         legend=dict(orientation='h', y=-0.1),
-                         template=LAYOUT_TEMPLATE
-                     ))
+    return go.Figure(
+        data=[
+            go.Pie(
+                labels=pf_data.alloc_risk_df[AllocationRiskLabels.SYMBOL],
+                values=pf_data.alloc_risk_df[AllocationRiskLabels.ALLOCATION],
+                customdata=pf_data.alloc_risk_df[[AllocationRiskLabels.NAME]],
+                hovertemplate='%{customdata[0]}<br>%{value:.2%}<br><extra></extra>',
+                direction='clockwise',
+                hole=0.4,
+                sort=False,
+            )
+        ],
+        layout=go.Layout(
+            title=dict(text='Portfolio allocation'), legend=dict(orientation='h', y=-0.1), template=LAYOUT_TEMPLATE
+        ),
+    )
 
 
 # ASSET CORRELATION MATRIX HEATMAP
@@ -111,89 +183,114 @@ def get_fig_corr(pf_data: PortfolioData) -> go.Figure:
     corr_df = compute_corr_mat(pf_data.returns_adj_weekly_df)
     col_name_dct = dict(pf_data.prod_df['symbol'])
     labels = corr_df.rename(columns=col_name_dct).columns.to_list()
-    return go.Figure(data=[go.Heatmap(z=corr_df.values,
-                                      x=labels,
-                                      y=list(reversed(labels)),
-                                      colorscale='RdBu_r',
-                                      zmin=-1,
-                                      zmax=1,
-                                      xgap=1,
-                                      ygap=1,
-                                      hoverongaps=False)],
-                     layout=go.Layout(title=dict(text="Asset correlation matrix"),
-                                      template=LAYOUT_TEMPLATE,
-                                      xaxis=dict(side='top', scaleanchor="y", constrain="domain"),
-                                      yaxis=dict(scaleanchor="x", constrain="domain")
-                                      ))
+    return go.Figure(
+        data=[
+            go.Heatmap(
+                z=corr_df.values,
+                x=labels,
+                y=list(reversed(labels)),
+                colorscale='RdBu_r',
+                zmin=-1,
+                zmax=1,
+                xgap=1,
+                ygap=1,
+                hoverongaps=False,
+            )
+        ],
+        layout=go.Layout(
+            title=dict(text='Asset correlation matrix'),
+            template=LAYOUT_TEMPLATE,
+            xaxis=dict(side='top', scaleanchor='y', constrain='domain'),
+            yaxis=dict(scaleanchor='x', constrain='domain'),
+        ),
+    )
 
 
 # RISK ALLOCATION PIE CHART
 def get_fig_risk_contrib(pf_data: PortfolioData) -> go.Figure:
-    return go.Figure(data=[go.Pie(labels=pf_data.alloc_risk_df[AllocationRiskLabels.SYMBOL],
-                                  values=pf_data.alloc_risk_df[AllocationRiskLabels.RISK_CONTRIB],
-                                  customdata=pf_data.alloc_risk_df[[AllocationRiskLabels.NAME]],
-                                  hovertemplate="%{customdata[0]}<br>%{value:.2%}<br><extra></extra>",
-                                  direction='clockwise',
-                                  hole=.4,
-                                  sort=False)],
-                     layout=go.Layout(
-                         title=dict(text="Risk allocation"),
-                         legend=dict(orientation='h', y=-0.1),
-                         template=LAYOUT_TEMPLATE
-                     ))
+    return go.Figure(
+        data=[
+            go.Pie(
+                labels=pf_data.alloc_risk_df[AllocationRiskLabels.SYMBOL],
+                values=pf_data.alloc_risk_df[AllocationRiskLabels.RISK_CONTRIB],
+                customdata=pf_data.alloc_risk_df[[AllocationRiskLabels.NAME]],
+                hovertemplate='%{customdata[0]}<br>%{value:.2%}<br><extra></extra>',
+                direction='clockwise',
+                hole=0.4,
+                sort=False,
+            )
+        ],
+        layout=go.Layout(
+            title=dict(text='Risk allocation'), legend=dict(orientation='h', y=-0.1), template=LAYOUT_TEMPLATE
+        ),
+    )
 
 
 # PERFORMANCE METRICS TABLE
 def get_fig_perf(pf_data: PortfolioData) -> go.Figure:
-    return get_fig_metrics_table({'Portfolio': pf_data.perf_dct[PerfDataTabs.RISK_METRICS],
-                                  'Benchmark': pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS]})
+    return get_fig_metrics_table(
+        {
+            'Portfolio': pf_data.perf_dct[PerfDataTabs.RISK_METRICS],
+            'Benchmark': pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS],
+        }
+    )
 
 
 # HISTORICAL SHARPE RATIO LINE PLOT
 def get_fig_hist_sharpe(pf_data: PortfolioData) -> go.Figure:
     hist_perf_df = pf_data.perf_dct[PerfDataTabs.HIST_PERF_METRICS]
-    fig_sharpe = go.Figure(data=[go.Scatter(x=hist_perf_df.index,
-                                            y=hist_perf_df[Metrics.SHARPE_RATIO.name],
-                                            name='Portfolio',
-                                            mode='lines',
-                                            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>')],
-                           layout=go.Layout(xaxis_title=dict(text='Date'),
-                                            yaxis_title=dict(text=Metrics.SHARPE_RATIO.name),
-                                            template=LAYOUT_TEMPLATE,
-                                            legend=dict(orientation="h",
-                                                        yanchor="bottom",
-                                                        y=1.0,
-                                                        xanchor="right",
-                                                        x=1))
-                           )
+    fig_sharpe = go.Figure(
+        data=[
+            go.Scatter(
+                x=hist_perf_df.index,
+                y=hist_perf_df[Metrics.SHARPE_RATIO.name],
+                name='Portfolio',
+                mode='lines',
+                hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+            )
+        ],
+        layout=go.Layout(
+            xaxis_title=dict(text='Date'),
+            yaxis_title=dict(text=Metrics.SHARPE_RATIO.name),
+            template=LAYOUT_TEMPLATE,
+            legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='right', x=1),
+        ),
+    )
     hist_perf_bm_df = pf_data.perf_bm_dct[PerfDataTabs.HIST_PERF_METRICS]
-    fig_sharpe.add_trace(go.Scatter(x=hist_perf_bm_df.index,
-                                    y=hist_perf_bm_df[Metrics.SHARPE_RATIO.name].values,
-                                    name='Benchmark',
-                                    mode='lines',
-                                    hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+    fig_sharpe.add_trace(
+        go.Scatter(
+            x=hist_perf_bm_df.index,
+            y=hist_perf_bm_df[Metrics.SHARPE_RATIO.name].values,
+            name='Benchmark',
+            mode='lines',
+            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+        )
+    )
     return fig_sharpe
 
 
 # MONTHLY RETURNS HISTOGRAM CHART
 def get_fig_monthly_ret(pf_data: PortfolioData) -> go.Figure:
     return go.Figure(
-        data=[go.Histogram(x=pf_data.perf_dct[PerfDataTabs.RETURNS_MONTHLY]['return'].values,
-                           histnorm='probability',
-                           name='return'
-                           )],
-        layout=go.Layout(title=dict(text="Monthly returns distribution"),
-                         xaxis_title=dict(text='Return'),
-                         yaxis_title=dict(text='Frequency'),
-                         bargap=0.1,
-                         template=LAYOUT_TEMPLATE)
+        data=[
+            go.Histogram(
+                x=pf_data.perf_dct[PerfDataTabs.RETURNS_MONTHLY]['return'].values, histnorm='probability', name='return'
+            )
+        ],
+        layout=go.Layout(
+            title=dict(text='Monthly returns distribution'),
+            xaxis_title=dict(text='Return'),
+            yaxis_title=dict(text='Frequency'),
+            bargap=0.1,
+            template=LAYOUT_TEMPLATE,
+        ),
     )
 
 
 # PORTFOLIO INSTRUMENTS ADJUSTED CLOSE
-def get_fig_pf_instr_adj_close(pf_data: PortfolioData,
-                               currency: str,
-                               is_visible: Optional[List[bool]] = None) -> go.Figure:
+def get_fig_pf_instr_adj_close(
+    pf_data: PortfolioData, currency: str, is_visible: Optional[List[bool]] = None
+) -> go.Figure:
     # with some instruments hidden, the visible ones are rebased to 100 to make them comparable
     instruments = pf_data.alloc_risk_df.index.drop('Cash')
     if is_visible is None:
@@ -205,18 +302,22 @@ def get_fig_pf_instr_adj_close(pf_data: PortfolioData,
         visible_df = visible_df.ffill().dropna(how='all')
         visible_df = visible_df.apply(lambda x: x.div(x.dropna().iloc[0]).mul(100))
     y_label = 'Adjusted Closing Price (rebased to 100)' if rebase else f'Adjusted Closing Price [{currency}]'
-    fig_pf_instr_adj_close = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
-                                                        yaxis_title=dict(text=y_label),
-                                                        template=LAYOUT_TEMPLATE))
+    fig_pf_instr_adj_close = go.Figure(
+        layout=go.Layout(xaxis_title=dict(text='Date'), yaxis_title=dict(text=y_label), template=LAYOUT_TEMPLATE)
+    )
     col_name_dct = dict(pf_data.prod_df['symbol'])
     for col, visible in zip(instruments, is_visible):
         ser = visible_df[col] if rebase and visible else close_adj_df[col].ffill()
-        fig_pf_instr_adj_close.add_trace(go.Scatter(x=ser.index,
-                                                    y=ser,
-                                                    name=col_name_dct[col],
-                                                    visible=True if visible else 'legendonly',
-                                                    mode='lines',
-                                                    hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+        fig_pf_instr_adj_close.add_trace(
+            go.Scatter(
+                x=ser.index,
+                y=ser,
+                name=col_name_dct[col],
+                visible=True if visible else 'legendonly',
+                mode='lines',
+                hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+            )
+        )
     return fig_pf_instr_adj_close
 
 
@@ -239,10 +340,14 @@ def get_visibility_after_restyle(figure: Optional[dict], restyle_data: Optional[
 
 # INSTRUMENT ADJUSTED CLOSE
 def get_fig_instr_adj_close(title: Optional[str] = None) -> go.Figure:
-    return go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
-                                      yaxis_title=dict(text='Adjusted Closing Price'),
-                                      template=LAYOUT_TEMPLATE,
-                                      title=title))
+    return go.Figure(
+        layout=go.Layout(
+            xaxis_title=dict(text='Date'),
+            yaxis_title=dict(text='Adjusted Closing Price'),
+            template=LAYOUT_TEMPLATE,
+            title=title,
+        )
+    )
 
 
 def with_ui_revision(fig: go.Figure, account_name: str) -> go.Figure:
@@ -254,7 +359,7 @@ def with_ui_revision(fig: go.Figure, account_name: str) -> go.Figure:
 @callback(
     Output('store-account', 'data', allow_duplicate=True),
     Input('dropdown-portfolio', 'value'),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def select_account(account_name: str) -> str:
     return account_name
@@ -276,13 +381,15 @@ def render_portfolio(account_name: str, data_version) -> Tuple:
     account = Accounts.get_account_by_name(name=account_name)
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
-    figs = (get_fig_navs(pf_data, bm_data),
-            get_fig_allocation(pf_data),
-            get_fig_perf(pf_data),
-            get_fig_corr(pf_data),
-            get_fig_hist_sharpe(pf_data),
-            get_fig_risk_contrib(pf_data),
-            get_fig_monthly_ret(pf_data))
+    figs = (
+        get_fig_navs(pf_data, bm_data),
+        get_fig_allocation(pf_data),
+        get_fig_perf(pf_data),
+        get_fig_corr(pf_data),
+        get_fig_hist_sharpe(pf_data),
+        get_fig_risk_contrib(pf_data),
+        get_fig_monthly_ret(pf_data),
+    )
     return tuple(with_ui_revision(fig, account_name) for fig in figs)
 
 
@@ -312,7 +419,7 @@ def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, fig
     Output('update-status', 'children'),
     Input('button-update', 'n_clicks'),
     State('dropdown-portfolio', 'value'),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def run_update(n_clicks, account_name: str) -> Tuple:
     # Dash also calls this when the page is built (prevent_initial_call does not apply, since
@@ -329,17 +436,21 @@ def run_update(n_clicks, account_name: str) -> Tuple:
     Input('dropdown_instr', 'search_value'),
     State('dropdown_instr', 'value'),
     State('dropdown_instr', 'options'),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def search_instruments(search_value: Optional[str], value: Optional[str], options: Optional[List]) -> List:
     if not search_value or not search_value.strip():
         raise PreventUpdate  # keep the current options, so that the selected instrument stays displayed
     results_df = search_yahoo_finance_instruments(text=search_value)
-    new_options = [{'label': f'{r.ticker} - {r.name}' if isinstance(r.name, str) and r.name else r.ticker,
-                    'value': r.ticker,
-                    # the dropdown also filters the options while typing: let it match ticker, ISIN and name
-                    'search': ' '.join(str(v) for v in (r.ticker, r.isin, r.name) if isinstance(v, str))}
-                   for r in results_df.itertuples()]
+    new_options = [
+        {
+            'label': f'{r.ticker} - {r.name}' if isinstance(r.name, str) and r.name else r.ticker,
+            'value': r.ticker,
+            # the dropdown also filters the options while typing: let it match ticker, ISIN and name
+            'search': ' '.join(str(v) for v in (r.ticker, r.isin, r.name) if isinstance(v, str)),
+        }
+        for r in results_df.itertuples()
+    ]
     # the selected instrument must stay among the options to remain displayed
     if value is not None and value not in [o['value'] for o in new_options]:
         new_options += [o for o in (options or []) if o['value'] == value]
@@ -351,7 +462,7 @@ def search_instruments(search_value: Optional[str], value: Optional[str], option
     Output('fig_instr_adj_close', 'figure'),
     Input('dropdown_instr', 'value'),
     State('dropdown-portfolio', 'value'),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def update_instr_adj_close_fig(ticker: Optional[str], account_name: str) -> go.Figure:
     if not ticker:  # cleared selection
@@ -364,31 +475,40 @@ def update_instr_adj_close_fig(ticker: Optional[str], account_name: str) -> go.F
     name = info.get(YFinInfoCols.name_long.value) or info.get(YFinInfoCols.name_short.value) or ticker
     currency = info[YFinInfoCols.currency.value]
     # download only the selected listing (by ticker, not by a search returning several listings)
-    df = fetch_instr_hist_data(isin_lst=[None],
-                               columns=YFinHistCols.adj_close,
-                               ticker_lst=ticker,
-                               name_lst=name)[YFinHistCols.adj_close]
+    df = fetch_instr_hist_data(isin_lst=[None], columns=YFinHistCols.adj_close, ticker_lst=ticker, name_lst=name)[
+        YFinHistCols.adj_close
+    ]
     # Yahoo Finance may return no usable history for the matched instrument
     df = df.dropna(axis=1, how='all')
     if df.empty:
         return get_fig_instr_adj_close(title=f'No price history found for {name} ({ticker})')
-    df_base = prices_to_base_curr(account=account,
-                                  price_df=df,
-                                  curr_info=[currency])
-    fig = go.Figure(layout=go.Layout(xaxis_title=dict(text='Date'),
-                                     yaxis_title=dict(text=f'Adjusted Closing Price'),
-                                     template=LAYOUT_TEMPLATE,
-                                     title=name,
-                                     showlegend=True))
-    fig.add_trace(go.Scatter(x=df.index,
-                             y=df.iloc[:, 0],
-                             name=f'{df.columns[0]} [{currency}]',
-                             mode='lines',
-                             hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+    df_base = prices_to_base_curr(account=account, price_df=df, curr_info=[currency])
+    fig = go.Figure(
+        layout=go.Layout(
+            xaxis_title=dict(text='Date'),
+            yaxis_title=dict(text=f'Adjusted Closing Price'),
+            template=LAYOUT_TEMPLATE,
+            title=name,
+            showlegend=True,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=df.iloc[:, 0],
+            name=f'{df.columns[0]} [{currency}]',
+            mode='lines',
+            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+        )
+    )
     if not df_base.empty:
-        fig.add_trace(go.Scatter(x=df_base.index,
-                                 y=df_base.iloc[:, 0],
-                                 name=f'{df.columns[0]} [{account.currency}]',
-                                 mode='lines',
-                                 hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>'))
+        fig.add_trace(
+            go.Scatter(
+                x=df_base.index,
+                y=df_base.iloc[:, 0],
+                name=f'{df.columns[0]} [{account.currency}]',
+                mode='lines',
+                hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+            )
+        )
     return fig

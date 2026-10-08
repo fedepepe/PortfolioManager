@@ -6,12 +6,13 @@ from database.db_conn import Base
 from database.table_definitions import YahooFinanceProdInfo
 
 INSTRUMENTS = {
-    'HYLD.L': {'longName': 'iShares Global High Yield Corp Bond UCITS ETF USD (Dist)', 'isin': 'IE00B74DQ490',
-               'currency': 'USD'},
-    'HYLA.L': {'longName': 'iShares Global High Yield Corp Bond UCITS ETF', 'isin': 'IE00BYWZ0440',
-               'currency': 'USD'},
-    'IWDC.SW': {'longName': 'iShares MSCI World CHF Hedged UCITS ETF (Acc)', 'isin': 'IE00B8BVCK12',
-                'currency': 'CHF'},
+    'HYLD.L': {
+        'longName': 'iShares Global High Yield Corp Bond UCITS ETF USD (Dist)',
+        'isin': 'IE00B74DQ490',
+        'currency': 'USD',
+    },
+    'HYLA.L': {'longName': 'iShares Global High Yield Corp Bond UCITS ETF', 'isin': 'IE00BYWZ0440', 'currency': 'USD'},
+    'IWDC.SW': {'longName': 'iShares MSCI World CHF Hedged UCITS ETF (Acc)', 'isin': 'IE00B8BVCK12', 'currency': 'CHF'},
     'XYZ': {'shortName': 'Short name only 50% fund', 'isin': 'US0000000001', 'currency': 'USD'},
 }
 

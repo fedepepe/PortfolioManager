@@ -21,19 +21,20 @@ class ChartType(str, Enum):
     VOLUME = 'volume'
 
 
-def fetch_hist_data_single(chart_fetcher: ChartFetcher,
-                           vwd_id: int,
-                           period: Interval = Interval.P10Y,
-                           resolution: Interval = Interval.P1D,
-                           ) -> pd.DataFrame:
+def fetch_hist_data_single(
+    chart_fetcher: ChartFetcher,
+    vwd_id: int,
+    period: Interval = Interval.P10Y,
+    resolution: Interval = Interval.P1D,
+) -> pd.DataFrame:
     # fetch price, ohlc and volume series of one product in a single request
     chart_request = ChartRequest(
-        culture="en-US",
+        culture='en-US',
         period=period,
-        requestid="1",
+        requestid='1',
         resolution=resolution,
-        series=[f"{chart_type.value}:issueid:{int(vwd_id)}" for chart_type in ChartType],
-        tz="Europe/Paris",
+        series=[f'{chart_type.value}:issueid:{int(vwd_id)}' for chart_type in ChartType],
+        tz='Europe/Paris',
     )
     data = chart_fetcher.get_chart(chart_request=chart_request, raw=False)
     hist_df = pd.DataFrame()
@@ -50,14 +51,15 @@ def fetch_hist_data_single(chart_fetcher: ChartFetcher,
     return hist_df
 
 
-def fetch_charts(degiro_conn: Optional[API] = None,
-                 product_ids: Optional[int | List[int]] = None,
-                 product_info_df: Optional[pd.DataFrame] = None,
-                 chart_type: ChartType = ChartType.PRICE,
-                 period: Optional[Interval] = Interval.P10Y,
-                 resolution: Optional[Interval] = Interval.P1D,
-                 return_df: bool = True,
-                 ) -> pd.DataFrame:
+def fetch_charts(
+    degiro_conn: Optional[API] = None,
+    product_ids: Optional[int | List[int]] = None,
+    product_info_df: Optional[pd.DataFrame] = None,
+    chart_type: ChartType = ChartType.PRICE,
+    period: Optional[Interval] = Interval.P10Y,
+    resolution: Optional[Interval] = Interval.P1D,
+    return_df: bool = True,
+) -> pd.DataFrame:
     # all historical data is stored into the database; the chart_type column is returned if return_df is True
     if degiro_conn is None:
         degiro_conn = get_degiro_connection()
@@ -78,10 +80,11 @@ def fetch_charts(degiro_conn: Optional[API] = None,
     if not all([s == 'issueid' for s in product_info_df['vwd_identifier_type'].to_list()]):
         for prod_id in product_info_df.index:
             if product_info_df.loc[prod_id, 'vwd_identifier_type'] != 'issueid':
-                vwd_id_found = (product_info_df.loc[
-                    (product_info_df['name'] == product_info_df.loc[prod_id, 'name']) &
-                    (product_info_df['vwd_identifier_type'] == 'issueid'),
-                    'vwd_id'])
+                vwd_id_found = product_info_df.loc[
+                    (product_info_df['name'] == product_info_df.loc[prod_id, 'name'])
+                    & (product_info_df['vwd_identifier_type'] == 'issueid'),
+                    'vwd_id',
+                ]
                 if not vwd_id_found.empty:
                     product_info_df.loc[prod_id, 'vwd_id'] = int(vwd_id_found.iloc[0])
     # restrict product_info_df to entries with a valid vwd_id
@@ -89,10 +92,9 @@ def fetch_charts(degiro_conn: Optional[API] = None,
     product_ids = product_info_df['id'].astype(int).to_list()
     vwd_ids = [product_info_df.loc[prod_id, 'vwd_id'] for prod_id in product_ids]
     for vwd_id, product_id in zip(vwd_ids, product_ids):
-        hist_df = fetch_hist_data_single(chart_fetcher=chart_fetcher,
-                                         vwd_id=vwd_id,
-                                         period=period,
-                                         resolution=resolution)
+        hist_df = fetch_hist_data_single(
+            chart_fetcher=chart_fetcher, vwd_id=vwd_id, period=period, resolution=resolution
+        )
         if hist_df.empty:
             continue
         insert_degiro_hist(product_id=product_id, df=hist_df)
@@ -101,10 +103,12 @@ def fetch_charts(degiro_conn: Optional[API] = None,
     return chart_df.sort_index()
 
 
-def save_charts(account: Accounts,
-                chart_df: pd.DataFrame,
-                chart_name: str = PRODUCTS_CHART_FILE_NAME,
-                chart_type: ChartType = ChartType.PRICE):
+def save_charts(
+    account: Accounts,
+    chart_df: pd.DataFrame,
+    chart_name: str = PRODUCTS_CHART_FILE_NAME,
+    chart_type: ChartType = ChartType.PRICE,
+):
     file_name = f'{account.name}_{chart_name}_{chart_type.value}'
     try:
         df_old = load_df_from_excel(file_name=file_name, folder_name=DATA_DIR)
@@ -115,31 +119,30 @@ def save_charts(account: Accounts,
     save_df_to_excel(df=chart_df, file_name=file_name, folder_name=DATA_DIR)
 
 
-def fetch_portfolio_charts(account: Accounts,
-                           degiro_conn: Optional[API] = None):
+def fetch_portfolio_charts(account: Accounts, degiro_conn: Optional[API] = None):
     products_df = load_portfolio_products(account=account)
     chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=list(set(products_df['id'].astype(int).to_list())))
     save_charts(chart_df=chart_df, account=account)
 
 
-def load_portfolio_charts(account: Accounts,
-                          chart_name: str = PRODUCTS_CHART_FILE_NAME,
-                          chart_type: ChartType = ChartType.PRICE) -> pd.DataFrame:
+def load_portfolio_charts(
+    account: Accounts, chart_name: str = PRODUCTS_CHART_FILE_NAME, chart_type: ChartType = ChartType.PRICE
+) -> pd.DataFrame:
     chart_df = load_df_from_excel(file_name=f'{account.name}_{chart_name}_{chart_type.value}', folder_name=DATA_DIR)
     return chart_df
 
 
-def fetch_fx_charts(account: Accounts,
-                    degiro_conn: Optional[API] = None):
+def fetch_fx_charts(account: Accounts, degiro_conn: Optional[API] = None):
     results_df = query_products(product_type=ProductTypes.CURRENCY)
     chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=results_df['id'].to_list())
     save_charts(account=account, chart_df=chart_df, chart_name=FX_RATES_CHART_FILE_NAME)
 
 
-def load_fx_rates(account: Accounts,
-                  curr_foreign_lst: List[str],
-                  index: pd.DatetimeIndex,
-                  ) -> pd.DataFrame:
+def load_fx_rates(
+    account: Accounts,
+    curr_foreign_lst: List[str],
+    index: pd.DatetimeIndex,
+) -> pd.DataFrame:
     results_df = query_products(product_type=ProductTypes.CURRENCY)
     fx_rates_df_tmp = load_portfolio_charts(account=account, chart_name=FX_RATES_CHART_FILE_NAME)
     fx_rates_df_tmp = fx_rates_df_tmp.rename(columns=dict(results_df.loc[fx_rates_df_tmp.columns, 'name']))
@@ -166,11 +169,10 @@ def load_fx_rates(account: Accounts,
         if f'{cur}/{account.currency}' in fx_rates_df_tmp:
             fx_rates_df = pd.concat([fx_rates_df, fx_rates_df_tmp[f'{cur}/{account.currency}']], axis=1)
         elif f'{account.currency}/{cur}' in fx_rates_df_tmp:
-            ser = (1. / fx_rates_df_tmp[f'{account.currency}/{cur}']).rename(f'{cur}/{account.currency}')
+            ser = (1.0 / fx_rates_df_tmp[f'{account.currency}/{cur}']).rename(f'{cur}/{account.currency}')
             fx_rates_df = pd.concat([fx_rates_df, ser], axis=1)
         else:
-            warnings.warn(f'Warning! Missing foreign exchange historical time series for '
-                          f'{cur}/{account.currency}')
+            warnings.warn(f'Warning! Missing foreign exchange historical time series for {cur}/{account.currency}')
     if fx_rates_df.empty:
         fx_rates_df = fx_rates_df.reindex(index=index)
     # dummy column of ones for domestic currency

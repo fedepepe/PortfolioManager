@@ -5,10 +5,12 @@ import pandas as pd
 from portfolio.portfolio_definitions import Portfolio
 
 
-def compute_historical_portfolio(prices_df: pd.DataFrame,
-                                 date_start: Optional[str | pd.Timestamp],
-                                 date_stop: Optional[str | pd.Timestamp],
-                                 initial_cash_pos: float = 1e2):
+def compute_historical_portfolio(
+    prices_df: pd.DataFrame,
+    date_start: Optional[str | pd.Timestamp],
+    date_stop: Optional[str | pd.Timestamp],
+    initial_cash_pos: float = 1e2,
+):
     # restrict prices to chosen timeframe
     if date_start is not None:
         prices_df = prices_df[prices_df.index >= date_start]
@@ -28,9 +30,11 @@ def compute_historical_portfolio(prices_df: pd.DataFrame,
     transaction_costs = np.zeros(len(prices_df))
 
     # build initial portfolio
-    portfolio = Portfolio(tickers=prices_df.columns.to_list(),
-                          initial_cash_balance=initial_cash_pos,
-                          min_cash_amount=0.05 * initial_cash_pos)
+    portfolio = Portfolio(
+        tickers=prices_df.columns.to_list(),
+        initial_cash_balance=initial_cash_pos,
+        min_cash_amount=0.05 * initial_cash_pos,
+    )
 
     # loop over t
     for t in np.arange(0, len(prices_df)):
@@ -70,20 +74,21 @@ def compute_historical_portfolio(prices_df: pd.DataFrame,
     self.StrategyOutData.transaction_amounts = transaction_amounts_df
     self.StrategyOutData.transaction_value = pd.Series(transaction_value, name='Tx value', index=prices_df.index)
     self.StrategyOutData.transaction_costs = pd.Series(transaction_costs, name='Tx costs', index=prices_df.index)
-    self.StrategyOutData.cum_pnl = (self.StrategyInputData.prices
-                                    .diff()
-                                    .mul(self.StrategyOutData.units.shift(1))
-                                    .cumsum()
-                                    .fillna(0)
-                                    .reindex_like(self.StrategyOutData.units))
+    self.StrategyOutData.cum_pnl = (
+        self.StrategyInputData.prices.diff()
+        .mul(self.StrategyOutData.units.shift(1))
+        .cumsum()
+        .fillna(0)
+        .reindex_like(self.StrategyOutData.units)
+    )
     # individual cumulative profit and loss per instrument
-    self.StrategyOutData.cum_pnl['Tx costs'] = - (self.StrategyOutData.transaction_costs
-                                                  .cumsum()
-                                                  .reindex_like(self.StrategyOutData.units))
+    self.StrategyOutData.cum_pnl['Tx costs'] = -(
+        self.StrategyOutData.transaction_costs.cumsum().reindex_like(self.StrategyOutData.units)
+    )
     # individual returns
-    self.StrategyOutData.returns = (self.StrategyOutData.cum_pnl
-                                    .resample(self.StrategyConf.rebalancing_freq).last()
-                                    .diff()
-                                    .div(self.StrategyOutData.nav.resample(self.StrategyConf.rebalancing_freq).last()
-                                         .shift(1),
-                                         axis=0))
+    self.StrategyOutData.returns = (
+        self.StrategyOutData.cum_pnl.resample(self.StrategyConf.rebalancing_freq)
+        .last()
+        .diff()
+        .div(self.StrategyOutData.nav.resample(self.StrategyConf.rebalancing_freq).last().shift(1), axis=0)
+    )

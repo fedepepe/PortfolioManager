@@ -14,37 +14,40 @@ from portfolio.instruments_performance import InstrPerfTableCols
 from engines.reporting import Metrics
 
 MAX_INSTR_CORR = 50
-COLS_INFO_TABLE = [InstrPerfTableCols.ticker,
-                   InstrPerfTableCols.isin,
-                   InstrPerfTableCols.volume]
-COLS_PERF_TABLE = [Metrics.PA_RETURN,
-                   Metrics.LAST_YEAR_RETURN,
-                   Metrics.ANN_3Y_RETURN,
-                   Metrics.ANN_5Y_RETURN,
-                   Metrics.VOLATILITY,
-                   Metrics.SHARPE_RATIO,
-                   Metrics.SORTINO_RATIO,
-                   Metrics.MAX_DD]
+COLS_INFO_TABLE = [InstrPerfTableCols.ticker, InstrPerfTableCols.isin, InstrPerfTableCols.volume]
+COLS_PERF_TABLE = [
+    Metrics.PA_RETURN,
+    Metrics.LAST_YEAR_RETURN,
+    Metrics.ANN_3Y_RETURN,
+    Metrics.ANN_5Y_RETURN,
+    Metrics.VOLATILITY,
+    Metrics.SHARPE_RATIO,
+    Metrics.SORTINO_RATIO,
+    Metrics.MAX_DD,
+]
 LABELS_PERF_TABLE_EXT = COLS_INFO_TABLE + [m.name for m in COLS_PERF_TABLE]
-COLUMN_DEFS = [{"field": m.name,
-                "sort": m.sort,
-                "filter": "agNumberColumnFilter",
-                "valueFormatter": {"function": m.to_ag_grid_format_func()}
-                } for m in COLS_PERF_TABLE]
-COLUMN_DEFS = [{"field": f} for f in COLS_INFO_TABLE] + COLUMN_DEFS
+COLUMN_DEFS = [
+    {
+        'field': m.name,
+        'sort': m.sort,
+        'filter': 'agNumberColumnFilter',
+        'valueFormatter': {'function': m.to_ag_grid_format_func()},
+    }
+    for m in COLS_PERF_TABLE
+]
+COLUMN_DEFS = [{'field': f} for f in COLS_INFO_TABLE] + COLUMN_DEFS
 
 
 # PERFORMANCE METRICS TABLE
 def get_table_perf(instr_data: InstrumentsData) -> dag.AgGrid:
     return dag.AgGrid(
-        id="table_perf",
+        id='table_perf',
         className='ag-theme-alpine-dark',
         columnDefs=COLUMN_DEFS,
-        rowData=instr_data.perf_df.reset_index()[LABELS_PERF_TABLE_EXT].to_dict("records"),
-        columnSize="responsiveSizeToFit",
-        defaultColDef={"filter": "agTextColumnFilter"},
-        dashGridOptions={"animateRows": False,
-                         'enableCellTextSelection': True},
+        rowData=instr_data.perf_df.reset_index()[LABELS_PERF_TABLE_EXT].to_dict('records'),
+        columnSize='responsiveSizeToFit',
+        defaultColDef={'filter': 'agTextColumnFilter'},
+        dashGridOptions={'animateRows': False, 'enableCellTextSelection': True},
     )
 
 
@@ -55,42 +58,56 @@ def get_fig_corr_instr(instr_data: InstrumentsData, ticker_lst: Optional[List] =
         adj_close_corr = instr_data.adj_close_df[ticker_lst].iloc[:, :MAX_INSTR_CORR].copy()
     else:
         adj_close_corr = instr_data.adj_close_df.iloc[:, :MAX_INSTR_CORR].copy()
-    title = "Instruments correlation matrix" if not adj_close_corr.empty else "No instruments match the filter"
-    return go.Figure(data=[go.Heatmap(z=compute_corr_mat(adj_close_corr.resample('W-WED').last().pct_change()),
-                                      x=adj_close_corr.columns,
-                                      y=list(reversed(adj_close_corr.columns)),
-                                      colorscale='RdBu_r',
-                                      zmin=-1,
-                                      zmax=1,
-                                      xgap=1,
-                                      ygap=1,
-                                      hoverongaps=False)],
-                     layout=go.Layout(title=dict(text=title),
-                                      template="plotly_dark",
-                                      xaxis=dict(side='top', scaleanchor="y", constrain="domain"),
-                                      yaxis=dict(scaleanchor="x", constrain="domain"),
-                                      margin={"l": 30, "r": 30, "t": 130, "b": 30}
-                                      )
-                     )
+    title = 'Instruments correlation matrix' if not adj_close_corr.empty else 'No instruments match the filter'
+    return go.Figure(
+        data=[
+            go.Heatmap(
+                z=compute_corr_mat(adj_close_corr.resample('W-WED').last().pct_change()),
+                x=adj_close_corr.columns,
+                y=list(reversed(adj_close_corr.columns)),
+                colorscale='RdBu_r',
+                zmin=-1,
+                zmax=1,
+                xgap=1,
+                ygap=1,
+                hoverongaps=False,
+            )
+        ],
+        layout=go.Layout(
+            title=dict(text=title),
+            template='plotly_dark',
+            xaxis=dict(side='top', scaleanchor='y', constrain='domain'),
+            yaxis=dict(scaleanchor='x', constrain='domain'),
+            margin={'l': 30, 'r': 30, 't': 130, 'b': 30},
+        ),
+    )
 
 
 # DASHBOARD
 def build_content_instruments(account: Accounts) -> html.Div:
     instr_data = get_instruments_data(account)
     if instr_data is None:
-        return html.Div(dbc.Card(dbc.CardBody(html.H4(f'No ETF catalog available for {account.name}')),
-                                 color='dark'))
-    return html.Div([
-        dbc.Card(
-            dbc.CardBody([
-                get_table_perf(instr_data),
-                html.Br(),
-                loading_wrapper(dcc.Graph(id='fig_corr_instr',
-                                          figure=get_fig_corr_instr(instr_data),
-                                          style={'height': 1000},
-                                          responsive=True))
-            ]), color='dark'
-        )],
+        return html.Div(dbc.Card(dbc.CardBody(html.H4(f'No ETF catalog available for {account.name}')), color='dark'))
+    return html.Div(
+        [
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        get_table_perf(instr_data),
+                        html.Br(),
+                        loading_wrapper(
+                            dcc.Graph(
+                                id='fig_corr_instr',
+                                figure=get_fig_corr_instr(instr_data),
+                                style={'height': 1000},
+                                responsive=True,
+                            )
+                        ),
+                    ]
+                ),
+                color='dark',
+            )
+        ],
     )
 
 

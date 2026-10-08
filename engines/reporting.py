@@ -21,9 +21,11 @@ class Metric(NamedTuple):
     sort: Optional[str] = None
 
     def to_ag_grid_format_func(self):
-        return (f"params.value ? "
-                f"d3.format('{self.format.replace(':', '').replace('{', '').replace('}', '')}')(params.value) "
-                f": ''")
+        return (
+            f'params.value ? '
+            f"d3.format('{self.format.replace(':', '').replace('{', '').replace('}', '')}')(params.value) "
+            f": ''"
+        )
 
 
 class Metrics(Metric, Enum):
@@ -48,16 +50,11 @@ class Metrics(Metric, Enum):
     PVAL_ALPHA = Metric('pval alpha')
 
 
-def lin_reg(y: pd.Series,
-            x: pd.Series
-            ) -> (Tuple[float], Tuple[float], float):
+def lin_reg(y: pd.Series, x: pd.Series) -> (Tuple[float], Tuple[float], float):
     return poly_reg(y=y, x=x, degree=1)
 
 
-def poly_reg(y: pd.Series,
-             x: pd.Series,
-             degree: int = 2
-             ) -> (Tuple[float], Tuple[float], float):
+def poly_reg(y: pd.Series, x: pd.Series, degree: int = 2) -> (Tuple[float], Tuple[float], float):
     df = pd.concat([y, x], axis=1).dropna()
     df = df.replace([np.inf, -np.inf], np.nan).dropna()
     y = df.iloc[:, 0].values
@@ -72,20 +69,18 @@ def poly_reg(y: pd.Series,
     return coeffs, pvalues, r2
 
 
-def compute_pa_return_last_n_years(nav: pd.Series,
-                                   freq: str,
-                                   n_years: int = None
-                                   ) -> float:
+def compute_pa_return_last_n_years(nav: pd.Series, freq: str, n_years: int = None) -> float:
     num_periods = n_years * ANN_FACTOR_DICT[freq]
-    return (1. + nav.resample(freq).last().ffill().pct_change(num_periods).iloc[-1]) ** (1. / n_years) - 1
+    return (1.0 + nav.resample(freq).last().ffill().pct_change(num_periods).iloc[-1]) ** (1.0 / n_years) - 1
 
 
-def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
-                              hist_portfolio_data: Optional[PortfolioBacktestData] = None,
-                              strategy_benchmark: Optional[pd.Series] = None,
-                              compute_hist_metrics: bool = True,
-                              print_results: bool = True
-                              ) -> Dict[str, PD_DATA_TYPES]:
+def compute_portfolio_metrics(
+    nav: Optional[pd.Series] = None,
+    hist_portfolio_data: Optional[PortfolioBacktestData] = None,
+    strategy_benchmark: Optional[pd.Series] = None,
+    compute_hist_metrics: bool = True,
+    print_results: bool = True,
+) -> Dict[str, PD_DATA_TYPES]:
     if hist_portfolio_data is not None:
         nav = hist_portfolio_data.nav_eff
 
@@ -142,7 +137,7 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
     def compute_pa_return(nav: pd.Series) -> float:
         n_years = compute_n_years(nav)
         total_return = compute_total_return(nav)
-        return (1. + total_return) ** (1. / n_years) - 1
+        return (1.0 + total_return) ** (1.0 / n_years) - 1
 
     total_return = compute_total_return(nav)
     pa_return = compute_pa_return(nav)
@@ -162,8 +157,13 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
     max_dd = (nav.subtract(nav_cummax).div(nav_cummax)).abs().max()
     # turnover
     if hist_portfolio_data is not None:
-        turnover = hist_portfolio_data.transaction_value.sum(axis=1).iloc[1:].abs().div(
-            hist_portfolio_data.nav.iloc[1:]).rename(PerfDataTabs.TURNOVER)
+        turnover = (
+            hist_portfolio_data.transaction_value.sum(axis=1)
+            .iloc[1:]
+            .abs()
+            .div(hist_portfolio_data.nav.iloc[1:])
+            .rename(PerfDataTabs.TURNOVER)
+        )
         turnover_mean_daily = turnover.resample(freq).sum().mean() / 365 * ANN_FACTOR_DICT[freq]
     else:
         turnover = pd.Series()
@@ -171,55 +171,60 @@ def compute_portfolio_metrics(nav: Optional[pd.Series] = None,
     # historical performance metrics
     if compute_hist_metrics:
         min_periods = MIN_PERIODS_DICT[freq]
-        pa_return_hist = (nav
-                          .rolling(len(nav), min_periods=min_periods)
-                          .apply(compute_pa_return)
-                          .rename(Metrics.PA_RETURN.name))
-        volatility_hist = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(len(nav), min_periods=min_periods).std()
+        pa_return_hist = (
+            nav.rolling(len(nav), min_periods=min_periods).apply(compute_pa_return).rename(Metrics.PA_RETURN.name)
+        )
+        volatility_hist = (
+            math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(len(nav), min_periods=min_periods).std()
+        )
         volatility_hist = volatility_hist.rename(Metrics.VOLATILITY.name)
         sharpe_ratio_hist = ((pa_return_hist - risk_free_rate) / volatility_hist).rename(Metrics.SHARPE_RATIO.name)
 
         def compute_downside_volatility(returns: pd.Series) -> float:
             return returns[returns < 0].std()
 
-        down_vol_hist = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(len(nav), min_periods=min_periods
-                                                                                     ).apply(
-            compute_downside_volatility)
+        down_vol_hist = math.sqrt(ANN_FACTOR_DICT[freq]) * returns_resampled.rolling(
+            len(nav), min_periods=min_periods
+        ).apply(compute_downside_volatility)
         sortino_ratio_hist = ((pa_return_hist - risk_free_rate) / down_vol_hist).rename(Metrics.SORTINO_RATIO.name)
 
     # put all together in a dictionary
-    risk_metrics = pd.Series({
-        Metrics.TOTAL_RETURN.name: total_return,
-        Metrics.PA_RETURN.name: pa_return,
-        Metrics.LAST_YEAR_RETURN.name: return_1y,
-        Metrics.ANN_3Y_RETURN.name: return_3y_ann,
-        Metrics.ANN_5Y_RETURN.name: return_5y_ann,
-        Metrics.VOLATILITY.name: volatility,
-        Metrics.SHARPE_RATIO.name: sharpe_ratio,
-        Metrics.SORTINO_RATIO.name: sortino_ratio,
-        Metrics.BEST_MONTH.name: returns_monthly.max(),
-        Metrics.WORST_MONTH.name: returns_monthly.min(),
-        Metrics.MAX_DD.name: max_dd,
-        Metrics.BETA_OVERALL.name: beta,
-        Metrics.BETA_UP_MONTH.name: beta_pos,
-        Metrics.BETA_DOWN_MONTH.name: beta_neg,
-        Metrics.SKEWNESS.name: portfolios_skew,
-        Metrics.TURNOVER.name: turnover_mean_daily,
-        Metrics.ALPHA.name: alpha,
-        Metrics.BETA.name: beta,
-        Metrics.PVAL_ALPHA.name: pval_alpha,
-    }, name=nav.name)
+    risk_metrics = pd.Series(
+        {
+            Metrics.TOTAL_RETURN.name: total_return,
+            Metrics.PA_RETURN.name: pa_return,
+            Metrics.LAST_YEAR_RETURN.name: return_1y,
+            Metrics.ANN_3Y_RETURN.name: return_3y_ann,
+            Metrics.ANN_5Y_RETURN.name: return_5y_ann,
+            Metrics.VOLATILITY.name: volatility,
+            Metrics.SHARPE_RATIO.name: sharpe_ratio,
+            Metrics.SORTINO_RATIO.name: sortino_ratio,
+            Metrics.BEST_MONTH.name: returns_monthly.max(),
+            Metrics.WORST_MONTH.name: returns_monthly.min(),
+            Metrics.MAX_DD.name: max_dd,
+            Metrics.BETA_OVERALL.name: beta,
+            Metrics.BETA_UP_MONTH.name: beta_pos,
+            Metrics.BETA_DOWN_MONTH.name: beta_neg,
+            Metrics.SKEWNESS.name: portfolios_skew,
+            Metrics.TURNOVER.name: turnover_mean_daily,
+            Metrics.ALPHA.name: alpha,
+            Metrics.BETA.name: beta,
+            Metrics.PVAL_ALPHA.name: pval_alpha,
+        },
+        name=nav.name,
+    )
     if print_results:
         print(risk_metrics)
-    results_dict = {PerfDataTabs.RETURNS_YEARLY: returns_yearly,
-                    PerfDataTabs.RETURNS_MONTHLY: returns_monthly,
-                    PerfDataTabs.RISK_METRICS: risk_metrics,
-                    PerfDataTabs.TURNOVER: turnover}
+    results_dict = {
+        PerfDataTabs.RETURNS_YEARLY: returns_yearly,
+        PerfDataTabs.RETURNS_MONTHLY: returns_monthly,
+        PerfDataTabs.RISK_METRICS: risk_metrics,
+        PerfDataTabs.TURNOVER: turnover,
+    }
     if compute_hist_metrics:
-        results_dict[PerfDataTabs.HIST_PERF_METRICS] = pd.concat([pa_return_hist,
-                                                                  volatility_hist,
-                                                                  sharpe_ratio_hist,
-                                                                  sortino_ratio_hist], axis=1)
+        results_dict[PerfDataTabs.HIST_PERF_METRICS] = pd.concat(
+            [pa_return_hist, volatility_hist, sharpe_ratio_hist, sortino_ratio_hist], axis=1
+        )
     # correlation of the weekly returns of adjusted closing prices (as shown in the dashboard)
     if hist_portfolio_data is not None:
         if hist_portfolio_data.close_adj is not None:
@@ -241,10 +246,7 @@ def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES):
     return risk_metrics_str.copy()
 
 
-def regress_strat_vs_bm(nav: pd.Series,
-                        strategy_benchmark: pd.Series,
-                        freq: str = 'M',
-                        return_sign: str = 'all'):
+def regress_strat_vs_bm(nav: pd.Series, strategy_benchmark: pd.Series, freq: str = 'M', return_sign: str = 'all'):
     try:
         bm = strategy_benchmark.copy()
         df = pd.concat([nav, bm], axis=1).resample(freq).last().pct_change().dropna()
@@ -266,15 +268,19 @@ def regress_strat_vs_bm(nav: pd.Series,
     return alpha, beta, pval_alpha
 
 
-def compute_results_from_navs(navs: Union[pd.Series, pd.DataFrame],
-                              nav_benchmark: Optional[pd.Series] = None,
-                              file_name: Optional[str] = None,
-                              save: bool = True) -> Dict[str, pd.DataFrame]:
+def compute_results_from_navs(
+    navs: Union[pd.Series, pd.DataFrame],
+    nav_benchmark: Optional[pd.Series] = None,
+    file_name: Optional[str] = None,
+    save: bool = True,
+) -> Dict[str, pd.DataFrame]:
     if isinstance(navs, pd.Series):
         navs = navs.to_frame()
-    results_dict = {PerfDataTabs.RETURNS_YEARLY: pd.DataFrame(),
-                    PerfDataTabs.RETURNS_MONTHLY: pd.DataFrame(),
-                    PerfDataTabs.RISK_METRICS: pd.DataFrame()}
+    results_dict = {
+        PerfDataTabs.RETURNS_YEARLY: pd.DataFrame(),
+        PerfDataTabs.RETURNS_MONTHLY: pd.DataFrame(),
+        PerfDataTabs.RISK_METRICS: pd.DataFrame(),
+    }
     for col in navs.columns.to_list():
         nav = navs[col].copy()
         results_single = compute_portfolio_metrics(nav=nav, strategy_benchmark=nav_benchmark)
@@ -285,9 +291,7 @@ def compute_results_from_navs(navs: Union[pd.Series, pd.DataFrame],
     if save:
         if file_name is None:
             file_name = 'results'
-        save_df_dict_to_excel(df_dict=results_dict,
-                              folder_name=RESULTS_DIR,
-                              file_name=file_name)
+        save_df_dict_to_excel(df_dict=results_dict, folder_name=RESULTS_DIR, file_name=file_name)
     return results_dict
 
 

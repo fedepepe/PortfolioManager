@@ -67,8 +67,7 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
     return df
 
 
-def fetch_tx_history(account: Accounts,
-                     degiro_conn: Optional[API] = None) -> pd.DataFrame:
+def fetch_tx_history(account: Accounts, degiro_conn: Optional[API] = None) -> pd.DataFrame:
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW
@@ -86,12 +85,11 @@ def fetch_tx_history(account: Accounts,
 
 def load_tx_history(account: Accounts) -> pd.DataFrame:
     tx_history_df = fu.load_df_from_excel(file_name=f'{account.name}_tx_hist', folder_name=DATA_DIR)
-    tx_history_df = tx_history_df.astype({"product_id": int})
+    tx_history_df = tx_history_df.astype({'product_id': int})
     return tx_history_df
 
 
-def fetch_account_movements(account: Accounts,
-                            degiro_conn: Optional[API] = None):
+def fetch_account_movements(account: Accounts, degiro_conn: Optional[API] = None):
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
     # FETCH ACCOUNT OVERVIEW

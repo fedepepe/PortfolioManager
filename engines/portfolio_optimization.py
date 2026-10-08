@@ -17,45 +17,51 @@ MAX_MIN_PF_EXPOSURE = 0.99
 
 
 class PortfolioOptimizer:
-    def __init__(self,
-                 optimization_type: AllocationStrats,
-                 returns: Optional[pd.DataFrame] = pd.DataFrame(),
-                 min_pf_exposure: float = 0.0,
-                 max_pf_exposure: float = 1.0,
-                 bounds_weights: Optional[Tuple[float, float]] = None,
-                 weights_init: Optional[np.ndarray] = None,
-                 bounds_asset_class: Optional[List[float | Tuple[float, float]]] = None,
-                 asset_class_mat: Optional[np.ndarray] = None,
-                 target_vol: Optional[float] = None,
-                 max_vol: Optional[float] = None,
-                 risk_budget: Optional[Dict[str, float]] = None,
-                 risk_free_rate: Optional[float] = 0):
-        self.reset(optimization_type=optimization_type,
-                   returns=returns,
-                   min_pf_exposure=min_pf_exposure,
-                   max_pf_exposure=max_pf_exposure,
-                   bounds_weights=bounds_weights,
-                   weights_init=weights_init,
-                   bounds_asset_class=bounds_asset_class,
-                   asset_class_mat=asset_class_mat,
-                   target_vol=target_vol,
-                   max_vol=max_vol,
-                   risk_budget=risk_budget,
-                   risk_free_rate=risk_free_rate)
+    def __init__(
+        self,
+        optimization_type: AllocationStrats,
+        returns: Optional[pd.DataFrame] = pd.DataFrame(),
+        min_pf_exposure: float = 0.0,
+        max_pf_exposure: float = 1.0,
+        bounds_weights: Optional[Tuple[float, float]] = None,
+        weights_init: Optional[np.ndarray] = None,
+        bounds_asset_class: Optional[List[float | Tuple[float, float]]] = None,
+        asset_class_mat: Optional[np.ndarray] = None,
+        target_vol: Optional[float] = None,
+        max_vol: Optional[float] = None,
+        risk_budget: Optional[Dict[str, float]] = None,
+        risk_free_rate: Optional[float] = 0,
+    ):
+        self.reset(
+            optimization_type=optimization_type,
+            returns=returns,
+            min_pf_exposure=min_pf_exposure,
+            max_pf_exposure=max_pf_exposure,
+            bounds_weights=bounds_weights,
+            weights_init=weights_init,
+            bounds_asset_class=bounds_asset_class,
+            asset_class_mat=asset_class_mat,
+            target_vol=target_vol,
+            max_vol=max_vol,
+            risk_budget=risk_budget,
+            risk_free_rate=risk_free_rate,
+        )
 
-    def reset(self,
-              optimization_type: AllocationStrats,
-              returns: Optional[pd.DataFrame] = pd.DataFrame(),
-              min_pf_exposure: float = 0.0,
-              max_pf_exposure: float = 1.0,
-              bounds_weights: Optional[Tuple[float, float]] = None,
-              weights_init: Optional[np.ndarray] = None,
-              bounds_asset_class: Optional[List[float | Tuple[float, float]]] = None,
-              asset_class_mat: Optional[np.ndarray] = None,
-              target_vol: Optional[float] = None,
-              max_vol: Optional[float] = None,
-              risk_budget: Optional[Dict[str, float]] = None,
-              risk_free_rate: Optional[float] = 0):
+    def reset(
+        self,
+        optimization_type: AllocationStrats,
+        returns: Optional[pd.DataFrame] = pd.DataFrame(),
+        min_pf_exposure: float = 0.0,
+        max_pf_exposure: float = 1.0,
+        bounds_weights: Optional[Tuple[float, float]] = None,
+        weights_init: Optional[np.ndarray] = None,
+        bounds_asset_class: Optional[List[float | Tuple[float, float]]] = None,
+        asset_class_mat: Optional[np.ndarray] = None,
+        target_vol: Optional[float] = None,
+        max_vol: Optional[float] = None,
+        risk_budget: Optional[Dict[str, float]] = None,
+        risk_free_rate: Optional[float] = 0,
+    ):
         self.optimization_type = optimization_type
         self.returns = returns
         self.min_pf_exposure = min_pf_exposure
@@ -77,41 +83,63 @@ class PortfolioOptimizer:
         self.weights_curr = None
 
     def get_constraints(self):
-        constr_exposure = ({'type': 'ineq', 'fun': lambda x: self.max_pf_exposure - np.sum(x)},
-                           {'type': 'ineq', 'fun': lambda x: np.sum(x) - self.min_pf_exposure})
+        constr_exposure = (
+            {'type': 'ineq', 'fun': lambda x: self.max_pf_exposure - np.sum(x)},
+            {'type': 'ineq', 'fun': lambda x: np.sum(x) - self.min_pf_exposure},
+        )
         if self.bounds_weights is not None:
-            constr_bounds_weights = ({'type': 'ineq', 'fun': lambda x: x - self.bounds_weights[0]},
-                                     {'type': 'ineq', 'fun': lambda x: self.bounds_weights[1] - x})
+            constr_bounds_weights = (
+                {'type': 'ineq', 'fun': lambda x: x - self.bounds_weights[0]},
+                {'type': 'ineq', 'fun': lambda x: self.bounds_weights[1] - x},
+            )
         else:
             constr_bounds_weights = ()
         if self.target_vol is not None:
             constr_target_vol = (
                 {'type': 'ineq', 'fun': lambda x: 1.05 * self.target_vol - pffun.compute_pf_vol(x, self.cov_mat)},
-                {'type': 'ineq', 'fun': lambda x: - 0.95 * self.target_vol + pffun.compute_pf_vol(x, self.cov_mat)})
+                {'type': 'ineq', 'fun': lambda x: -0.95 * self.target_vol + pffun.compute_pf_vol(x, self.cov_mat)},
+            )
         else:
             constr_target_vol = ()
         if self.max_vol is not None:
-            constr_max_vol = ({'type': 'ineq', 'fun': lambda x: self.max_vol - pffun.compute_pf_vol(x, self.cov_mat)}, )
+            constr_max_vol = ({'type': 'ineq', 'fun': lambda x: self.max_vol - pffun.compute_pf_vol(x, self.cov_mat)},)
         else:
             constr_max_vol = ()
         if self.bounds_asset_class is not None:
+
             def get_asset_class_constr(x: np.ndarray, bound_asset_class: float, asset_class_vec: np.ndarray):
                 return bound_asset_class - asset_class_vec.dot(x)
 
             if all(isinstance(b, float) for b in self.bounds_asset_class):
-                constr_asset_class = tuple([{'type': 'ineq',
-                                             'fun': get_asset_class_constr,
-                                             'args': (self.bounds_asset_class[i], self.asset_class_mat[i, :])} for i in
-                                            range(len(self.bounds_asset_class))])
+                constr_asset_class = tuple(
+                    [
+                        {
+                            'type': 'ineq',
+                            'fun': get_asset_class_constr,
+                            'args': (self.bounds_asset_class[i], self.asset_class_mat[i, :]),
+                        }
+                        for i in range(len(self.bounds_asset_class))
+                    ]
+                )
             elif all(isinstance(b, tuple) for b in self.bounds_asset_class):
                 constr_asset_class = []
                 for i in range(len(self.bounds_asset_class)):
                     if self.bounds_asset_class[i][0] is not None:  # lower bounds
-                        constr_asset_class.append({'type': 'ineq', 'fun': get_asset_class_constr, 'args': (
-                            - self.bounds_asset_class[i][0], - self.asset_class_mat[i, :])})
+                        constr_asset_class.append(
+                            {
+                                'type': 'ineq',
+                                'fun': get_asset_class_constr,
+                                'args': (-self.bounds_asset_class[i][0], -self.asset_class_mat[i, :]),
+                            }
+                        )
                     if self.bounds_asset_class[i][1] is not None:  # upper bounds
-                        constr_asset_class.append({'type': 'ineq', 'fun': get_asset_class_constr,
-                                                   'args': (self.bounds_asset_class[i][1], self.asset_class_mat[i, :])})
+                        constr_asset_class.append(
+                            {
+                                'type': 'ineq',
+                                'fun': get_asset_class_constr,
+                                'args': (self.bounds_asset_class[i][1], self.asset_class_mat[i, :]),
+                            }
+                        )
                 constr_asset_class = tuple(constr_asset_class)
             else:
                 raise NotImplementedError
@@ -120,13 +148,15 @@ class PortfolioOptimizer:
         return constr_exposure + constr_bounds_weights + constr_target_vol + constr_max_vol + constr_asset_class
 
     def _compute_optim_portfolio(self, fun: Callable):
-        return minimize(fun=fun,
-                        x0=self.weights_init,
-                        args=self.optim_fun_args,
-                        method='trust-constr',
-                        constraints=self.get_constraints(),
-                        tol=1e-7,
-                        options={'disp': False, 'maxiter': 5000, 'verbose': 1})
+        return minimize(
+            fun=fun,
+            x0=self.weights_init,
+            args=self.optim_fun_args,
+            method='trust-constr',
+            constraints=self.get_constraints(),
+            tol=1e-7,
+            options={'disp': False, 'maxiter': 5000, 'verbose': 1},
+        )
 
     def clean_returns_df(self, severity: str = 'high') -> pd.DataFrame:
         if severity == 'high':
@@ -169,7 +199,9 @@ class PortfolioOptimizer:
                 print('---------------------------------------')
                 print(f'Optimized portfolio weights: {optim.x}')
                 if self.optimization_type == AllocationStrats.RISK_PARITY:
-                    risk_contrib = pffun.pf_var_contr(optim.x, self.cov_mat) / pffun.compute_pf_vol(optim.x, self.cov_mat)
+                    risk_contrib = pffun.pf_var_contr(optim.x, self.cov_mat) / pffun.compute_pf_vol(
+                        optim.x, self.cov_mat
+                    )
                     print(f'Optimized risk contributions: {risk_contrib}')
                 print('---------------------------------------')
                 self.weights_curr = optim.x
@@ -192,30 +224,33 @@ class OptimizedWeights(NamedTuple):
     failed_dates: List[pd.Timestamp]  # dates where the optimization failed (previous weights kept, if any)
 
 
-def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
-                                    prices: pd.DataFrame,
-                                    sampling_freq: str,
-                                    optimization_freq: str,
-                                    extra_args: Optional[Dict[str, Any]] = None,
-                                    start_date: Optional[pd.Timestamp] = None
-                                    ) -> OptimizedWeights:
+def compute_weights_optim_portfolio(
+    allocation_method: AllocationStrats,
+    prices: pd.DataFrame,
+    sampling_freq: str,
+    optimization_freq: str,
+    extra_args: Optional[Dict[str, Any]] = None,
+    start_date: Optional[pd.Timestamp] = None,
+) -> OptimizedWeights:
     # optimizes on each date of optimization_freq from start_date on (all dates if None), estimating returns and
     # risk from the full price history up to that date
     extra_args = extra_args or {}
     weights_df = pd.DataFrame().reindex_like(prices.resample(optimization_freq).last())
     if start_date is not None:
         weights_df = weights_df[weights_df.index >= start_date]
-    args = dict(optimization_type=allocation_method,
-                min_pf_exposure=min(extra_args.get('min_pf_exposure', 0.0), MAX_MIN_PF_EXPOSURE),
-                max_pf_exposure=extra_args.get('max_pf_exposure', 1.0),
-                bounds_weights=(extra_args.get('min_asset_exposure', 0.0),
-                                extra_args.get('max_asset_exposure', 1.0)))
+    args = dict(
+        optimization_type=allocation_method,
+        min_pf_exposure=min(extra_args.get('min_pf_exposure', 0.0), MAX_MIN_PF_EXPOSURE),
+        max_pf_exposure=extra_args.get('max_pf_exposure', 1.0),
+        bounds_weights=(extra_args.get('min_asset_exposure', 0.0), extra_args.get('max_asset_exposure', 1.0)),
+    )
     if extra_args.get('bounds_asset_class', None) is not None:
         asset_class_mat = np.zeros(shape=(len(extra_args.get('bounds_asset_class', None)), len(prices.columns)))
         for n in range(len(extra_args.get('bounds_asset_class', None))):
-            asset_class_mat[n, :] = [1 if c == list(extra_args.get('bounds_asset_class', None).keys())[n] else 0 for c
-                                     in
-                                     extra_args.get('asset_classes', None)]
+            asset_class_mat[n, :] = [
+                1 if c == list(extra_args.get('bounds_asset_class', None).keys())[n] else 0
+                for c in extra_args.get('asset_classes', None)
+            ]
         args['bounds_asset_class'] = list(extra_args.get('bounds_asset_class', None).values())
         args['asset_class_mat'] = asset_class_mat
     if allocation_method == AllocationStrats.MAX_RET:
@@ -224,12 +259,12 @@ def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
     elif allocation_method == AllocationStrats.MIN_VAR:
         pass
     elif allocation_method == AllocationStrats.MAX_SHARPE:
-        args['risk_free_rate'] = np.power(1. + RISK_FREE_RATE, 1. / ANN_FACTOR_DICT[sampling_freq]) - 1
+        args['risk_free_rate'] = np.power(1.0 + RISK_FREE_RATE, 1.0 / ANN_FACTOR_DICT[sampling_freq]) - 1
         if 'max_vol' in extra_args:
             args['max_vol'] = extra_args['max_vol'] / np.sqrt(ANN_FACTOR_DICT[sampling_freq])
     elif allocation_method == AllocationStrats.RISK_PARITY:
         if extra_args.get('risk_budget', None) is None:
-            args['risk_budget'] = {asset: 1. for asset in prices.columns}
+            args['risk_budget'] = {asset: 1.0 for asset in prices.columns}
         else:
             args['risk_budget'] = extra_args.get('risk_budget', None)
     print(f'Optimization frequency: {optimization_freq}')
@@ -261,14 +296,17 @@ def compute_weights_optim_portfolio(allocation_method: AllocationStrats,
             continue
         if extra_args.get('max_asset_num', None) is not None:
             optim_weights = optim_weights.mask(
-                optim_weights.rank(method='min', ascending=False) > extra_args.get('max_asset_num', None), 0)
+                optim_weights.rank(method='min', ascending=False) > extra_args.get('max_asset_num', None), 0
+            )
             print('-----------------------------')
             print(f'Optimized weights: {optim_weights.values}')
             print('-----------------------------')
         if extra_args.get('min_position_size', 0.0) > 0:
-            optim_weights = apply_min_position_size(weights=optim_weights,
-                                                    min_size=extra_args['min_position_size'],
-                                                    max_weight=extra_args.get('max_asset_exposure', 1.0))
+            optim_weights = apply_min_position_size(
+                weights=optim_weights,
+                min_size=extra_args['min_position_size'],
+                max_weight=extra_args.get('max_asset_exposure', 1.0),
+            )
         weights_df.loc[idx, :] = optim_weights
     return OptimizedWeights(weights=weights_df, failed_dates=failed_dates)
 
@@ -279,11 +317,11 @@ def apply_min_position_size(weights: pd.Series, min_size: float, max_weight: flo
     if weights.isna().all():
         return weights
     total = weights.sum()
-    weights = weights.where(weights >= min_size, 0.)
+    weights = weights.where(weights >= min_size, 0.0)
     for _ in range(len(weights)):
         free = (weights > 0) & (weights < max_weight)
         missing = total - weights.sum()
         if missing <= 1e-12 or not free.any():
             break
-        weights[free] = (weights[free] * (1. + missing / weights[free].sum())).clip(upper=max_weight)
+        weights[free] = (weights[free] * (1.0 + missing / weights[free].sum())).clip(upper=max_weight)
     return weights

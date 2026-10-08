@@ -4,13 +4,15 @@ from dash import Dash, html, dcc
 from dashboard.dash_common import CONTENT_STYLE
 from dashboard.dash_sidebar import sidebar
 
-app = Dash(__name__,
-           requests_pathname_prefix="/portfolio_manager/",
-           external_stylesheets=[dbc.themes.SLATE],
-           meta_tags=[{"name": "portfolio", "content": "width=device-width"}])
+app = Dash(
+    __name__,
+    requests_pathname_prefix='/portfolio_manager/',
+    external_stylesheets=[dbc.themes.SLATE],
+    meta_tags=[{'name': 'portfolio', 'content': 'width=device-width'}],
+)
 
 # Content
-content = html.Div(id="page-content", style=CONTENT_STYLE)
+content = html.Div(id='page-content', style=CONTENT_STYLE)
 
 # App Layout
 app.layout = dbc.Container(
@@ -27,5 +29,5 @@ app.layout = dbc.Container(
         ]
     ),
     fluid=True,
-    className='dashboard-container'
+    className='dashboard-container',
 )

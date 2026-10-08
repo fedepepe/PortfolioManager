@@ -17,16 +17,15 @@ class UnitTests(Enum):
     UPDATE_DATA_COMPUTE_PERFORMANCE = 4
 
 
-def compute_portfolio_performance(account: Accounts,
-                                  hist_portfolio_data: PortfolioBacktestData,
-                                  hist_benchmark_data: PortfolioBacktestData):
-    results_dict = compute_portfolio_metrics(hist_portfolio_data=hist_portfolio_data,
-                                             strategy_benchmark=hist_benchmark_data.nav)
+def compute_portfolio_performance(
+    account: Accounts, hist_portfolio_data: PortfolioBacktestData, hist_benchmark_data: PortfolioBacktestData
+):
+    results_dict = compute_portfolio_metrics(
+        hist_portfolio_data=hist_portfolio_data, strategy_benchmark=hist_benchmark_data.nav
+    )
     results_bm_dict = compute_portfolio_metrics(nav=hist_benchmark_data.nav_eff)
-    save_performance_data(results_dict=results_dict,
-                          file_name=account.name)
-    save_performance_data(results_dict=results_bm_dict,
-                          file_name=f'{account.name}_benchmark')
+    save_performance_data(results_dict=results_dict, file_name=account.name)
+    save_performance_data(results_dict=results_bm_dict, file_name=f'{account.name}_benchmark')
 
 
 def load_performance_data_portfolio(account: Accounts) -> Dict[str, pd.DataFrame]:
@@ -47,14 +46,17 @@ def save_performance_data(results_dict: Dict[str, pd.DataFrame], file_name: str)
 def run_unit_test(unit_test: UnitTests):
     # imported here: portfolio.portfolio_backtest imports this module
     from portfolio.portfolio_backtest import update_data, refresh_account, load_backtest_data
+
     if unit_test == UnitTests.UPDATE_DATA:
         for account in Accounts:
             update_data(account=account)
     elif unit_test == UnitTests.COMPUTE_PORTFOLIO_PERFORMANCE:
         for account in Accounts:
-            compute_portfolio_performance(account=account,
-                                          hist_portfolio_data=load_backtest_data(name=account.name),
-                                          hist_benchmark_data=load_backtest_data(name=f'{account.name}_benchmark'))
+            compute_portfolio_performance(
+                account=account,
+                hist_portfolio_data=load_backtest_data(name=account.name),
+                hist_benchmark_data=load_backtest_data(name=f'{account.name}_benchmark'),
+            )
     elif unit_test == UnitTests.LOAD_PORTFOLIO_PERFORMANCE:
         print(load_performance_data_portfolio(account=Accounts.DEGIRO_CHF))
     elif unit_test == UnitTests.UPDATE_DATA_COMPUTE_PERFORMANCE:

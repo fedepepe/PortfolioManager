@@ -48,12 +48,13 @@ def choose_ticker(tickers: List[str], ticker: Optional[str] = None) -> str:
     return tickers[0]
 
 
-def fetch_instr_hist_data(isin_lst: str | List[str],
-                          columns: str | YFinHistCols | List[str] | List[YFinHistCols],
-                          ticker_lst: Optional[str | List[str]] = None,
-                          name_lst: Optional[str | List[str]] = None,
-                          freq: str = DEFAULT_DATA_FREQ,
-                          ) -> Dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
+def fetch_instr_hist_data(
+    isin_lst: str | List[str],
+    columns: str | YFinHistCols | List[str] | List[YFinHistCols],
+    ticker_lst: Optional[str | List[str]] = None,
+    name_lst: Optional[str | List[str]] = None,
+    freq: str = DEFAULT_DATA_FREQ,
+) -> Dict[str | YFinHistCols, pd.DataFrame | pd.Series]:
     if isinstance(isin_lst, str):
         isin_lst = [isin_lst]
     if ticker_lst is None:
@@ -125,10 +126,9 @@ def remove_duplicated_tickers(col, data_single):
         data_single[col] = data_single[col].groupby(by=data_single[col].columns, axis=1).mean()
 
 
-def prices_to_base_curr(account: Accounts,
-                        price_df: pd.DataFrame,
-                        curr_info: PD_DATA_TYPES | List[str]
-                        ) -> pd.DataFrame:
+def prices_to_base_curr(
+    account: Accounts, price_df: pd.DataFrame, curr_info: PD_DATA_TYPES | List[str]
+) -> pd.DataFrame:
     if isinstance(curr_info, pd.Series):
         curr_lst = curr_info.str.upper().to_list()
     elif isinstance(curr_info, List):
@@ -136,9 +136,7 @@ def prices_to_base_curr(account: Accounts,
     else:
         raise TypeError
     curr_foreign_lst = sorted(set([c for c in curr_lst if c != account.currency]))
-    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst,
-                                account=account,
-                                index=price_df.index)
+    fx_rates_df = load_fx_rates(curr_foreign_lst=curr_foreign_lst, account=account, index=price_df.index)
     fx_rates_df = fx_rates_df.reindex(index=price_df.index).ffill()
     # convert to base currency; a ticker appearing in several columns (e.g. several exchanges) is averaged
     price_base_df = pd.DataFrame()
@@ -170,40 +168,45 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
     return close_adj_base_curr_df
 
 
-def fetch_instr_adj_prices(account: Accounts,
-                           isin_lst: List,
-                           name_lst: Optional[List] = None,
-                           tick_lst: Optional[List] = None,
-                           to_portfolio_instr_table: bool = True) -> pd.DataFrame:
-    data = fetch_instr_hist_data(isin_lst=isin_lst,
-                                 columns=YFinHistCols.adj_close,
-                                 ticker_lst=tick_lst,
-                                 name_lst=name_lst)
+def fetch_instr_adj_prices(
+    account: Accounts,
+    isin_lst: List,
+    name_lst: Optional[List] = None,
+    tick_lst: Optional[List] = None,
+    to_portfolio_instr_table: bool = True,
+) -> pd.DataFrame:
+    data = fetch_instr_hist_data(
+        isin_lst=isin_lst, columns=YFinHistCols.adj_close, ticker_lst=tick_lst, name_lst=name_lst
+    )
     # dump collected data into the database
     # if to_portfolio_instr_table:  # and datetime.strptime(account.state.get('last_data_update'), '%d%b%Y') < datetime.now():
     #     insert_yahoo_finance_data(data_dict=data, to_portfolio_instr_table=to_portfolio_instr_table)
     # convert prices to domestic currency
-    close_adj_base_curr_df = prices_to_base_curr(account=account,
-                                                 price_df=data[YFinHistCols.adj_close],
-                                                 curr_info=data[YF_PROD_INFO_LABEL].loc[YFinInfoCols.currency.value])
-    rename_dict = {old: new for (old, new) in zip(data[YF_PROD_INFO_LABEL].loc['symbol'],
-                                                  data[YF_PROD_INFO_LABEL].loc['symbol_ext'])}
+    close_adj_base_curr_df = prices_to_base_curr(
+        account=account,
+        price_df=data[YFinHistCols.adj_close],
+        curr_info=data[YF_PROD_INFO_LABEL].loc[YFinInfoCols.currency.value],
+    )
+    rename_dict = {
+        old: new
+        for (old, new) in zip(data[YF_PROD_INFO_LABEL].loc['symbol'], data[YF_PROD_INFO_LABEL].loc['symbol_ext'])
+    }
     close_adj_base_curr_df = close_adj_base_curr_df.rename(columns=rename_dict)
     return close_adj_base_curr_df
 
 
-def compute_product_performance(adj_close_df: PD_DATA_TYPES,
-                                volume_df: Optional[PD_DATA_TYPES] = None,
-                                prod_info_df: Optional[PD_DATA_TYPES] = None) -> pd.DataFrame:
+def compute_product_performance(
+    adj_close_df: PD_DATA_TYPES, volume_df: Optional[PD_DATA_TYPES] = None, prod_info_df: Optional[PD_DATA_TYPES] = None
+) -> pd.DataFrame:
     perf_metrics_df = pd.DataFrame()
     for ticker in adj_close_df.columns:
-        isin_str = f" ({prod_info_df.loc[YFinInfoCols.isin.value, ticker]})" if prod_info_df is not None else ''
-        print(f"Computing performance metrics for {ticker}{isin_str}... ")
+        isin_str = f' ({prod_info_df.loc[YFinInfoCols.isin.value, ticker]})' if prod_info_df is not None else ''
+        print(f'Computing performance metrics for {ticker}{isin_str}... ')
         # compute performance metrics
         try:
-            results_dict = compute_portfolio_metrics(nav=adj_close_df[ticker].dropna(),
-                                                     compute_hist_metrics=False,
-                                                     print_results=False)
+            results_dict = compute_portfolio_metrics(
+                nav=adj_close_df[ticker].dropna(), compute_hist_metrics=False, print_results=False
+            )
         except ValueError:
             continue
         # add dollar volume
@@ -228,12 +231,8 @@ def compute_single_etf_performance(isin: str) -> pd.DataFrame:
     prod_df = query_products(product_isin=isin, product_type=ProductTypes.ETF)
     ticker = prod_df[Product.symbol.name].iloc[0] if not prod_df.empty else None
     name = prod_df[Product.name.name].iloc[0] if not prod_df.empty else None
-    data = fetch_instr_hist_data(isin_lst=isin,
-                                 columns=YFinHistCols.adj_close,
-                                 ticker_lst=ticker,
-                                 name_lst=name)
-    df = compute_product_performance(adj_close_df=data[YFinHistCols.adj_close],
-                                     prod_info_df=data[YF_PROD_INFO_LABEL])
+    data = fetch_instr_hist_data(isin_lst=isin, columns=YFinHistCols.adj_close, ticker_lst=ticker, name_lst=name)
+    df = compute_product_performance(adj_close_df=data[YFinHistCols.adj_close], prod_info_df=data[YF_PROD_INFO_LABEL])
     print(df)
     return df
 
@@ -245,20 +244,17 @@ def compute_portfolio_instruments_performance():
         for instr in close_adj_df.columns:
             results_dict = compute_portfolio_metrics(nav=close_adj_df[instr])
             perf_metrics_df = pd.concat([perf_metrics_df, results_dict[PerfDataTabs.RISK_METRICS]], axis=1)
-        save_df_dict_to_excel(df_dict={PerfDataTabs.RISK_METRICS: perf_metrics_df,
-                                       PerfDataTabs.PRICES: close_adj_df},
-                              folder_name=RESULTS_DIR,
-                              file_name=f'{account.name}_instr')
+        save_df_dict_to_excel(
+            df_dict={PerfDataTabs.RISK_METRICS: perf_metrics_df, PerfDataTabs.PRICES: close_adj_df},
+            folder_name=RESULTS_DIR,
+            file_name=f'{account.name}_instr',
+        )
 
 
 def fetch_etf_catalog_data():
-    etf_info_df = query_products(product_type=ProductTypes.ETF,
-                                 tradable=True
-                                 )[[Product.isin.name,
-                                    Product.symbol.name,
-                                    Product.name.name,
-                                    Product.exchange_id.name
-                                    ]]
+    etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)[
+        [Product.isin.name, Product.symbol.name, Product.name.name, Product.exchange_id.name]
+    ]
     exchange_ids = [x.value for x in [Exchanges.XET, Exchanges.SWX, Exchanges.MIL, Exchanges.EAM]]
     etf_info_df = etf_info_df[etf_info_df[Product.exchange_id.name].isin(exchange_ids)]
     etf_info_df = etf_info_df.drop_duplicates(subset=['isin', 'symbol'], keep='first')
@@ -270,12 +266,12 @@ def fetch_etf_catalog_data():
         print(f'({n + 1}/{len(isin_lst)} - Fetching data for {isin}')
         for attempt in range(5):
             try:
-                fetch_instr_hist_data(isin_lst=isin,
-                                      columns=[YFinHistCols.adj_close,
-                                               YFinHistCols.close,
-                                               YFinHistCols.volume],
-                                      ticker_lst=ticker,
-                                      name_lst=name)
+                fetch_instr_hist_data(
+                    isin_lst=isin,
+                    columns=[YFinHistCols.adj_close, YFinHistCols.close, YFinHistCols.volume],
+                    ticker_lst=ticker,
+                    name_lst=name,
+                )
                 break
             except ConnectionError:
                 time.sleep(0.5)
@@ -298,18 +294,22 @@ def build_etf_catalog_data(account: Accounts) -> Dict[YFinHistCols, pd.DataFrame
     close_adj_df = prices_to_base_curr(account=account, price_df=close_adj_df, curr_info=curr_info)
     most_liquid_3m = [e for e in most_liquid_3m if e in close_adj_df.columns]
     info_df = query_yahoo_finance_prod_info(ticker=list(most_liquid_3m))
-    data_dict = {YFinHistCols.adj_close: close_adj_df[most_liquid_3m],
-                 YFinHistCols.volume: volume_3m_base_df[most_liquid_3m],
-                 YF_PROD_INFO_LABEL: info_df[most_liquid_3m]}
+    data_dict = {
+        YFinHistCols.adj_close: close_adj_df[most_liquid_3m],
+        YFinHistCols.volume: volume_3m_base_df[most_liquid_3m],
+        YF_PROD_INFO_LABEL: info_df[most_liquid_3m],
+    }
     data_dict[CATALOG_PERF_LABEL] = compute_catalog_performance_df(data_dict)
     save_etf_catalog_data(account=account, data_dict=data_dict)
     return data_dict
 
 
 def compute_catalog_performance_df(data_dict: Dict[str | YFinHistCols, pd.DataFrame]) -> pd.DataFrame:
-    return compute_product_performance(adj_close_df=data_dict[YFinHistCols.adj_close],
-                                       volume_df=data_dict[YFinHistCols.volume],
-                                       prod_info_df=data_dict[YF_PROD_INFO_LABEL])
+    return compute_product_performance(
+        adj_close_df=data_dict[YFinHistCols.adj_close],
+        volume_df=data_dict[YFinHistCols.volume],
+        prod_info_df=data_dict[YF_PROD_INFO_LABEL],
+    )
 
 
 def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
@@ -349,9 +349,11 @@ def run_unit_test(unit_test: UnitTests):
     elif unit_test == UnitTests.COMPUTE_SINGLE_ETF_PERFORMANCE:
         compute_single_etf_performance(isin='IE00B7N3YW49')
     elif unit_test == UnitTests.FETCH_SINGLE_ETF_ADJ_PRICE:
-        data = fetch_instr_hist_data(isin_lst='IE00BWC52G65',
-                                     # ticker_lst='STHC.SW',
-                                     columns=YFinHistCols.adj_close)
+        data = fetch_instr_hist_data(
+            isin_lst='IE00BWC52G65',
+            # ticker_lst='STHC.SW',
+            columns=YFinHistCols.adj_close,
+        )
         print(data)
     elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
         df = load_etf_catalog_data(account=Accounts.DEGIRO_CHF)

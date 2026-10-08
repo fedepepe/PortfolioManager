@@ -8,3 +8,16 @@ requires-python = ">=3.10"
 testpaths = ["tests"]
 # the project modules are imported from the repository root
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+# work in progress of the author, not part of the project yet
+extend-exclude = ["engines/instrument_price_forecasting.py", "engines/strategy_simple.py"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import sorting, bugbear (likely bugs), pyupgrade (modern syntax)
+select = ["E", "W", "F", "I", "B", "UP"]

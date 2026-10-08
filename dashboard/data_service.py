@@ -37,16 +37,18 @@ def _benchmark_name(account: Accounts) -> str:
 
 def _data_files(account: Accounts) -> list[str]:
     name = to_file_name(account.name)
-    return [f'{DATA_DIR}/{name}.xlsx',
-            f'{DATA_DIR}/{name}_benchmark.xlsx',
-            f'{DATA_DIR}/{name}_products_info.xlsx',
-            f'{RESULTS_DIR}/{name}.xlsx',
-            f'{RESULTS_DIR}/{name}_benchmark.xlsx']
+    return [
+        f'{DATA_DIR}/{name}.xlsx',
+        f'{DATA_DIR}/{name}_benchmark.xlsx',
+        f'{DATA_DIR}/{name}_products_info.xlsx',
+        f'{RESULTS_DIR}/{name}.xlsx',
+        f'{RESULTS_DIR}/{name}_benchmark.xlsx',
+    ]
 
 
 def data_version(account: Accounts) -> str:
     # latest modification time of the files read by the portfolio page (0 for missing files)
-    return str(max(os.path.getmtime(f) if os.path.isfile(f) else 0. for f in _data_files(account)))
+    return str(max(os.path.getmtime(f) if os.path.isfile(f) else 0.0 for f in _data_files(account)))
 
 
 @lru_cache(maxsize=4)
@@ -98,10 +100,12 @@ def _optimized_data(account_name: str, version: str) -> OptimizedData:
     settings = OptimizationSettings()
     if perf_dct is not None and OPTIMIZATION_SETTINGS_LABEL in perf_dct:
         settings = OptimizationSettings.from_series(perf_dct[OPTIMIZATION_SETTINGS_LABEL].iloc[:, 0])
-    return OptimizedData(hist_data=load_backtest_data(name=name),
-                         perf_dct=perf_dct,
-                         computed_at=os.path.getmtime(_optimized_files(account)[0]),
-                         settings=settings)
+    return OptimizedData(
+        hist_data=load_backtest_data(name=name),
+        perf_dct=perf_dct,
+        computed_at=os.path.getmtime(_optimized_files(account)[0]),
+        settings=settings,
+    )
 
 
 def get_optimized_data(account: Accounts) -> Optional[OptimizedData]:
@@ -109,7 +113,7 @@ def get_optimized_data(account: Accounts) -> Optional[OptimizedData]:
     files = _optimized_files(account)
     if not os.path.isfile(files[0]):
         return None
-    version = str(max(os.path.getmtime(f) if os.path.isfile(f) else 0. for f in files))
+    version = str(max(os.path.getmtime(f) if os.path.isfile(f) else 0.0 for f in files))
     return _optimized_data(account.name, version)
 
 
@@ -140,11 +144,13 @@ def run_optimization(account: Accounts, settings: OptimizationSettings) -> str:
         error = settings.validate(n_assets=prices_df.shape[1])
         if error:
             raise ValueError(error)
-        _, optimized_weights = backtest_portfolio_optimized(account=account, index=index, prices_adj_df=prices_df,
-                                                            settings=settings)
+        _, optimized_weights = backtest_portfolio_optimized(
+            account=account, index=index, prices_adj_df=prices_df, settings=settings
+        )
     summary = f'prices {prices_summary}'
     n_failed = len(optimized_weights.failed_dates)
     if n_failed:
-        summary += (f'; optimization failed on {n_failed} of {len(optimized_weights.weights)} dates, '
-                    f'previous weights kept')
+        summary += (
+            f'; optimization failed on {n_failed} of {len(optimized_weights.weights)} dates, previous weights kept'
+        )
     return summary

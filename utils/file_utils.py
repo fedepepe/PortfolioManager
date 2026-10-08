@@ -10,10 +10,7 @@ def to_file_name(file_name: str) -> str:
     return file_name.replace(' ', '_').replace('.', '_')
 
 
-def save_df_to_excel(df: PD_DATA_TYPES,
-                     file_name: str,
-                     folder_name: str = None,
-                     append: bool = False):
+def save_df_to_excel(df: PD_DATA_TYPES, file_name: str, folder_name: str = None, append: bool = False):
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -23,14 +20,13 @@ def save_df_to_excel(df: PD_DATA_TYPES,
         df = pd.concat([df_old, df], axis=0)
         df = df[~df.index.duplicated(keep='last')]
         df = df.sort_index()
-    with pd.ExcelWriter(file_path, mode="w", engine="openpyxl") as writer:
+    with pd.ExcelWriter(file_path, mode='w', engine='openpyxl') as writer:
         df.to_excel(writer)
 
 
-def save_df_dict_to_excel(df_dict: Dict[str, PD_DATA_TYPES],
-                          file_name: str,
-                          folder_name: str = None,
-                          append: bool = False):
+def save_df_dict_to_excel(
+    df_dict: Dict[str, PD_DATA_TYPES], file_name: str, folder_name: str = None, append: bool = False
+):
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -42,16 +38,13 @@ def save_df_dict_to_excel(df_dict: Dict[str, PD_DATA_TYPES],
                 df_dict[df_name] = pd.concat([df, df_dict[df_name]], axis=0)
                 df_dict[df_name] = df_dict[df_name][~df_dict[df_name].index.duplicated(keep='last')]
                 df_dict[df_name] = df_dict[df_name].sort_index()
-    with pd.ExcelWriter(file_path, mode="w", engine="openpyxl") as writer:
+    with pd.ExcelWriter(file_path, mode='w', engine='openpyxl') as writer:
         for df_name, df in df_dict.items():
             if df is not None and isinstance(df, PD_DATA_TYPES):
                 df.to_excel(writer, sheet_name=df_name)
 
 
-def save_df_to_parquet(df: PD_DATA_TYPES,
-                       file_name: str,
-                       folder_name: str = None,
-                       append: bool = False):
+def save_df_to_parquet(df: PD_DATA_TYPES, file_name: str, folder_name: str = None, append: bool = False):
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.parquet')
     else:
@@ -64,10 +57,7 @@ def save_df_to_parquet(df: PD_DATA_TYPES,
     df.to_parquet(file_path)
 
 
-def load_df_from_excel(file_name: str,
-                       folder_name: str = None,
-                       sheet_name: str | List[str] = 'Sheet1'
-                       ) -> pd.DataFrame:
+def load_df_from_excel(file_name: str, folder_name: str = None, sheet_name: str | List[str] = 'Sheet1') -> pd.DataFrame:
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -76,9 +66,7 @@ def load_df_from_excel(file_name: str,
     return df
 
 
-def load_df_dict_from_excel(file_name: str,
-                            folder_name: str = None
-                            ) -> Dict[str, pd.DataFrame | str]:
+def load_df_dict_from_excel(file_name: str, folder_name: str = None) -> Dict[str, pd.DataFrame | str]:
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.xlsx')
     else:
@@ -87,8 +75,7 @@ def load_df_dict_from_excel(file_name: str,
     return df
 
 
-def load_df_from_parquet(file_name: str,
-                         folder_name: str = None):
+def load_df_from_parquet(file_name: str, folder_name: str = None):
     if folder_name is not None:
         file_path = os.path.abspath(f'{folder_name}/{to_file_name(file_name)}.parquet')
     else:

@@ -17,6 +17,8 @@ class InstrumentsData:
             self.perf_df = data[CATALOG_PERF_LABEL]
         else:
             # catalog saved before the performance metrics were stored with it: compute them in memory only
-            logging.warning(f'ETF catalog of {account.name} has no performance metrics: computing them now. '
-                            f'Run compute_catalog_performance or rebuild the catalog to store them.')
+            logging.warning(
+                f'ETF catalog of {account.name} has no performance metrics: computing them now. '
+                f'Run compute_catalog_performance or rebuild the catalog to store them.'
+            )
             self.perf_df = compute_catalog_performance_df(data)

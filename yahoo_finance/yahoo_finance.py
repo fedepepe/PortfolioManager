@@ -64,7 +64,7 @@ class Exchanges(Exchange, Enum):
 YAHOO_FINANCE_HOST = 'query1.finance.yahoo.com'
 
 
-def is_yahoo_reachable(timeout: float = 3.) -> bool:
+def is_yahoo_reachable(timeout: float = 3.0) -> bool:
     # quick connectivity check, to avoid long retries and timeouts per instrument when working offline.
     # An HTTPS request, since a plain TCP connection may be accepted locally (e.g. by a VPN or firewall);
     # any HTTP response means the server is reachable
@@ -98,16 +98,17 @@ def fetch_history_single(ticker: str | yf.Ticker):
         pass
     else:
         raise TypeError
-    df = ticker.history(period="10y", interval='1d', auto_adjust=False)
+    df = ticker.history(period='10y', interval='1d', auto_adjust=False)
     df.index = pd.to_datetime(df.index)
     df = df.resample('D').last().dropna(how='all')
     df.index = df.index.tz_localize(None)
     return df
 
 
-def fetch_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
-                  columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close
-                  ) -> Dict[str | YFinHistCols, pd.DataFrame]:
+def fetch_history(
+    tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
+    columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
+) -> Dict[str | YFinHistCols, pd.DataFrame]:
     if isinstance(tickers, str) or isinstance(tickers, yf.Ticker):
         tickers = [tickers]
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):
@@ -127,10 +128,11 @@ def fetch_history(tickers: str | List[str] | yf.Ticker | List[yf.Ticker],
     return data
 
 
-def search_fetch_history(ticker: Optional[str] = None,
-                         isin: Optional[str] = None,
-                         columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
-                         ) -> Optional[Dict[str | YFinHistCols, pd.DataFrame]]:
+def search_fetch_history(
+    ticker: Optional[str] = None,
+    isin: Optional[str] = None,
+    columns: str | YFinHistCols | List[str] | List[YFinHistCols] = YFinHistCols.adj_close,
+) -> Optional[Dict[str | YFinHistCols, pd.DataFrame]]:
     if ticker is None and isin is None:
         raise ValueError('Ticker and ISIN both missing. At least one must be given.')
     search = search_ticker(ticker=ticker if ticker is not None else isin)
@@ -138,8 +140,11 @@ def search_fetch_history(ticker: Optional[str] = None,
         # Yahoo Finance not reachable after several attempts
         return None
     if ticker is not None:
-        match = [e for e in search.all['quotes']
-                 if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.code}' for x in Exchanges]]
+        match = [
+            e
+            for e in search.all['quotes']
+            if e['symbol'] == ticker or e['symbol'] in [f'{ticker}.{x.code}' for x in Exchanges]
+        ]
     else:
         match = search.all['quotes']
     if isinstance(columns, str) or isinstance(columns, YFinHistCols):

@@ -25,9 +25,7 @@ class AllocationRiskLabels:
 
 # read-only view of the saved data of a portfolio, shared through dashboard.data_service: do not modify
 class PortfolioData:
-    def __init__(self,
-                 account: Optional[Accounts] = None,
-                 hist_data: Optional[PortfolioBacktestData] = None):
+    def __init__(self, account: Optional[Accounts] = None, hist_data: Optional[PortfolioBacktestData] = None):
         if account is not None:
             self.account = account
             self.hist_data = load_backtest_data(name=self.account.name)
@@ -47,14 +45,19 @@ class PortfolioData:
 
     def get_alloc_risk(self) -> pd.DataFrame:
         weights_last = self.hist_data.effective_weights.T.iloc[:, -1].rename(AllocationRiskLabels.ALLOCATION)
-        risk_contrib = vol_risk_contr(w=self.hist_data.effective_weights.drop('Cash', axis=1).iloc[-1, :].values,
-                                      cov_mat=self.returns_adj_weekly_df.cov().values)
-        risk_contrib = pd.DataFrame(np.append(risk_contrib, 0.),
-                                    columns=[AllocationRiskLabels.RISK_CONTRIB],
-                                    index=self.hist_data.effective_weights.columns)
-        alloc_risk_df = pd.concat([weights_last, risk_contrib, self.prod_df[[Product.name.name,
-                                                                             Product.symbol.name,
-                                                                             Product.isin.name]]], axis=1)
+        risk_contrib = vol_risk_contr(
+            w=self.hist_data.effective_weights.drop('Cash', axis=1).iloc[-1, :].values,
+            cov_mat=self.returns_adj_weekly_df.cov().values,
+        )
+        risk_contrib = pd.DataFrame(
+            np.append(risk_contrib, 0.0),
+            columns=[AllocationRiskLabels.RISK_CONTRIB],
+            index=self.hist_data.effective_weights.columns,
+        )
+        alloc_risk_df = pd.concat(
+            [weights_last, risk_contrib, self.prod_df[[Product.name.name, Product.symbol.name, Product.isin.name]]],
+            axis=1,
+        )
         alloc_risk_df = alloc_risk_df.sort_values(by=AllocationRiskLabels.ALLOCATION, ascending=False)
         row_cash = alloc_risk_df.iloc[alloc_risk_df.index == 'Cash', :].fillna('Cash')
         alloc_risk_df = alloc_risk_df.drop('Cash', axis=0)

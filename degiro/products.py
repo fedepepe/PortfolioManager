@@ -102,10 +102,10 @@ def run_unit_test(unit_test: UnitTests):
         fetch_full_product_catalog()
     elif unit_test == UnitTests.LOAD_ETF_CATALOG:
         results_df = query_products(product_type=ProductTypes.ETF, tradable=True)
-        print(results_df)
+        print(results_df)  # noqa: T201 (manual script, moved out in the cleanup step)
     elif unit_test == UnitTests.GET_PRODUCT_INFO_FROM_ISIN:
         results_df = get_product_info_from_isin('IE00B7N3YW49')
-        print(results_df)
+        print(results_df)  # noqa: T201 (manual script, moved out in the cleanup step)
     else:
         raise NotImplementedError
 

@@ -19,6 +19,8 @@ from degiro.products import load_portfolio_products
 from portfolio.instruments_performance import fetch_instr_hist_data, is_missing, prices_to_base_curr
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols, is_yahoo_reachable
 
+logger = logging.getLogger(__name__)
+
 
 class AdjPrices(NamedTuple):
     prices: pd.DataFrame  # date x product id, account currency; products without adjusted prices are missing
@@ -55,7 +57,7 @@ def get_portfolio_adj_prices(account: Accounts) -> AdjPrices:
                     name=None if is_missing(first['name']) else first['name'],
                 )
             except Exception as e:  # any download problem: fall back to the stored prices
-                logging.warning(f'Yahoo Finance download failed for {first["name"]}: {e}')
+                logger.warning('Yahoo Finance download failed for %s: %s', first['name'], e)
         if result is not None:
             ticker, prices, info = result
             replace_portfolio_instr_adj_close(ticker=ticker, ser=prices)
@@ -91,5 +93,5 @@ def get_portfolio_adj_prices(account: Accounts) -> AdjPrices:
     if missing:
         parts.append(f'{len(set(missing))} with unadjusted Degiro prices')
     summary = f'{"online" if online else "offline"}: {", ".join(parts)}'
-    logging.info(f'{account.name} adjusted prices: {summary}')
+    logger.info('%s adjusted prices: %s', account.name, summary)
     return AdjPrices(prices=prices, summary=summary)

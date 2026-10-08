@@ -8,6 +8,8 @@ from degiro.portfolio_backtest import PortfolioDegiro
 from degiro.transactions import TxHistFields
 from portfolio.portfolio_definitions import Currencies, Portfolio, PortfolioBacktestData
 
+logger = logging.getLogger(__name__)
+
 
 def align_to_index(dates: pd.DatetimeIndex, index: pd.DatetimeIndex) -> pd.DatetimeIndex:
     # map each date to the last date in index on or before it (NaT if none)
@@ -159,9 +161,9 @@ def backtest_portfolio(
         close_adj_df = close_adj_df.reindex(index=prices_df.index).ffill()
         missing_tickers = [t for t in prices_df if t not in close_adj_df]
         if len(missing_tickers) == prices_df.shape[1]:
-            logging.warning(
-                f'{name}: no adjusted prices match the instruments of the portfolio, '
-                f'using unadjusted prices for all of them'
+            logger.warning(
+                '%s: no adjusted prices match the instruments of the portfolio, using unadjusted prices for all',
+                name,
             )
         close_adj_df[missing_tickers] = prices_df[missing_tickers]
         close_adj_df = close_adj_df[prices_df.columns]

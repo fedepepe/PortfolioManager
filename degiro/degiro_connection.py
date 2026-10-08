@@ -1,8 +1,12 @@
+import logging
+
 from degiro_connector.trading.api import API
 from degiro_connector.trading.models.credentials import build_credentials
 
 from config.accounts import Accounts
 from config.definitions import CREDENTIALS_DIR
+
+logger = logging.getLogger(__name__)
 
 
 def get_degiro_connection(account: Accounts | None = None) -> API:
@@ -15,7 +19,6 @@ def get_degiro_connection(account: Accounts | None = None) -> API:
     )
     conn = API(credentials=credentials)
     conn.connect()
-    # DISPLAY SESSION_ID
-    session_id = conn.connection_storage.session_id
-    print(f'You are now connected, with the session id: {session_id}')
+    # the session id is a login token: never print or log it
+    logger.info('Connected to DeGiro as %s', account.name)
     return conn

@@ -81,7 +81,7 @@ def test_min_invested_capped_by_available_assets(prices_late_asset):
     np.testing.assert_allclose(weights.sum(axis=1), 0.9, atol=1e-3)
 
 
-def test_failed_date_keeps_previous_weights(prices, monkeypatch):
+def test_failed_date_keeps_previous_weights(prices, monkeypatch, caplog):
     calls = {'n': 0}
     original = po.PortfolioOptimizer.compute_equal_weights
 
@@ -95,6 +95,7 @@ def test_failed_date_keeps_previous_weights(prices, monkeypatch):
     result = optimize(prices, OptimizationSettings(method=AllocationStrats.EQUAL_WEIGHT))
     assert result.failed_dates == [result.weights.index[2]]
     assert result.weights.iloc[2].equals(result.weights.iloc[1])
+    assert any(r.levelname == 'WARNING' and 'previous weights kept' in r.getMessage() for r in caplog.records)
 
 
 def test_min_position_size_drops_and_redistributes():

@@ -1,3 +1,4 @@
+import logging
 import math
 from enum import Enum
 from typing import NamedTuple
@@ -10,6 +11,8 @@ from config.definitions import DEFAULT_CORR_DATA_FREQ, RESULTS_DIR
 from portfolio.portfolio_definitions import DEFAULT_FREQ_HIST_DATA, PortfolioBacktestData
 from utils.date_utils import ANN_FACTOR_DICT
 from utils.file_utils import PD_DATA_TYPES, save_df_dict_to_excel
+
+logger = logging.getLogger(__name__)
 
 MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6, '2M': 3, 'Q': 2, '2Q': 2, 'Y': 2}
 
@@ -91,16 +94,16 @@ def compute_portfolio_metrics(
     # detect the sampling frequency
     if hist_portfolio_data is None:
         freq = pd.infer_freq(nav.index)
-        print(f'Inferred sampling frequency: {freq}')
+        logger.debug('Inferred sampling frequency: %s', freq)
     elif hist_portfolio_data.freq is None:
         freq = pd.infer_freq(nav.index)
-        print(f'Inferred sampling frequency: {freq}')
+        logger.debug('Inferred sampling frequency: %s', freq)
     else:
         freq = hist_portfolio_data.freq
-        print(f'Using input sampling frequency: {freq}')
+        logger.debug('Using input sampling frequency: %s', freq)
     if freq is None:
         freq = DEFAULT_FREQ_HIST_DATA
-        print(f'Switching to default sampling frequency: {freq}')
+        logger.debug('Switching to default sampling frequency: %s', freq)
 
     total_return_all_samples = nav.iloc[-1] / initial_cash_pos - 1
     prices_eoy = nav.resample('Y').last()
@@ -213,7 +216,7 @@ def compute_portfolio_metrics(
         name=nav.name,
     )
     if print_results:
-        print(risk_metrics)
+        logger.info('Risk metrics of %s:\n%s', nav.name, risk_metrics)
     results_dict = {
         PerfDataTabs.RETURNS_YEARLY: returns_yearly,
         PerfDataTabs.RETURNS_MONTHLY: returns_monthly,
@@ -284,7 +287,7 @@ def compute_results_from_navs(
         nav = navs[col].copy()
         results_single = compute_portfolio_metrics(nav=nav, strategy_benchmark=nav_benchmark)
         for label in results_dict:
-            print(results_single[label])
+            logger.debug('%s of %s:\n%s', label, nav.name, results_single[label])
             results_dict[label] = pd.concat([results_dict[label], results_single[label].rename(nav.name)], axis=1)
     results_dict[PerfDataTabs.CORRELATION] = results_dict[PerfDataTabs.RETURNS_MONTHLY].corr()
     if save:

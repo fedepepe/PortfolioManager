@@ -1,4 +1,4 @@
-import warnings
+import logging
 from enum import Enum
 
 import pandas as pd
@@ -12,6 +12,8 @@ from database.sql import insert_degiro_hist
 from degiro.degiro_connection import get_degiro_connection
 from degiro.products import ProductTypes, fetch_product_info, load_portfolio_products, query_products
 from utils.file_utils import load_df_from_excel, save_df_to_excel
+
+logger = logging.getLogger(__name__)
 
 
 class ChartType(str, Enum):
@@ -171,9 +173,7 @@ def load_fx_rates(
             ser = (1.0 / fx_rates_df_tmp[f'{account.currency}/{cur}']).rename(f'{cur}/{account.currency}')
             fx_rates_df = pd.concat([fx_rates_df, ser], axis=1)
         else:
-            warnings.warn(
-                f'Warning! Missing foreign exchange historical time series for {cur}/{account.currency}', stacklevel=2
-            )
+            logger.warning('Missing foreign exchange historical time series for %s/%s', cur, account.currency)
     if fx_rates_df.empty:
         fx_rates_df = fx_rates_df.reindex(index=index)
     # dummy column of ones for domestic currency

@@ -57,7 +57,7 @@ def run_unit_test(unit_test: UnitTests):
                 hist_benchmark_data=load_backtest_data(name=f'{account.name}_benchmark'),
             )
     elif unit_test == UnitTests.LOAD_PORTFOLIO_PERFORMANCE:
-        print(load_performance_data_portfolio(account=Accounts.DEGIRO_CHF))
+        print(load_performance_data_portfolio(account=Accounts.DEGIRO_CHF))  # noqa: T201 (manual script, moved out in the cleanup step)
     elif unit_test == UnitTests.UPDATE_DATA_COMPUTE_PERFORMANCE:
         for account in Accounts:
             refresh_account(account=account)

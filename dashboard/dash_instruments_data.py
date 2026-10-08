@@ -4,6 +4,8 @@ from config.accounts import Accounts
 from portfolio.instruments_performance import CATALOG_PERF_LABEL, compute_catalog_performance_df, load_etf_catalog_data
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols
 
+logger = logging.getLogger(__name__)
+
 
 # read-only view of the saved ETF catalog of an account, shared through dashboard.data_service: do not modify
 class InstrumentsData:
@@ -17,8 +19,9 @@ class InstrumentsData:
             self.perf_df = data[CATALOG_PERF_LABEL]
         else:
             # catalog saved before the performance metrics were stored with it: compute them in memory only
-            logging.warning(
-                f'ETF catalog of {account.name} has no performance metrics: computing them now. '
-                f'Run compute_catalog_performance or rebuild the catalog to store them.'
+            logger.warning(
+                'ETF catalog of %s has no performance metrics: computing them now. '
+                'Run compute_catalog_performance or rebuild the catalog to store them.',
+                account.name,
             )
             self.perf_df = compute_catalog_performance_df(data)

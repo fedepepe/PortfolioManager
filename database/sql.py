@@ -1,3 +1,5 @@
+import logging
+
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
 from sqlalchemy import delete, func, insert, or_, select
@@ -17,6 +19,8 @@ from database.table_definitions import (
 )
 from degiro.degiro_definitions import Exchanges, ProductTypes
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols
+
+logger = logging.getLogger(__name__)
 
 YAHOO_FINANCE_DATA_OVERWRITE_DICT = {YFinHistCols.adj_close: True}
 DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
@@ -60,7 +64,6 @@ def insert_product(product: ProductItem):
         vwd_module_id=product.vwd_module_id,
         vwd_module_id_secondary=product.vwd_module_id_secondary,
     )
-    print([k for k, v in product.dict().items() if isinstance(v, list)])
     with SessionLocal() as session:
         session.add(data)
         _commit(session, message=f'{product.id} - {product.name}')
@@ -230,11 +233,11 @@ def _commit(session: Session, message: str | None = None):
         session.rollback()
         if 'UNIQUE constraint failed' in str(e.orig):
             if message is not None:
-                print(f'Entry {message} already exists. Skipped.')
+                logger.info('Entry %s already exists: skipped', message)
             return
         raise
     if message is not None:
-        print(f'Added entry {message}.')
+        logger.debug('Added entry %s', message)
 
 
 def query_products(
@@ -449,4 +452,4 @@ if __name__ == '__main__':
     #                        Product.symbol.name,
     #                        Product.name.name
     #                        ]]
-    print(df)
+    print(df)  # noqa: T201 (manual script, moved out in the cleanup step)

@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
@@ -9,6 +10,8 @@ import engines.portfolio_optimization_obj_funcs as pffun
 from config.definitions import RISK_FREE_RATE
 from strategy.strategy_definitions import AllocationStrats
 from utils.date_utils import ANN_FACTOR_DICT
+
+logger = logging.getLogger(__name__)
 
 # minimum history of returns of an instrument to be included in an optimization (3 months)
 MIN_HISTORY_YEARS = 0.25
@@ -197,26 +200,27 @@ class PortfolioOptimizer:
             else:
                 raise TypeError
             if optim.success:
-                print('---------------------------------------')
-                print(f'Optimized portfolio weights: {optim.x}')
+                logger.debug('Optimized portfolio weights: %s', optim.x)
                 if self.optimization_type == AllocationStrats.RISK_PARITY:
                     risk_contrib = pffun.pf_var_contr(optim.x, self.cov_mat) / pffun.compute_pf_vol(
                         optim.x, self.cov_mat
                     )
-                    print(f'Optimized risk contributions: {risk_contrib}')
-                print('---------------------------------------')
+                    logger.debug('Optimized risk contributions: %s', risk_contrib)
                 self.weights_curr = optim.x
                 return pd.Series(optim.x, index=self.returns_clean.columns, name='weights')
             else:
-                print('Warning! Optimization was not successful.')
-                print(f'Status {optim.status}. Message: {optim.message}')
-                print(f'Determinant of covariance matrix: {np.linalg.det(self.cov_mat)}')
+                logger.warning(
+                    'Optimization not successful (status %s: %s); determinant of the covariance matrix: %s',
+                    optim.status,
+                    optim.message,
+                    np.linalg.det(self.cov_mat),
+                )
                 return pd.Series(np.nan, index=self.returns_clean.columns, name='weights')
         except (ValueError, ZeroDivisionError) as e:
             if not self.returns_clean.empty:
-                print(f'Warning! Found an issue with running the optimization ({e}).')
+                logger.warning('Optimization could not be run: %s', e)
             else:
-                print('Warning! Optimization cannot be performed. Return vector is empty.')
+                logger.warning('Optimization could not be run: no returns')
             return pd.Series(np.nan, index=self.returns.columns, name='weights')
 
 
@@ -268,18 +272,17 @@ def compute_weights_optim_portfolio(
             args['risk_budget'] = {asset: 1.0 for asset in prices.columns}
         else:
             args['risk_budget'] = extra_args.get('risk_budget', None)
-    print(f'Optimization frequency: {optimization_freq}')
+    logger.debug('Optimization frequency %s, settings %s', optimization_freq, args)
     pf_optimizer = PortfolioOptimizer(**args)
-    print(args)
     # instruments with a shorter history of returns are left out of the optimization (weight 0)
     min_history = int(round(ANN_FACTOR_DICT[sampling_freq] * MIN_HISTORY_YEARS))
     failed_dates = []
     for idx in weights_df.index:
-        print(f'Running optimization as of {idx}...')
+        logger.debug('Running optimization as of %s', idx)
         returns_df = prices[prices.index <= idx].pct_change()
         too_short = returns_df.columns[returns_df.count() < min_history]
         if len(too_short) > 0:
-            print(f'Too little history, left out: {too_short.to_list()}')
+            logger.debug('Too little history, left out: %s', too_short.to_list())
         args['returns'] = returns_df.drop(columns=too_short)
         pf_optimizer.reset(**args)
         # with few instruments available (e.g. at the start of the history) the minimum invested may be out of
@@ -288,20 +291,20 @@ def compute_weights_optim_portfolio(
         pf_optimizer.min_pf_exposure = min(args['min_pf_exposure'], n_available * args['bounds_weights'][1])
         optim_weights = pf_optimizer.compute_optimized_portfolio()
         if optim_weights.isna().all():
-            # a failed optimization keeps the previous weights (instead of liquidating the portfolio)
+            # a failed optimization keeps the previous weights, so that the portfolio keeps a defined target
             failed_dates.append(idx)
             pos = weights_df.index.get_loc(idx)
             if pos > 0:
-                print('Keeping the previous weights.')
+                logger.warning('Optimization failed as of %s: previous weights kept', idx.date())
                 weights_df.iloc[pos, :] = weights_df.iloc[pos - 1, :]
+            else:
+                logger.warning('Optimization failed as of %s: no previous weights', idx.date())
             continue
         if extra_args.get('max_asset_num', None) is not None:
             optim_weights = optim_weights.mask(
                 optim_weights.rank(method='min', ascending=False) > extra_args.get('max_asset_num', None), 0
             )
-            print('-----------------------------')
-            print(f'Optimized weights: {optim_weights.values}')
-            print('-----------------------------')
+            logger.debug('Weights of the largest %s assets: %s', extra_args['max_asset_num'], optim_weights.values)
         if extra_args.get('min_position_size', 0.0) > 0:
             optim_weights = apply_min_position_size(
                 weights=optim_weights,

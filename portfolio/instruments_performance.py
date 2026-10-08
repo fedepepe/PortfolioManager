@@ -1,5 +1,5 @@
+import logging
 import time
-import warnings
 from difflib import SequenceMatcher
 from enum import Enum
 
@@ -19,6 +19,8 @@ from engines.reporting import PerfDataTabs, compute_portfolio_metrics
 from utils.file_utils import PD_DATA_TYPES, load_df_dict_from_excel, load_df_from_excel, save_df_dict_to_excel
 from yahoo_finance.yahoo_finance import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols, search_fetch_history
 from yahoo_finance.yahoo_finance import Exchanges as ExchangesYF
+
+logger = logging.getLogger(__name__)
 
 MAX_ETF_CATALOG_SIZE = 250
 CATALOG_PERF_LABEL = 'Performance'
@@ -145,9 +147,7 @@ def prices_to_base_curr(
         try:
             fx_rate = fx_rates_df.loc[price_df.index, f'{curr}/{account.currency}']
         except KeyError:
-            warnings.warn(
-                f'Warning! Missing foreign exchange historical time series for {curr}/{account.currency}', stacklevel=2
-            )
+            logger.warning('Missing foreign exchange historical time series for %s/%s', curr, account.currency)
             continue
         ser = price_df[ticker]
         if isinstance(ser, pd.DataFrame):
@@ -201,7 +201,7 @@ def compute_product_performance(
     perf_metrics_df = pd.DataFrame()
     for ticker in adj_close_df.columns:
         isin_str = f' ({prod_info_df.loc[YFinInfoCols.isin.value, ticker]})' if prod_info_df is not None else ''
-        print(f'Computing performance metrics for {ticker}{isin_str}... ')
+        logger.debug('Computing performance metrics for %s%s', ticker, isin_str)
         # compute performance metrics
         try:
             results_dict = compute_portfolio_metrics(
@@ -233,7 +233,7 @@ def compute_single_etf_performance(isin: str) -> pd.DataFrame:
     name = prod_df[Product.name.name].iloc[0] if not prod_df.empty else None
     data = fetch_instr_hist_data(isin_lst=isin, columns=YFinHistCols.adj_close, ticker_lst=ticker, name_lst=name)
     df = compute_product_performance(adj_close_df=data[YFinHistCols.adj_close], prod_info_df=data[YF_PROD_INFO_LABEL])
-    print(df)
+    logger.debug('Performance of %s:\n%s', isin, df)
     return df
 
 
@@ -263,7 +263,7 @@ def fetch_etf_catalog_data():
     ticker_lst = etf_info_df[Product.symbol.name].to_list()
     name_lst = etf_info_df[Product.name.name].to_list()
     for n, (isin, ticker, name) in enumerate(zip(isin_lst, ticker_lst, name_lst, strict=True)):
-        print(f'({n + 1}/{len(isin_lst)} - Fetching data for {isin}')
+        logger.info('(%d/%d) Fetching data for %s', n + 1, len(isin_lst), isin)
         for _attempt in range(5):
             try:
                 fetch_instr_hist_data(
@@ -354,10 +354,10 @@ def run_unit_test(unit_test: UnitTests):
             # ticker_lst='STHC.SW',
             columns=YFinHistCols.adj_close,
         )
-        print(data)
+        print(data)  # noqa: T201 (manual script, moved out in the cleanup step)
     elif unit_test == UnitTests.LOAD_ETF_CATALOG_DATA:
         df = load_etf_catalog_data(account=Accounts.DEGIRO_CHF)
-        print(df)
+        print(df)  # noqa: T201 (manual script, moved out in the cleanup step)
     elif unit_test == UnitTests.BUILD_ETF_CATALOG_DATA:
         build_etf_catalog_data(account=Accounts.DEGIRO_CHF)
     else:

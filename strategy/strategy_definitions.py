@@ -26,7 +26,7 @@ OPTIMIZATION_FREQ_LABELS = {'M': 'Monthly', 'Q': 'Quarterly', 'Y': 'Yearly'}
 OPTIONAL_SETTINGS = ('max_vol', 'target_vol', 'max_asset_num')
 
 
-# settings of a portfolio optimization; the defaults are the settings used before they could be chosen
+# settings of a portfolio optimization; the defaults are used when an account has no saved optimization
 @dataclass
 class OptimizationSettings:
 	method: AllocationStrats = AllocationStrats.MAX_SHARPE
@@ -34,7 +34,7 @@ class OptimizationSettings:
 	min_asset_exposure: float = 0.  # min weight of every asset
 	max_asset_exposure: float = 0.3  # max weight of every asset
 	min_position_size: float = 0.  # smaller positions are dropped and their weight redistributed (0: off)
-	min_pf_exposure: float = 0.  # min total invested (the rest is cash)
+	min_pf_exposure: float = 0.9  # min total invested, the rest is cash (with 0%, max Sharpe stayed mostly in cash)
 	max_pf_exposure: float = 1.  # max total invested
 	max_vol: Optional[float] = 0.15  # max annual volatility (max Sharpe)
 	target_vol: Optional[float] = None  # target annual volatility (max return)

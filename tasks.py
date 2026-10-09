@@ -47,6 +47,26 @@ def backtest(args: argparse.Namespace):
         logger.info('%s backtested', account.name)
 
 
+def show_benchmark(args: argparse.Namespace):
+    """Show the benchmark of each account (saved in the database)."""
+    from portfolio_manager.backtest.workflows import account_benchmark
+
+    for account in selected_accounts(args):
+        benchmark = account_benchmark(account)
+        logger.info('Benchmark of %s: %s', account.name, benchmark.describe())
+        for component in benchmark.components:
+            logger.info('  %-8s %5.1f%%  searched as %s', component.label, 100 * component.weight, component.search)
+
+
+def refresh_benchmark(args: argparse.Namespace):
+    """Recompute the benchmark and the performance against it from the saved backtests (no Degiro download)."""
+    from portfolio_manager.backtest.workflows import refresh_benchmark as refresh
+
+    for account in selected_accounts(args):
+        refresh(account)
+        logger.info('Benchmark of %s recomputed', account.name)
+
+
 def optimize(args: argparse.Namespace):
     """Rerun the optimization with the settings of the saved one (defaults if there is none), like Run optimization."""
     from portfolio_manager.dashboard.data_service import get_optimized_data, run_optimization
@@ -253,6 +273,8 @@ def import_degiro_excel(args: argparse.Namespace):
 COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]] = {
     'update': (update, ('account',)),
     'backtest': (backtest, ('account',)),
+    'show-benchmark': (show_benchmark, ('account',)),
+    'refresh-benchmark': (refresh_benchmark, ('account',)),
     'optimize': (optimize, ('account',)),
     'instruments-performance': (instruments_performance, ()),
     'etf-performance': (etf_performance, ('isin',)),

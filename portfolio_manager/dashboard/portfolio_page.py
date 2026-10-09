@@ -431,7 +431,12 @@ def render_portfolio(account_name: str, data_version) -> tuple:
     missing = missing_data(account, NO_DATA_HINT)
     if missing is not None:
         not_connected = account is None or account.currency is None
-        return *([get_fig_empty()] * 7), dbc.Alert(missing, color='info'), {'display': 'none'}, not_connected
+        return (
+            *([get_fig_empty()] * 7),
+            dbc.Alert(missing, color='info', className='mt-4'),
+            {'display': 'none'},
+            not_connected,
+        )
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
     figs = (

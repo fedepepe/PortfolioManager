@@ -86,7 +86,7 @@ def account_row(account: Account, message=None) -> list:
             html.Span('found', className='text-success') if found else html.Span('missing', className='text-danger'),
         ],
         html.Small(benchmark.describe() if benchmark is not None else '-'),
-        dbc.Button('Connect', id={'type': 'button-connect', 'account': account.name}, n_clicks=0, size='sm')
+        dbc.Button('Connect', id={'type': 'button-connect', 'account': account.name}, n_clicks=0)
         if account.currency is None
         else '',
     ]

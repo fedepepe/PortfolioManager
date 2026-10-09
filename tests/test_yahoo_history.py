@@ -249,3 +249,13 @@ def test_listings_off_the_preferred_exchanges_are_searched_again(yahoo):
     assert sql.query_degiro_yahoo_map([7])[7] == '1675.T'  # dry run
     instruments.research_listings(apply=True)
     assert sql.query_degiro_yahoo_map([7, 9]) == {7: 'PHAG.L', 9: 'IWDC.SW'}
+
+
+def test_ticker_searched_when_the_isin_finds_no_preferred_listing(yahoo):
+    isin = 'JE00B1VS3002'
+    yahoo.quotes[isin] = [{'symbol': f'{isin}.SG'}, {'symbol': '1675.T'}]  # Stuttgart without prices, Tokyo
+    yahoo.quotes['PHPD'] = [{'symbol': 'PHPD.L'}, {'symbol': 'PHPDX'}]
+    yahoo.histories['1675.T'] = yahoo_frame([3000.0])
+    yahoo.histories['PHPD.L'] = yahoo_frame([150.0])
+    assert history.search_listing(search=isin, ticker='PHPD', name='WisdomTree Physical Palladium') == 'PHPD.L'
+    assert sql.query_yahoo_instruments(['PHPD.L']).loc['PHPD.L', 'isin'] == isin

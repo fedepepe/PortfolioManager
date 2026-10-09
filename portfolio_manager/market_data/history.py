@@ -148,41 +148,47 @@ def choose_ticker(tickers: list[str], ticker: str | None = None) -> str:
     return tickers[0]
 
 
-def _candidates(search: str | None, ticker: str | None) -> tuple[list[dict], str | None]:
-    # listings found by the search text (every result), otherwise by ticker (exact, or with an exchange suffix); and
-    # the ISIN if the search text is one
-    if search is not None:
-        results = search_ticker(search)
-        quotes = results.quotes if results is not None else []
-        if quotes:
-            return quotes, search if ISIN_PATTERN.fullmatch(search) else None
-    if ticker is not None:
-        results = search_ticker(ticker)
-        symbols = [ticker] + [f'{ticker}.{x.code}' for x in Exchanges]
-        quotes = [q for q in (results.quotes if results is not None else []) if q.get('symbol') in symbols]
-        return quotes, None
-    return [], None
+def _search_quotes(search: str) -> list[dict]:
+    # every listing found by a search text (an ISIN, a name, ...)
+    results = search_ticker(search)
+    return results.quotes if results is not None else []
 
 
-def search_listing(search: str | None = None, ticker: str | None = None, name: str | None = None) -> str | None:
-    """Find the Yahoo Finance listing of an instrument (by a search text, usually its ISIN, then by its ticker), store
-    its history and information, and return its ticker; None if no listing with prices is found. Among several
-    listings: those on the preferred exchanges if there are any, then the closest name (without a name, the first
-    preferred exchange).
-    """
-    search = None if is_missing(search) else search
-    ticker = None if is_missing(ticker) else ticker
-    quotes, found_isin = _candidates(search, ticker)
-    names = {}
+def _ticker_quotes(ticker: str) -> list[dict]:
+    # the listings of a ticker: exact, or with the suffix of a preferred exchange
+    symbols = [ticker] + [f'{ticker}.{x.code}' for x in Exchanges]
+    return [q for q in _search_quotes(ticker) if q.get('symbol') in symbols]
+
+
+def _add_candidates(quotes: list[dict], names: dict[str, str], histories: dict[str, pd.DataFrame]):
+    # the listings not seen yet, with their name; those with prices get their history (in place)
     for quote in quotes:
-        names.setdefault(quote['symbol'], quote.get('longname') or quote.get('shortname') or '')
-    histories = {}
-    for symbol in names:
+        symbol = quote['symbol']
+        if symbol in names:
+            continue
+        names[symbol] = quote.get('longname') or quote.get('shortname') or ''
         history = download_history(symbol)
         if not history['close'].dropna().empty:
             histories[symbol] = history
+
+
+def search_listing(search: str | None = None, ticker: str | None = None, name: str | None = None) -> str | None:
+    """Find the Yahoo Finance listing of an instrument, store its history and information, and return its ticker;
+    None if no listing with prices is found. The candidates are the listings found by the search text (usually the
+    ISIN), plus those of the ticker when the search finds none with prices on a preferred exchange. Among several:
+    those on the preferred exchanges if there are any, then the closest name (without a name, the first preferred
+    exchange).
+    """
+    search = None if is_missing(search) else search
+    ticker = None if is_missing(ticker) else ticker
+    names, histories = {}, {}
+    if search is not None:
+        _add_candidates(_search_quotes(search), names, histories)
+    if ticker is not None and not any(on_preferred_exchange(s) for s in histories):
+        _add_candidates(_ticker_quotes(ticker), names, histories)
     if not histories:
         return None
+    found_isin = search if search is not None and ISIN_PATTERN.fullmatch(search) else None
     # the listings on the preferred exchanges, if any: a closer name on another exchange (e.g. Tokyo) does not win
     symbols = [s for s in histories if on_preferred_exchange(s)] or list(histories)
     if len(symbols) > 1 and not is_missing(name):

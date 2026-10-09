@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 import portfolio_manager.dashboard.data_service as data_service
@@ -58,6 +60,7 @@ def test_etf_performance_requires_isin():
 
 
 def test_show_benchmark_of_an_account_without_one(no_db, caplog):
+    caplog.set_level(logging.INFO)
     tasks.main(['add-account', '--name', 'Portfolio USD', '--currency', 'USD'])
     tasks.main(['show-benchmark'])
     messages = [r.getMessage() for r in caplog.records]

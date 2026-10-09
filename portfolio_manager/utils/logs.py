@@ -35,10 +35,12 @@ class HideSecrets(logging.Filter):
 
 
 def configure_logging(level: int = logging.INFO):
-    """Log to the console; degiro-connector only from warnings (its login messages contain the session id), and every
-    message without session ids and account numbers.
+    """Log to the console; degiro-connector only from warnings (its login messages contain the session id), yfinance
+    only critical errors, and every message without session ids and account numbers.
     """
     logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
     logging.getLogger('degiro_connector').setLevel(max(level, logging.WARNING))
+    # yfinance logs an error for every listing without data (e.g. the candidates of a search): our code reports failures
+    logging.getLogger('yfinance').setLevel(logging.CRITICAL)
     for handler in logging.getLogger().handlers:
         handler.addFilter(HideSecrets())

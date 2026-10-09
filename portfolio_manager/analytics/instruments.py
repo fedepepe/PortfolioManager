@@ -226,7 +226,15 @@ def fetch_etf_catalog_data(full: bool = False):
             logger.warning('Yahoo Finance download failed for %s: %s', product.isin, e)
             result = 'failed'
         results[result] += 1
-        logger.info('(%d/%d) %s %s: %s', n + 1, len(products), product.isin, ticker or '', result)
+        logger.info(
+            '%5.1f%% (%d/%d) %s %s: %s',
+            100 * (n + 1) / len(products),
+            n + 1,
+            len(products),
+            product.isin,
+            ticker or '',
+            result,
+        )
         time.sleep(0.2)  # spread the requests to Yahoo Finance
     logger.info('ETF catalog downloaded: %s', ', '.join(f'{k} {v}' for k, v in results.items()))
 

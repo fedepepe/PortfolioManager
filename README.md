@@ -58,6 +58,8 @@ optimization** (Strategies page).
 python tasks.py --help
 python tasks.py update                         # like the Update button, for every account
 python tasks.py optimize --account degiro_eur  # rerun the saved optimization of one account
+python tasks.py show-benchmark                 # the benchmark of each account
+python tasks.py refresh-benchmark              # recompute the benchmarks from the saved backtests
 python tasks.py etf-performance --isin IE00B4L5Y983
 ```
 
@@ -81,6 +83,14 @@ backtest ends on the last day with the prices of all the products held, so a day
 is left out. Degiro downloads saved as Excel files before the database are imported with
 `python tasks.py import-degiro-excel`.
 
+The settings chosen for each account are saved in the database, starting with its benchmark (instruments, weights,
+rebalancing frequency); an account without saved settings starts with the default benchmark of
+`portfolio_manager/config/accounts.py`.
+
+The database records the version of its schema. At start-up an older database is upgraded by the steps in
+`portfolio_manager/storage/migrations.py`, after a copy of it is saved next to it (`degiro.db.bak-v{version}`); a
+database newer than the code stops the start-up without being changed.
+
 Adjusted prices come from Yahoo Finance when it is reachable and are stored in the database, so that the backtests
 also work offline. Degiro cash movements are recognized by their descriptions, which are in Italian (the language of
 the accounts): see `portfolio_manager/backtest/workflows.py`.
@@ -91,10 +101,10 @@ the accounts): see `portfolio_manager/backtest/workflows.py`.
 main.py                    web server (FastAPI) serving the dashboard
 tasks.py                   command-line maintenance tasks
 portfolio_manager/
-├── config/                accounts, paths and constants
+├── config/                accounts, account settings, paths and constants
 ├── degiro/                Degiro API: connection, products, transactions, price charts
 ├── market_data/           Yahoo Finance
-├── storage/               database (models, queries) and Excel files
+├── storage/               database (models, queries, schema upgrades), Parquet tables and Excel files
 ├── backtest/              portfolio model, backtest engine, account/benchmark/optimized workflows
 ├── analytics/             performance metrics, instrument and ETF catalog analysis
 ├── optimization/          optimization settings, optimizer, objective functions

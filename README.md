@@ -24,7 +24,8 @@ pip install -r requirements-dev.txt        # app + test and lint tools (requirem
 ### Accounts and credentials
 
 Accounts are saved in the database: name (the portfolio name), broker (Degiro only so far), base currency and
-credentials file. Add one with:
+credentials file. At the first start-up the dashboard asks for the first account (broker and portfolio name) and
+shows where its credentials file goes; accounts can also be added from the command line:
 
 ```bash
 python tasks.py add-account --name "Portfolio USD" --currency USD   # credentials file: portfolio_usd.json

@@ -4,6 +4,7 @@ import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, ctx, html
 
 from portfolio_manager.config.accounts import default_account, get_account
+from portfolio_manager.dashboard.accounts_page import build_content_add_account
 from portfolio_manager.dashboard.common import SIDEBAR_STYLE
 from portfolio_manager.dashboard.instruments_page import build_content_instruments
 from portfolio_manager.dashboard.portfolio_page import build_content_portfolio
@@ -46,8 +47,7 @@ def switch_content(n1, n2, n3, account_name):
     """Show the page of the clicked sidebar button for the remembered account."""
     account = get_account(account_name) or default_account()
     if account is None:
-        message = 'No account yet: add one with python tasks.py add-account --name "..." --currency ...'
-        return html.Div(dbc.Card(dbc.CardBody(html.H4(message)), color='dark'))
+        return build_content_add_account()
     if ctx.triggered_id == 'button-instruments':
         return build_content_instruments(account=account)
     elif ctx.triggered_id == 'button-strategies':

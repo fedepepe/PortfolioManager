@@ -40,7 +40,7 @@ MAX_ETF_CATALOG_SIZE = 250
 CATALOG_PERF_LABEL = 'Performance'
 # Degiro exchanges of the ETFs of the catalog
 CATALOG_EXCHANGES = [Exchanges.XET, Exchanges.SWX, Exchanges.MIL, Exchanges.EAM]
-TRADED_VALUE_DAYS = 90  # trading days of the average traded value that ranks the ETFs of the catalog
+TRADED_VALUE_DAYS = 63  # trading days (about 3 months) of the average traded value that ranks the catalog ETFs
 MAX_DAYS_WITHOUT_PRICE = 30  # listings without a price for longer are left out of the catalog
 # Yahoo information fields (rows of the information tables of the catalogs) and their columns in the database
 INFO_COLUMNS = {

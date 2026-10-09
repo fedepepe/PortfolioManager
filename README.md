@@ -76,7 +76,8 @@ With no saved data, the dashboard opens on the **Accounts** page (also in the si
    takes a few minutes; then the figures are drawn, and the **Strategies** page can run optimizations.
 
 The **Instruments** page needs the ETF catalog, built by the long catalog tasks below (`fetch-product-catalog`,
-`fetch-etf-catalog`, `build-etf-catalog`).
+`fetch-etf-catalog`, `build-etf-catalog`): the catalog of an account keeps the 250 ETFs with the highest average
+traded value (close x volume, last 3 months, in the account currency).
 
 ### Maintenance tasks
 
@@ -89,6 +90,8 @@ python tasks.py optimize --account "Portfolio EUR"  # rerun the saved optimizati
 python tasks.py show-benchmark                     # the benchmark of each account
 python tasks.py refresh-benchmark                  # recompute the benchmarks from the saved backtests
 python tasks.py etf-performance --isin IE00B4L5Y983
+python tasks.py fetch-etf-catalog                  # ETF catalog history: about 2 h the first time, then new days only
+python tasks.py refresh-yahoo-history --full       # download every stored Yahoo Finance history again
 ```
 
 ## Data
@@ -119,8 +122,12 @@ The database records the version of its schema. At start-up an older database is
 `portfolio_manager/storage/migrations.py`, after a copy of it is saved next to it (`degiro.db.bak-v{version}`); a
 database newer than the code stops the start-up without being changed.
 
-Adjusted prices come from Yahoo Finance when it is reachable and are stored in the database, so that the backtests
-also work offline. Degiro cash movements are recognized by their descriptions, which are in Italian (the language of
+Instrument prices come from Yahoo Finance and are stored in the database (daily open, high, low, close, volume,
+dividends, splits and capital gains), so that the backtests also work offline. The Yahoo Finance listing of each
+instrument is searched once; then each **Update** downloads only the new days of the portfolio and benchmark
+instruments, and checks the last stored days again: if Yahoo changed them (a split, a correction), the whole history
+of the listing is downloaded again. The adjusted close is computed from the close and the dividends, as Yahoo computes
+it. Prices quoted in hundredths of a currency (pence: `GBp`) are converted. Degiro cash movements are recognized by their descriptions, which are in Italian (the language of
 the accounts): see `portfolio_manager/backtest/workflows.py`.
 
 ## Code layout

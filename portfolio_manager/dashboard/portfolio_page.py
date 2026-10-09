@@ -1,10 +1,11 @@
 """Portfolio page: layout, figures and callbacks."""
 
+import logging
 import time
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import Input, Output, State, callback, ctx, dcc, html
+from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.instruments import fetch_instr_hist_data, prices_to_base_curr
@@ -19,10 +20,20 @@ from portfolio_manager.dashboard.common import (
     get_fig_metrics_table,
     loading_wrapper,
 )
-from portfolio_manager.dashboard.data_service import get_benchmark_data, get_portfolio_data, update_account
+from portfolio_manager.dashboard.data_service import (
+    get_benchmark_data,
+    get_portfolio_data,
+    missing_data,
+    update_account,
+)
 from portfolio_manager.dashboard.portfolio_data import AllocationRiskLabels, PortfolioData
 from portfolio_manager.market_data.yahoo import YFinHistCols, YFinInfoCols
 from portfolio_manager.storage.queries import query_yahoo_finance_prod_info, search_yahoo_finance_instruments
+from portfolio_manager.utils.logs import hide_secrets
+
+logger = logging.getLogger(__name__)
+
+NO_DATA_HINT = 'press Update (downloads the Degiro data, a few minutes)'
 
 
 # DASHBOARD
@@ -53,80 +64,95 @@ def build_content_portfolio(account: Account):
                     ],
                     align='center',
                 ),
-                html.Br(),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_empty()))),
-                            style={'width': '10%'},
-                        ),
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_empty()))),
-                            style={'width': '10%'},
-                        ),
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_empty()))),
-                            style={'width': '10%'},
-                        ),
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_empty()))),
-                            style={'width': '10%'},
-                        ),
-                    ],
-                    align='center',
-                ),
-                html.Br(),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_pf_hist_sharpe', figure=get_fig_empty()))),
-                            style={'width': '10%'},
-                        ),
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_risk_contrib', figure=get_fig_empty()))),
-                            style={'width': '10%'},
-                        ),
-                        dbc.Col(
-                            loading_wrapper(
-                                card_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_empty()))
-                            ),
-                            style={'width': '10%'},
-                        ),
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_monthly_ret', figure=get_fig_empty()))),
-                            style={'width': '10%'},
-                        ),
-                    ],
-                    align='center',
-                ),
-                html.Br(),
-                dbc.Row(
-                    [
-                        dbc.Col(
+                html.Div(id='portfolio-message'),
+                # the figures, hidden while the account has no data
+                html.Div(
+                    id='portfolio-figures',
+                    children=[
+                        html.Br(),
+                        dbc.Row(
                             [
-                                # options are filled while typing from the instruments in the database
-                                dbc.Row(
-                                    [
-                                        dcc.Dropdown(
-                                            id='dropdown_instr',
-                                            options=[],
-                                            placeholder='Enter ticker, ISIN or name...',
-                                            searchable=True,
-                                            clearable=True,
-                                        ),
-                                        loading_wrapper(
-                                            dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())
-                                        ),
-                                    ],
-                                    align='center',
-                                )
+                                dbc.Col(
+                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_empty()))),
+                                    style={'width': '10%'},
+                                ),
+                                dbc.Col(
+                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_empty()))),
+                                    style={'width': '10%'},
+                                ),
+                                dbc.Col(
+                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_empty()))),
+                                    style={'width': '10%'},
+                                ),
+                                dbc.Col(
+                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_empty()))),
+                                    style={'width': '10%'},
+                                ),
                             ],
-                            style={'width': '15%'},
+                            align='center',
                         ),
+                        html.Br(),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    loading_wrapper(
+                                        card_wrapper(dcc.Graph(id='fig_pf_hist_sharpe', figure=get_fig_empty()))
+                                    ),
+                                    style={'width': '10%'},
+                                ),
+                                dbc.Col(
+                                    loading_wrapper(
+                                        card_wrapper(dcc.Graph(id='fig_risk_contrib', figure=get_fig_empty()))
+                                    ),
+                                    style={'width': '10%'},
+                                ),
+                                dbc.Col(
+                                    loading_wrapper(
+                                        card_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_empty()))
+                                    ),
+                                    style={'width': '10%'},
+                                ),
+                                dbc.Col(
+                                    loading_wrapper(
+                                        card_wrapper(dcc.Graph(id='fig_monthly_ret', figure=get_fig_empty()))
+                                    ),
+                                    style={'width': '10%'},
+                                ),
+                            ],
+                            align='center',
+                        ),
+                        html.Br(),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        # options are filled while typing from the instruments in the database
+                                        dbc.Row(
+                                            [
+                                                dcc.Dropdown(
+                                                    id='dropdown_instr',
+                                                    options=[],
+                                                    placeholder='Enter ticker, ISIN or name...',
+                                                    searchable=True,
+                                                    clearable=True,
+                                                ),
+                                                loading_wrapper(
+                                                    dcc.Graph(
+                                                        id='fig_instr_adj_close', figure=get_fig_instr_adj_close()
+                                                    )
+                                                ),
+                                            ],
+                                            align='center',
+                                        )
+                                    ],
+                                    style={'width': '15%'},
+                                ),
+                            ],
+                            align='center',
+                        ),
+                        html.Br(),
                     ],
-                    align='center',
                 ),
-                html.Br(),
             ],
             body=True,
             color='dark',
@@ -391,12 +417,21 @@ def select_account(account_name: str) -> str:
     Output('fig_pf_hist_sharpe', 'figure'),
     Output('fig_risk_contrib', 'figure'),
     Output('fig_monthly_ret', 'figure'),
+    Output('portfolio-message', 'children'),
+    Output('portfolio-figures', 'style'),
+    Output('button-update', 'disabled'),
     Input('dropdown-portfolio', 'value'),
     Input('store-data-version', 'data'),
 )
 def render_portfolio(account_name: str, data_version) -> tuple:
-    """Draw the figures of the Portfolio page from the saved data of the account."""
+    """Draw the figures of the Portfolio page from the saved data of the account; without data, a message instead
+    (Update is disabled until the account is connected).
+    """
     account = get_account(account_name)
+    missing = missing_data(account, NO_DATA_HINT)
+    if missing is not None:
+        not_connected = account is None or account.currency is None
+        return *([get_fig_empty()] * 7), dbc.Alert(missing, color='info'), {'display': 'none'}, not_connected
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
     figs = (
@@ -408,7 +443,7 @@ def render_portfolio(account_name: str, data_version) -> tuple:
         get_fig_risk_contrib(pf_data),
         get_fig_monthly_ret(pf_data),
     )
-    return tuple(with_ui_revision(fig, account_name) for fig in figs)
+    return *(with_ui_revision(fig, account_name) for fig in figs), None, {}, False
 
 
 # draw the portfolio instruments chart; a legend click rebases the visible instruments
@@ -422,6 +457,8 @@ def render_portfolio(account_name: str, data_version) -> tuple:
 def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, figure) -> go.Figure:
     """Draw the adjusted prices of the instruments held; clicks on the legend rebase the visible ones."""
     account = get_account(account_name)
+    if missing_data(account, NO_DATA_HINT) is not None:
+        return get_fig_empty()
     pf_data = get_portfolio_data(account)
     is_visible = None
     if ctx.triggered_id == 'fig_pf_instr_adj_close':
@@ -446,7 +483,11 @@ def run_update(n_clicks, account_name: str) -> tuple:
     # store-data-version is outside the page): update only on an actual click
     if not n_clicks:
         raise PreventUpdate
-    update_account(get_account(account_name))
+    try:
+        update_account(get_account(account_name))
+    except Exception as e:  # any download or computation problem: shown next to the button, details in the log
+        logger.exception('Update of %s failed', account_name)
+        return no_update, html.Span(f'Not updated: {hide_secrets(str(e))}', className='text-danger')
     return time.time(), f'Updated {time.strftime("%H:%M")}'
 
 

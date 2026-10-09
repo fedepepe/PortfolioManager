@@ -21,6 +21,7 @@ from portfolio_manager.dashboard.data_service import (
     OptimizedData,
     get_optimized_data,
     get_portfolio_data,
+    missing_data,
     run_optimization,
 )
 from portfolio_manager.dashboard.portfolio_data import PortfolioData
@@ -159,22 +160,33 @@ def build_content_strategies(account: Account):
                     align='center',
                     className='mb-4',
                 ),
-                # same space above and below the settings card
-                get_settings_card(),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_strat_navs', figure=get_fig_empty()))),
-                            width=8,
+                html.Div(id='strategies-message'),
+                # the settings and the figures, hidden while the account has no data
+                html.Div(
+                    id='strategies-content',
+                    children=[
+                        # same space above and below the settings card
+                        get_settings_card(),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    loading_wrapper(
+                                        card_wrapper(dcc.Graph(id='fig_strat_navs', figure=get_fig_empty()))
+                                    ),
+                                    width=8,
+                                ),
+                                dbc.Col(
+                                    loading_wrapper(
+                                        card_wrapper(dcc.Graph(id='fig_strat_perf', figure=get_fig_empty()))
+                                    ),
+                                    width=4,
+                                ),
+                            ],
+                            align='center',
                         ),
-                        dbc.Col(
-                            loading_wrapper(card_wrapper(dcc.Graph(id='fig_strat_perf', figure=get_fig_empty()))),
-                            width=4,
-                        ),
+                        html.Br(),
                     ],
-                    align='center',
                 ),
-                html.Br(),
             ],
             body=True,
             color='dark',
@@ -321,17 +333,23 @@ def enable_method_settings(method: str) -> tuple:
 @callback(
     Output('fig_strat_navs', 'figure'),
     Output('fig_strat_perf', 'figure'),
+    Output('strategies-message', 'children'),
+    Output('strategies-content', 'style'),
+    Output('button-optimize', 'disabled'),
     Input('dropdown-strategies', 'value'),
     Input('store-strategy-version', 'data'),
 )
 def render_strategies(account_name: str, strategy_version) -> tuple:
-    """Draw the figures of the Strategies page from the saved data."""
+    """Draw the figures of the Strategies page from the saved data; without data, a message instead."""
     account = get_account(account_name)
+    missing = missing_data(account, 'press Update on the Portfolio page')
+    if missing is not None:
+        return get_fig_empty(), get_fig_empty(), dbc.Alert(missing, color='info'), {'display': 'none'}, True
     pf_data = get_portfolio_data(account)
     opt_data = get_optimized_data(account)
     figs = (get_fig_strat_navs(account, pf_data, opt_data), get_fig_strat_perf(pf_data, opt_data))
     # keep zoom and legend state across redraws of the same account
-    return tuple(fig.update_layout(uirevision=account_name) for fig in figs)
+    return *(fig.update_layout(uirevision=account_name) for fig in figs), None, {}, False
 
 
 # run the optimization of the selected account with the chosen settings; the new version triggers the redraw

@@ -23,11 +23,14 @@ class HideSecrets(logging.Filter):
     """Removes Degiro session ids and account numbers from the messages."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Rewrite the message of the record (always kept)."""
+        """Rewrite the message and the traceback of the record (always kept)."""
         message = record.getMessage()
         hidden = hide_secrets(message)
         if hidden != message:
             record.msg, record.args = hidden, None
+        # the traceback is formatted from exc_info unless exc_text is already set
+        if record.exc_info and not record.exc_text:
+            record.exc_text = hide_secrets(logging.Formatter().formatException(record.exc_info))
         return True
 
 

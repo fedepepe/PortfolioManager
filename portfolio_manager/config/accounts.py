@@ -1,10 +1,12 @@
 """The broker accounts managed by the dashboard, added by the user and saved in the database."""
 
+import os
 import re
 from dataclasses import dataclass
 from enum import Enum
 
 from portfolio_manager.config.account_settings import DEFAULT_BENCHMARKS
+from portfolio_manager.config.settings import CREDENTIALS_DIR
 from portfolio_manager.storage.queries import insert_account, query_accounts, query_benchmark, save_benchmark
 
 
@@ -48,6 +50,11 @@ def default_account() -> Account | None:
     """The account shown when none is selected: the first one added (None if there is no account)."""
     accounts = list_accounts()
     return accounts[0] if accounts else None
+
+
+def has_credentials(account: Account) -> bool:
+    """Whether the credentials file of the account is in the credentials folder (the file is not read)."""
+    return os.path.isfile(os.path.join(CREDENTIALS_DIR, account.credentials_file))
 
 
 def credentials_file_name(account_name: str) -> str:

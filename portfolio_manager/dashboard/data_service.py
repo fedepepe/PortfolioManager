@@ -142,6 +142,19 @@ def get_optimized_data(account: Account) -> OptimizedData | None:
     return _optimized_data(account.name, _optimized_version(account))
 
 
+def missing_data(account: Account | None, update_hint: str) -> str | None:
+    """Why the pages of an account cannot be drawn yet (None if they can): no account, account not connected, or no
+    saved data (the hint says how to get it).
+    """
+    if account is None:
+        return 'No account yet: add one on the Accounts page'
+    if account.currency is None:
+        return f'{account.name} is not connected yet: connect it on the Accounts page'
+    if backtest_saved_at(account.name) is None:
+        return f'No data yet for {account.name}: {update_hint}'
+    return None
+
+
 def get_portfolio_data(account: Account) -> PortfolioData:
     """Portfolio data of an account (cached until its files change)."""
     return _portfolio_data(account.name, data_version(account))

@@ -24,8 +24,8 @@ pip install -r requirements-dev.txt        # app + test and lint tools (requirem
 ### Accounts and credentials
 
 Accounts are saved in the database: name (the portfolio name), broker (Degiro only so far), base currency and
-credentials file. At the first start-up the dashboard asks for the first account (broker and portfolio name) and
-shows where its credentials file goes; accounts can also be added from the command line:
+credentials file. They are added and connected on the **Accounts** page of the dashboard (see "First run" below),
+or from the command line:
 
 ```bash
 python tasks.py add-account --name "Portfolio USD"   # credentials file: portfolio_usd.json
@@ -62,6 +62,21 @@ python main.py
 Then open <http://127.0.0.1:8000/portfolio_manager>. At start-up the dashboard only reads the data saved by previous
 runs; new data is downloaded only with the **Update** button (Portfolio page) and optimizations run only with **Run
 optimization** (Strategies page).
+
+### First run
+
+With no saved data, the dashboard opens on the **Accounts** page (also in the sidebar):
+
+1. Choose the broker, type the portfolio name and press **Add account**.
+2. Save the credentials of the account in the file shown (e.g. `credentials/portfolio_chf.json`, see above); the list
+   says whether the file is found.
+3. Press **Connect**: the base currency of the account and the currency pairs are read from Degiro, and an account in
+   CHF or EUR gets its default benchmark.
+4. On the **Portfolio** page, press **Update**: the first download of the transactions, cash movements and prices
+   takes a few minutes; then the figures are drawn, and the **Strategies** page can run optimizations.
+
+The **Instruments** page needs the ETF catalog, built by the long catalog tasks below (`fetch-product-catalog`,
+`fetch-etf-catalog`, `build-etf-catalog`).
 
 ### Maintenance tasks
 

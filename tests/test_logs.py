@@ -1,4 +1,5 @@
 import logging
+import sys
 
 from portfolio_manager.utils.logs import HideSecrets, hide_secrets
 
@@ -25,3 +26,13 @@ def test_filter_rewrites_messages_with_arguments():
     )
     assert HideSecrets().filter(record)
     assert record.getMessage() == "login_sucess: {'sessionId': '<hidden>'}"
+
+
+def test_tracebacks_are_hidden_too():
+    try:
+        raise ConnectionError('404 for url: https://trader.degiro.nl/x;jsessionid=SECRET1.p_2')
+    except ConnectionError:
+        record = logging.LogRecord('x', logging.ERROR, '', 0, 'Update failed', (), sys.exc_info())
+    HideSecrets().filter(record)
+    text = logging.Formatter().format(record)
+    assert 'SECRET1' not in text and 'jsessionid=<hidden>' in text

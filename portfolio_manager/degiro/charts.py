@@ -8,7 +8,7 @@ from degiro_connector.quotecast.models.chart import ChartRequest, Interval
 from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher, SeriesFormatter
 from degiro_connector.trading.api import API
 
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import DATA_DIR, FX_RATES_CHART_FILE_NAME, PRODUCTS_CHART_FILE_NAME
 from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.degiro.definitions import ProductTypes
@@ -114,12 +114,12 @@ def fetch_charts(
     return chart_df.sort_index()
 
 
-def charts_file_name(account: Accounts, chart_name: str, chart_type: ChartType = ChartType.PRICE) -> str:
+def charts_file_name(account: Account, chart_name: str, chart_type: ChartType = ChartType.PRICE) -> str:
     """Excel copy of the saved charts of an account."""
     return f'{account.name}_{chart_name}_{chart_type.value}'
 
 
-def _chart_product_ids(account: Accounts, chart_name: str) -> list[int]:
+def _chart_product_ids(account: Account, chart_name: str) -> list[int]:
     # products of the account, or every currency (exchange rates)
     if chart_name == FX_RATES_CHART_FILE_NAME:
         return query_products(product_type=ProductTypes.CURRENCY)['id'].to_list()
@@ -127,7 +127,7 @@ def _chart_product_ids(account: Accounts, chart_name: str) -> list[int]:
 
 
 def fetch_portfolio_charts(
-    account: Accounts, degiro_conn: API | None = None, chart_name: str = PRODUCTS_CHART_FILE_NAME
+    account: Account, degiro_conn: API | None = None, chart_name: str = PRODUCTS_CHART_FILE_NAME
 ):
     """Download the price charts of the products of an account (or of the exchange rates) into the database, with an
     Excel copy.
@@ -141,7 +141,7 @@ def fetch_portfolio_charts(
 
 
 def load_portfolio_charts(
-    account: Accounts, chart_name: str = PRODUCTS_CHART_FILE_NAME, chart_type: ChartType = ChartType.PRICE
+    account: Account, chart_name: str = PRODUCTS_CHART_FILE_NAME, chart_type: ChartType = ChartType.PRICE
 ) -> pd.DataFrame:
     """Saved charts of an account: date x product id (products with data only)."""
     chart_df = query_degiro_hist(_chart_product_ids(account, chart_name), columns=chart_type.value)
@@ -149,13 +149,13 @@ def load_portfolio_charts(
     return chart_df
 
 
-def fetch_fx_charts(account: Accounts, degiro_conn: API | None = None):
+def fetch_fx_charts(account: Account, degiro_conn: API | None = None):
     """Download the exchange rate charts into the database, with an Excel copy."""
     fetch_portfolio_charts(account, degiro_conn=degiro_conn, chart_name=FX_RATES_CHART_FILE_NAME)
 
 
 def load_fx_rates(
-    account: Accounts,
+    account: Account,
     curr_foreign_lst: list[str],
     index: pd.DatetimeIndex,
 ) -> pd.DataFrame:

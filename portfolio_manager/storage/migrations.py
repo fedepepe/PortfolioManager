@@ -15,15 +15,26 @@ from collections.abc import Callable
 from sqlalchemy import Connection, Engine, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from portfolio_manager.config.accounts import Accounts
-from portfolio_manager.storage.models import SchemaVersion
-from portfolio_manager.storage.queries import query_benchmark, save_benchmark
+from portfolio_manager.config.accounts import attach_default_benchmark, list_accounts
+from portfolio_manager.storage.models import BrokerAccount, SchemaVersion
 
 logger = logging.getLogger(__name__)
 
 BASELINE_VERSION = 1
+
+
+def _accounts_from_code(connection: Connection):
+    # version 2: the accounts are saved in the database; up to version 1 they were defined in config/accounts.py
+    rows = [
+        {'name': 'Portfolio CHF', 'broker': 'Degiro', 'currency': 'CHF', 'credentials_file': 'config.json'},
+        {'name': 'Portfolio EUR', 'broker': 'Degiro', 'currency': 'EUR', 'credentials_file': 'config_2.json'},
+    ]
+    stmt = sqlite_insert(BrokerAccount).on_conflict_do_nothing(index_elements=[BrokerAccount.name])
+    connection.execute(stmt, [dict(row, position=n) for n, row in enumerate(rows)])
+
+
 # version -> step upgrading the database from the previous version
-UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {}
+UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {2: _accounts_from_code}
 
 
 def latest_version() -> int:
@@ -78,7 +89,8 @@ def upgrade_schema(engine: Engine, new_database: bool):
 
 
 def seed_default_settings():
-    """Save the default benchmark of each account that has no saved settings (saved settings are never changed)."""
-    for account in Accounts:
-        if account.default_benchmark is not None and query_benchmark(account.name) is None:
-            save_benchmark(account.name, account.default_benchmark)
+    """Save the default benchmark of the currency of each account without a benchmark (saved settings are never
+    changed).
+    """
+    for account in list_accounts():
+        attach_default_benchmark(account)

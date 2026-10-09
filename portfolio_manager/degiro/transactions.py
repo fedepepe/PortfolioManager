@@ -10,7 +10,7 @@ from degiro_connector.trading.api import API
 from degiro_connector.trading.models.account import OverviewRequest
 from degiro_connector.trading.models.transaction import HistoryRequest
 
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.storage import files as fu
@@ -81,17 +81,17 @@ TX_HIST_COLUMNS = [v for k, v in vars(TxHistFields).items() if not k.startswith(
 CASH_MOVEMENTS_COLUMNS = [c.value for c in CashMovements if c != CashMovements.date]
 
 
-def tx_history_file_name(account: Accounts) -> str:
+def tx_history_file_name(account: Account) -> str:
     """Excel copy of the transactions of an account."""
     return f'{account.name}_tx_hist'
 
 
-def movements_file_name(account: Accounts) -> str:
+def movements_file_name(account: Account) -> str:
     """Excel copy of the cash movements of an account."""
     return f'{account.name}_movements'
 
 
-def _store_records(model: type[DegiroRecord], account: Accounts, df: pd.DataFrame, from_date: date):
+def _store_records(model: type[DegiroRecord], account: Account, df: pd.DataFrame, from_date: date):
     # stored records are updated and kept when Degiro no longer returns them (older than its ten years)
     stored = query_degiro_records(model, account.name)
     missing = stored.index[~stored['id'].isin(df['id']) & (stored.index >= pd.Timestamp(from_date))]
@@ -102,7 +102,7 @@ def _store_records(model: type[DegiroRecord], account: Accounts, df: pd.DataFram
     upsert_degiro_records(model, account.name, df)
 
 
-def fetch_tx_history(account: Accounts, degiro_conn: API | None = None) -> pd.DataFrame:
+def fetch_tx_history(account: Account, degiro_conn: API | None = None) -> pd.DataFrame:
     """Download the transactions of the last ten years into the database, with an Excel copy of all the stored ones."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
@@ -117,14 +117,14 @@ def fetch_tx_history(account: Accounts, degiro_conn: API | None = None) -> pd.Da
     return tx_history_df
 
 
-def load_tx_history(account: Accounts) -> pd.DataFrame:
+def load_tx_history(account: Account) -> pd.DataFrame:
     """Saved transactions of an account, by date."""
     tx_history_df = query_degiro_records(DegiroTransaction, account.name)[TX_HIST_COLUMNS]
     tx_history_df = tx_history_df.astype({'product_id': int})
     return tx_history_df
 
 
-def fetch_account_movements(account: Accounts, degiro_conn: API | None = None) -> pd.DataFrame:
+def fetch_account_movements(account: Account, degiro_conn: API | None = None) -> pd.DataFrame:
     """Download the cash movements of the last ten years into the database, with an Excel copy of all the stored
     ones.
     """
@@ -143,6 +143,6 @@ def fetch_account_movements(account: Accounts, degiro_conn: API | None = None) -
     return account_movements_df
 
 
-def load_account_movements(account: Accounts) -> pd.DataFrame:
+def load_account_movements(account: Account) -> pd.DataFrame:
     """Saved cash movements of an account, by date."""
     return query_degiro_records(DegiroCashMovement, account.name)[CASH_MOVEMENTS_COLUMNS]

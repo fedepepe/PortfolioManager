@@ -2,11 +2,14 @@ import pytest
 
 import portfolio_manager.dashboard.data_service as data_service
 import tasks
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, Brokers, add_account, list_accounts
 
 
 @pytest.fixture
-def no_db(monkeypatch):
+def no_db(temp_db, monkeypatch):
+    # two accounts in a temporary database, already initialized
+    add_account('Portfolio CHF', Brokers.DEGIRO, currency='CHF')
+    add_account('Portfolio EUR', Brokers.DEGIRO, currency='EUR')
     monkeypatch.setattr(tasks, 'init_db', lambda: None)
 
 
@@ -21,20 +24,25 @@ def test_update_all_accounts(no_db, monkeypatch):
     updated = []
     monkeypatch.setattr(data_service, 'update_account', updated.append)
     tasks.main(['update'])
-    assert updated == list(Accounts)
+    assert updated == list_accounts() and len(updated) == 2
 
 
 def test_optimize_one_account_with_saved_settings(no_db, monkeypatch):
     calls = []
     monkeypatch.setattr(data_service, 'get_optimized_data', lambda account: None)
     monkeypatch.setattr(data_service, 'run_optimization', lambda account, settings: calls.append(account) or 'ok')
-    tasks.main(['optimize', '--account', 'degiro_eur'])
-    assert calls == [Accounts.DEGIRO_EUR]
+    tasks.main(['optimize', '--account', 'Portfolio EUR'])
+    assert calls == [Account('Portfolio EUR', Brokers.DEGIRO, 'portfolio_eur.json', 'EUR')]
 
 
-def test_unknown_account_is_rejected():
-    with pytest.raises(SystemExit):
-        tasks.build_parser().parse_args(['optimize', '--account', 'unknown'])
+def test_unknown_account_is_rejected(no_db):
+    with pytest.raises(SystemExit, match='Portfolio CHF'):
+        tasks.main(['optimize', '--account', 'unknown'])
+
+
+def test_add_account(no_db):
+    tasks.main(['add-account', '--name', 'Portfolio USD', '--currency', 'USD'])
+    assert list_accounts()[-1] == Account('Portfolio USD', Brokers.DEGIRO, 'portfolio_usd.json', 'USD')
 
 
 def test_command_is_required():

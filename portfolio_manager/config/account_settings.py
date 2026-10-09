@@ -43,3 +43,24 @@ class Benchmark:
         return (
             f'{weights}, rebalanced {BENCHMARK_FREQ_LABELS.get(self.rebalancing_freq, self.rebalancing_freq).lower()}'
         )
+
+
+# benchmark given to a new account, by base currency (an account in another currency starts without a benchmark)
+DEFAULT_BENCHMARKS = {
+    'CHF': Benchmark(
+        components=[
+            BenchmarkComponent(label='IWDC', search='IE00B8BVCK12', weight=0.6),
+            BenchmarkComponent(label='HYLD', search='HYLD.L', weight=0.2),
+            BenchmarkComponent(label='STHC', search='STHC.SW', weight=0.2),
+        ],
+        rebalancing_freq='M',
+    ),
+    'EUR': Benchmark(
+        components=[
+            BenchmarkComponent(label='SPYI', search='SPYI.DE', weight=0.6),
+            BenchmarkComponent(label='HYLE', search='HYLE.DE', weight=0.2),
+            BenchmarkComponent(label='IGLA', search='IE00BYZ28V50', weight=0.2),
+        ],
+        rebalancing_freq='M',
+    ),
+}

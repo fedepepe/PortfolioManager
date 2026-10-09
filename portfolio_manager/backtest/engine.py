@@ -8,7 +8,7 @@ import pandas as pd
 
 from portfolio_manager.backtest.degiro_portfolio import PortfolioDegiro
 from portfolio_manager.backtest.portfolio import Currencies, Portfolio, PortfolioBacktestData, PortfolioGeneric
-from portfolio_manager.config.accounts import Accounts, Brokers
+from portfolio_manager.config.accounts import Account, Brokers
 from portfolio_manager.degiro.transactions import TxHistFields
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ class _DailyRecords:
 def backtest_portfolio(
     prices_df: pd.DataFrame,
     name: str | None = None,
-    account: Accounts | None = None,
+    account: Account | None = None,
     target_exp: pd.DataFrame | list | None = None,
     target_units: pd.DataFrame | None = None,
     tx_hist_df: pd.DataFrame | None = None,
@@ -120,7 +120,7 @@ def backtest_portfolio(
 
 
 def _build_portfolio(
-    prices_df: pd.DataFrame, account: Accounts | None, curr_base: Currencies, initial_cash_balance: float
+    prices_df: pd.DataFrame, account: Account | None, curr_base: Currencies, initial_cash_balance: float
 ) -> PortfolioGeneric:
     """An account replays its trades; otherwise a simulated portfolio rebalanced to targets."""
     tickers = prices_df.columns.to_list()

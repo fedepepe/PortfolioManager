@@ -9,7 +9,7 @@ from typing import NamedTuple
 import pandas as pd
 
 from portfolio_manager.analytics.instruments import fetch_instr_hist_data, is_missing, prices_to_base_curr
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.degiro.products import load_portfolio_products
 from portfolio_manager.market_data.yahoo import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols, is_yahoo_reachable
 from portfolio_manager.storage.queries import (
@@ -41,7 +41,7 @@ def _fetch_from_yahoo(isin: str | None, symbol: str | None, name: str | None) ->
     return ticker, prices_df[ticker].dropna(), data[YF_PROD_INFO_LABEL][ticker].to_dict()
 
 
-def get_portfolio_adj_prices(account: Accounts) -> AdjPrices:
+def get_portfolio_adj_prices(account: Account) -> AdjPrices:
     """Adjusted prices of the products of an account, in the account currency: downloaded from Yahoo Finance and stored
     when online, read from the database when offline.
     """

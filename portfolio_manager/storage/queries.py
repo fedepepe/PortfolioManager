@@ -18,6 +18,7 @@ from portfolio_manager.storage.db import SessionLocal, engine
 from portfolio_manager.storage.models import (
     AccountSetting,
     BenchmarkComponent,
+    BrokerAccount,
     DegiroCashMovement,
     DegiroHistData,
     DegiroTransaction,
@@ -195,6 +196,29 @@ def query_degiro_records(model: type[DegiroRecord], account_name: str) -> pd.Dat
         if isinstance(column.type, DateTime):
             df[column.name] = pd.to_datetime(df[column.name])
     return df.set_index('date')
+
+
+def query_accounts() -> list[dict[str, Any]]:
+    """The broker accounts in the order they were added: name, broker, currency, credentials_file."""
+    columns = [BrokerAccount.name, BrokerAccount.broker, BrokerAccount.currency, BrokerAccount.credentials_file]
+    with engine.connect() as connection:
+        rows = connection.execute(select(*columns).order_by(BrokerAccount.position)).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def insert_account(name: str, broker: str, credentials_file: str, currency: str | None = None):
+    """Add a broker account after the existing ones; ValueError if an account has the same name."""
+    with SessionLocal() as session:
+        if session.get(BrokerAccount, name) is not None:
+            raise ValueError(f'An account named {name} already exists')
+        position = session.execute(select(func.coalesce(func.max(BrokerAccount.position) + 1, 0))).scalar()
+        session.add(
+            BrokerAccount(
+                name=name, broker=broker, currency=currency, credentials_file=credentials_file, position=position
+            )
+        )
+        session.commit()
+    logger.info('Account %s added', name)
 
 
 def query_benchmark(account_name: str) -> Benchmark | None:

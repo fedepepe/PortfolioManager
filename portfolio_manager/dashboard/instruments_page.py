@@ -8,7 +8,7 @@ from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.instruments import InstrPerfTableCols
 from portfolio_manager.analytics.metrics import Metrics
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, default_account, get_account
 from portfolio_manager.dashboard.common import compute_corr_mat, loading_wrapper
 from portfolio_manager.dashboard.data_service import get_instruments_data
 from portfolio_manager.dashboard.instruments_data import InstrumentsData
@@ -86,7 +86,7 @@ def get_fig_corr_instr(instr_data: InstrumentsData, ticker_lst: list | None = No
 
 
 # DASHBOARD
-def build_content_instruments(account: Accounts) -> html.Div:
+def build_content_instruments(account: Account) -> html.Div:
     """Layout of the Instruments page."""
     instr_data = get_instruments_data(account)
     if instr_data is None:
@@ -125,7 +125,7 @@ def update_corr_heatmap_fig(virtual_data, account_name) -> go.Figure:
     # None until the table has rendered its rows: keep the heatmap built with the page
     if virtual_data is None:
         raise PreventUpdate
-    account = Accounts.get_account_by_name(name=account_name) or Accounts.get_default_account()
+    account = get_account(account_name) or default_account()
     instr_data = get_instruments_data(account)
     if instr_data is None:
         raise PreventUpdate

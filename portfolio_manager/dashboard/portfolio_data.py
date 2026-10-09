@@ -9,7 +9,7 @@ from portfolio_manager.analytics.metrics import compute_portfolio_metrics
 from portfolio_manager.analytics.performance import load_performance_data_benchmark, load_performance_data_portfolio
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.backtest.workflows import load_backtest_data
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import DEFAULT_CORR_DATA_FREQ
 from portfolio_manager.degiro.products import adjust_prod_column_labels, load_portfolio_products
 from portfolio_manager.optimization.objectives import vol_risk_contr
@@ -34,7 +34,7 @@ PORTFOLIO_PAGE_FIELDS = ['nav_eff', 'effective_weights', 'close_adj', 'prices']
 class PortfolioData:
     """Backtest, performance and products of an account, as shown on the Portfolio page."""
 
-    def __init__(self, account: Accounts | None = None, hist_data: PortfolioBacktestData | None = None):
+    def __init__(self, account: Account | None = None, hist_data: PortfolioBacktestData | None = None):
         if account is not None:
             self.account = account
             self.hist_data = load_backtest_data(name=self.account.name, fields=PORTFOLIO_PAGE_FIELDS)

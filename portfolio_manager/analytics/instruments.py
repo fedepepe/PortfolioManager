@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 import pandas as pd
 
 from portfolio_manager.analytics.metrics import PerfDataTabs, compute_portfolio_metrics
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, list_accounts
 from portfolio_manager.config.settings import DEFAULT_DATA_FREQ, RESULTS_DIR
 from portfolio_manager.degiro.charts import load_fx_rates
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
@@ -137,9 +137,7 @@ def remove_duplicated_tickers(col, data_single):
         data_single[col] = data_single[col].groupby(by=data_single[col].columns, axis=1).mean()
 
 
-def prices_to_base_curr(
-    account: Accounts, price_df: pd.DataFrame, curr_info: PD_DATA_TYPES | list[str]
-) -> pd.DataFrame:
+def prices_to_base_curr(account: Account, price_df: pd.DataFrame, curr_info: PD_DATA_TYPES | list[str]) -> pd.DataFrame:
     """Prices converted to the account currency, given the currency of each column."""
     if isinstance(curr_info, pd.Series):
         curr_lst = curr_info.str.upper().to_list()
@@ -170,7 +168,7 @@ def prices_to_base_curr(
     return price_base_df
 
 
-def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
+def fetch_portfolio_instr_adj_prices(account: Account) -> pd.DataFrame:
     """Adjusted prices of the products of an account, in its currency."""
     products_df = load_portfolio_products(account=account)
     isin_lst = products_df['isin'].to_list()
@@ -182,7 +180,7 @@ def fetch_portfolio_instr_adj_prices(account: Accounts) -> pd.DataFrame:
 
 
 def fetch_instr_adj_prices(
-    account: Accounts,
+    account: Account,
     isin_lst: list,
     name_lst: list | None = None,
     tick_lst: list | None = None,
@@ -253,7 +251,7 @@ def compute_single_etf_performance(isin: str) -> pd.DataFrame:
 
 def compute_portfolio_instruments_performance():
     """Performance metrics of the instruments of every account."""
-    for account in Accounts:
+    for account in list_accounts():
         close_adj_df = fetch_portfolio_instr_adj_prices(account=account)
         perf_metrics_df = pd.DataFrame()
         for instr in close_adj_df.columns:
@@ -295,7 +293,7 @@ def fetch_etf_catalog_data():
         time.sleep(0.5)
 
 
-def build_etf_catalog_data(account: Accounts) -> dict[YFinHistCols, pd.DataFrame]:
+def build_etf_catalog_data(account: Account) -> dict[YFinHistCols, pd.DataFrame]:
     """Build and save the ETF catalog of an account: the most liquid ETFs, prices in the account currency and their
     performance metrics.
     """
@@ -328,7 +326,7 @@ def compute_catalog_performance_df(data_dict: dict[str | YFinHistCols, pd.DataFr
     )
 
 
-def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
+def compute_catalog_performance(account: Account) -> pd.DataFrame:
     """Add the performance metrics to an existing catalog, from its saved data only."""
     data_dict = load_etf_catalog_data(account=account)
     data_dict[CATALOG_PERF_LABEL] = compute_catalog_performance_df(data_dict)
@@ -339,24 +337,24 @@ def compute_catalog_performance(account: Accounts) -> pd.DataFrame:
 CATALOGS = 'catalogs'  # kind of derived result (folder of the Parquet tables)
 
 
-def catalog_file_name(account: Accounts) -> str:
+def catalog_file_name(account: Account) -> str:
     """Name of the ETF catalog files of an account."""
     return f'{account.name}_catalog'
 
 
-def save_etf_catalog_data(account: Accounts, data_dict: dict[str | YFinHistCols, pd.DataFrame]):
+def save_etf_catalog_data(account: Account, data_dict: dict[str | YFinHistCols, pd.DataFrame]):
     """Save the ETF catalog of an account: Parquet tables and Excel file."""
     data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
     save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=catalog_file_name(account))
     save_etf_catalog_tables(account, data_dict_renamed)
 
 
-def save_etf_catalog_tables(account: Accounts, data_dict: dict[str, pd.DataFrame]):
+def save_etf_catalog_tables(account: Account, data_dict: dict[str, pd.DataFrame]):
     """Save the Parquet tables of the ETF catalog of an account (keys: sheet names)."""
     save_tables(derived_folder(CATALOGS, catalog_file_name(account)), data_dict)
 
 
-def load_etf_catalog_data(account: Accounts) -> dict[str | YFinHistCols, pd.DataFrame]:
+def load_etf_catalog_data(account: Account) -> dict[str | YFinHistCols, pd.DataFrame]:
     """Keys: YFinHistCols for the price and volume sheets, YF_PROD_INFO_LABEL, and CATALOG_PERF_LABEL if computed."""
     folder = derived_folder(CATALOGS, catalog_file_name(account))
     if has_tables(folder):

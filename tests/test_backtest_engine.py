@@ -47,7 +47,7 @@ def test_nan_target_weights_keep_units_in_minimal_rebalance(prices):
 
 
 def test_account_replays_trades_dividends_and_deposits(prices):
-    from portfolio_manager.config.accounts import Accounts
+    from portfolio_manager.config.accounts import Account, Brokers
     from portfolio_manager.degiro.transactions import TxHistFields as F
 
     prices = prices.iloc[:30, :2]
@@ -59,7 +59,7 @@ def test_account_replays_trades_dividends_and_deposits(prices):
     deposits = pd.DataFrame({'Date': [days[0], days[20]], 'change': [2000.0, 500.0]})
     data = backtest_portfolio(
         prices_df=prices,
-        account=Accounts.DEGIRO_EUR,
+        account=Account('Portfolio EUR', Brokers.DEGIRO, 'config_2.json', 'EUR'),
         tx_hist_df=trades,
         initial_cash_balance=0.0,
         div_hist_df=dividends,

@@ -10,7 +10,7 @@ from dash.exceptions import PreventUpdate
 from portfolio_manager.analytics.instruments import fetch_instr_hist_data, prices_to_base_curr
 from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, get_account, list_accounts
 from portfolio_manager.dashboard.common import (
     LAYOUT_TEMPLATE,
     card_wrapper,
@@ -26,7 +26,7 @@ from portfolio_manager.storage.queries import query_yahoo_finance_prod_info, sea
 
 
 # DASHBOARD
-def build_content_portfolio(account: Accounts):
+def build_content_portfolio(account: Account):
     """Layout only: the figures are filled by the render callbacks, which also run when the page is loaded."""
     return html.Div(
         dbc.Card(
@@ -36,7 +36,7 @@ def build_content_portfolio(account: Accounts):
                         dbc.Col(
                             [
                                 dcc.Dropdown(
-                                    [acc.name for acc in Accounts],
+                                    [acc.name for acc in list_accounts()],
                                     account.name,
                                     id='dropdown-portfolio',
                                     clearable=False,
@@ -396,7 +396,7 @@ def select_account(account_name: str) -> str:
 )
 def render_portfolio(account_name: str, data_version) -> tuple:
     """Draw the figures of the Portfolio page from the saved data of the account."""
-    account = Accounts.get_account_by_name(name=account_name)
+    account = get_account(account_name)
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
     figs = (
@@ -421,7 +421,7 @@ def render_portfolio(account_name: str, data_version) -> tuple:
 )
 def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, figure) -> go.Figure:
     """Draw the adjusted prices of the instruments held; clicks on the legend rebase the visible ones."""
-    account = Accounts.get_account_by_name(name=account_name)
+    account = get_account(account_name)
     pf_data = get_portfolio_data(account)
     is_visible = None
     if ctx.triggered_id == 'fig_pf_instr_adj_close':
@@ -446,7 +446,7 @@ def run_update(n_clicks, account_name: str) -> tuple:
     # store-data-version is outside the page): update only on an actual click
     if not n_clicks:
         raise PreventUpdate
-    update_account(Accounts.get_account_by_name(name=account_name))
+    update_account(get_account(account_name))
     return time.time(), f'Updated {time.strftime("%H:%M")}'
 
 
@@ -489,7 +489,7 @@ def update_instr_adj_close_fig(ticker: str | None, account_name: str) -> go.Figu
     """Chart of the adjusted prices of the instrument picked in the search."""
     if not ticker:  # cleared selection
         return get_fig_instr_adj_close()
-    account = Accounts.get_account_by_name(name=account_name)
+    account = get_account(account_name)
     results_df = query_yahoo_finance_prod_info(ticker=ticker)
     if ticker not in results_df.columns:
         return get_fig_instr_adj_close(title=f'No instrument found for "{ticker}"')

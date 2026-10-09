@@ -8,7 +8,7 @@ import pandas as pd
 
 from portfolio_manager.analytics.metrics import PerfDataTabs, compute_portfolio_metrics
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import RESULTS_DIR
 from portfolio_manager.storage.files import load_df_dict_from_excel, save_df_dict_to_excel
 from portfolio_manager.storage.tables import derived_folder, has_tables, load_tables, save_tables
@@ -17,7 +17,7 @@ RESULTS = 'results'  # kind of derived result (folder of the Parquet tables)
 
 
 def compute_portfolio_performance(
-    account: Accounts, hist_portfolio_data: PortfolioBacktestData, hist_benchmark_data: PortfolioBacktestData
+    account: Account, hist_portfolio_data: PortfolioBacktestData, hist_benchmark_data: PortfolioBacktestData
 ):
     """Compute and save the performance of an account and of its benchmark."""
     results_dict = compute_portfolio_metrics(
@@ -36,12 +36,12 @@ def load_performance_data(file_name: str) -> dict[str, pd.DataFrame]:
     return {k: v.to_frame() if isinstance(v, pd.Series) else v for k, v in load_tables(folder).items()}
 
 
-def load_performance_data_portfolio(account: Accounts) -> dict[str, pd.DataFrame]:
+def load_performance_data_portfolio(account: Account) -> dict[str, pd.DataFrame]:
     """Saved performance of an account."""
     return load_performance_data(account.name)
 
 
-def load_performance_data_benchmark(account: Accounts) -> dict[str, pd.DataFrame]:
+def load_performance_data_benchmark(account: Account) -> dict[str, pd.DataFrame]:
     """Saved performance of the benchmark of an account (empty if missing)."""
     try:
         return load_performance_data(f'{account.name}_benchmark')

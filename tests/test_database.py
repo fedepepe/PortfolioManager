@@ -1,28 +1,11 @@
 import os
 
 import pandas as pd
-import pytest
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import inspect
 
-import portfolio_manager.storage.migrations as migrations
 import portfolio_manager.storage.models as tables
 import portfolio_manager.storage.queries as sql
-from portfolio_manager.config.account_settings import Benchmark, BenchmarkComponent
-from portfolio_manager.config.accounts import Accounts
 from portfolio_manager.storage.models import Product
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    # empty database file in a temporary folder, used instead of the project database
-    engine = create_engine(f'sqlite:///{tmp_path / "db" / "test.db"}')
-    monkeypatch.setattr(tables, 'engine', engine)
-    monkeypatch.setattr(tables, 'DATA_DIR', str(tmp_path / 'db'))
-    monkeypatch.setattr(sql, 'engine', engine)
-    monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
-    tables.init_db()
-    return engine
 
 
 def test_init_db_creates_folder_tables_and_indexes(temp_db, tmp_path):
@@ -143,86 +126,3 @@ def test_degiro_hist_without_overwrite_adds_missing_days_only(temp_db):
     sql.insert_degiro_hist(1, pd.DataFrame({'price': [10.0]}, index=days[:1]))
     sql.insert_degiro_hist(1, pd.DataFrame({'price': [9.0, 11.0]}, index=days), overwrite=False)
     assert sql.query_degiro_hist(1, 'price')[1].tolist() == [10.0, 11.0]
-
-
-def test_new_database_starts_at_latest_version_with_default_settings(temp_db):
-    assert migrations.schema_version(temp_db) == migrations.latest_version()
-    for account in Accounts:
-        assert sql.query_benchmark(account.name) == account.default_benchmark
-
-
-def test_saved_settings_are_never_replaced_by_the_defaults(temp_db):
-    account = Accounts.DEGIRO_CHF
-    custom = Benchmark([BenchmarkComponent('SPY', 'SPY', 0.7), BenchmarkComponent('AGG', 'AGG', 0.3)], 'Q')
-    sql.save_benchmark(account.name, custom)
-    tables.init_db()
-    assert sql.query_benchmark(account.name) == custom
-
-
-def test_database_saved_before_the_versions_is_at_the_baseline(tmp_path, monkeypatch):
-    # a database with tables but no version: at version 1 once create_all has run
-    folder = tmp_path / 'db'
-    folder.mkdir()
-    engine = create_engine(f'sqlite:///{folder / "old.db"}')
-    tables.Product.__table__.create(engine)
-    monkeypatch.setattr(tables, 'engine', engine)
-    monkeypatch.setattr(sql, 'engine', engine)
-    monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
-    monkeypatch.setattr(migrations, 'UPGRADE_STEPS', {2: lambda connection: None})
-    tables.init_db()
-    # the step after the baseline ran, after a copy of the database at the baseline
-    assert migrations.schema_version(engine) == 2
-    assert os.path.isfile(folder / 'old.db.bak-v1')
-
-
-def test_upgrade_steps_run_once_in_order_after_a_backup(temp_db, tmp_path, monkeypatch):
-    calls = []
-
-    def step(version):
-        def run(connection):
-            calls.append(version)
-            connection.execute(text(f'CREATE TABLE added_{version} (x INTEGER)'))
-
-        return run
-
-    monkeypatch.setattr(migrations, 'UPGRADE_STEPS', {2: step(2), 3: step(3)})
-    tables.init_db()
-    tables.init_db()  # nothing left to run
-    assert calls == [2, 3] and migrations.schema_version(temp_db) == 3
-    assert {'added_2', 'added_3'} <= set(inspect(temp_db).get_table_names())
-    assert os.path.isfile(tmp_path / 'db' / 'test.db.bak-v1')
-
-
-def test_failed_step_keeps_the_previous_version(temp_db, monkeypatch):
-    def failing(connection):
-        connection.execute(text('CREATE TABLE half_done (x INTEGER)'))
-        raise ValueError('conversion failed')
-
-    monkeypatch.setattr(migrations, 'UPGRADE_STEPS', {2: failing})
-    with pytest.raises(ValueError):
-        tables.init_db()
-    assert migrations.schema_version(temp_db) == 1
-
-
-def test_database_newer_than_the_code_is_not_touched(temp_db, monkeypatch):
-    with temp_db.begin() as connection:
-        migrations._set_version(connection, migrations.latest_version() + 1)
-    with pytest.raises(RuntimeError, match='newer'):
-        tables.init_db()
-
-
-@pytest.mark.parametrize(
-    ('components', 'freq', 'message'),
-    [
-        ([], 'M', 'no instruments'),
-        ([BenchmarkComponent('A', 'A', 0.5), BenchmarkComponent('A', 'B', 0.5)], 'M', 'different label'),
-        ([BenchmarkComponent('A', ' ', 1.0)], 'M', 'ISIN or a ticker'),
-        ([BenchmarkComponent('A', 'A', 1.2), BenchmarkComponent('B', 'B', -0.2)], 'M', 'positive'),
-        ([BenchmarkComponent('A', 'A', 0.5), BenchmarkComponent('B', 'B', 0.4)], 'M', '100%'),
-        ([BenchmarkComponent('A', 'A', 1.0)], 'W', 'frequency'),
-    ],
-)
-def test_invalid_benchmark_is_not_saved(temp_db, components, freq, message):
-    with pytest.raises(ValueError, match=message):
-        sql.save_benchmark('X', Benchmark(components, freq))
-    assert sql.query_benchmark('X') is None

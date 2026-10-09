@@ -3,7 +3,7 @@
 import pandas as pd
 from degiro_connector.trading.api import API
 
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.degiro.definitions import ProductTypes
@@ -61,19 +61,19 @@ def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[i
     return product_info_df
 
 
-def products_file_name(account: Accounts) -> str:
+def products_file_name(account: Account) -> str:
     """Excel copy of the information of the products traded in an account."""
     return f'{account.name}_products_info'
 
 
-def fetch_portfolio_products_info(account: Accounts, degiro_conn: API | None = None):
+def fetch_portfolio_products_info(account: Account, degiro_conn: API | None = None):
     """Download the information of the products traded in an account into the database, with an Excel copy."""
     product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=query_account_product_ids(account.name))
     upsert_products(product_df)
     save_df_to_excel(df=load_portfolio_products(account), file_name=products_file_name(account), folder_name=DATA_DIR)
 
 
-def load_portfolio_products(account: Accounts) -> pd.DataFrame:
+def load_portfolio_products(account: Account) -> pd.DataFrame:
     """Saved information of the products traded in an account, one row per product id."""
     product_df = query_products(product_id=query_account_product_ids(account.name))
     product_df.index.name = None

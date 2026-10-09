@@ -190,6 +190,20 @@ class SchemaVersion(Base):
     version = Column(Integer, nullable=False)
 
 
+# Broker accounts added by the user
+class BrokerAccount(Base):
+    """A broker account: name (the portfolio name), broker, base currency (detected at the first connection) and
+    credentials file (in the credentials folder).
+    """
+
+    __tablename__ = 'accounts'
+    name = Column(String, primary_key=True)
+    broker = Column(String, nullable=False)
+    currency = Column(String)
+    credentials_file = Column(String, nullable=False)
+    position = Column(Integer, nullable=False)  # order in which the accounts were added
+
+
 # Settings of each account chosen by the user
 class AccountSetting(Base):
     """Settings of an account."""

@@ -23,7 +23,14 @@ pip install -r requirements-dev.txt        # app + test and lint tools (requirem
 
 ### Accounts and credentials
 
-Accounts are defined in `portfolio_manager/config/accounts.py`: name, base currency, credentials file and benchmark.
+Accounts are saved in the database: name (the portfolio name), broker (Degiro only so far), base currency and
+credentials file. Add one with:
+
+```bash
+python tasks.py add-account --name "Portfolio USD" --currency USD   # credentials file: portfolio_usd.json
+```
+
+An account in CHF or EUR starts with a default benchmark (see `portfolio_manager/config/account_settings.py`).
 
 Each account needs a JSON credentials file in the `credentials/` folder (never committed), with the fields expected by
 [degiro-connector](https://github.com/Chavithra/degiro-connector):
@@ -56,10 +63,10 @@ optimization** (Strategies page).
 
 ```bash
 python tasks.py --help
-python tasks.py update                         # like the Update button, for every account
-python tasks.py optimize --account degiro_eur  # rerun the saved optimization of one account
-python tasks.py show-benchmark                 # the benchmark of each account
-python tasks.py refresh-benchmark              # recompute the benchmarks from the saved backtests
+python tasks.py update                             # like the Update button, for every account
+python tasks.py optimize --account "Portfolio EUR"  # rerun the saved optimization of one account
+python tasks.py show-benchmark                     # the benchmark of each account
+python tasks.py refresh-benchmark                  # recompute the benchmarks from the saved backtests
 python tasks.py etf-performance --isin IE00B4L5Y983
 ```
 

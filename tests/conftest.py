@@ -2,6 +2,11 @@
 import numpy as np
 import pandas as pd
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+import portfolio_manager.storage.models as tables
+import portfolio_manager.storage.queries as sql
 
 
 def make_prices(
@@ -30,3 +35,15 @@ def prices() -> pd.DataFrame:
 def prices_late_asset() -> pd.DataFrame:
     # A3 starts trading in July 2021: little history at the end of 2021
     return make_prices(late_start={'A3': '2021-07-01'})
+
+
+@pytest.fixture
+def temp_db(tmp_path, monkeypatch):
+    # empty database file in a temporary folder, used instead of the project database
+    engine = create_engine(f'sqlite:///{tmp_path / "db" / "test.db"}')
+    monkeypatch.setattr(tables, 'engine', engine)
+    monkeypatch.setattr(tables, 'DATA_DIR', str(tmp_path / 'db'))
+    monkeypatch.setattr(sql, 'engine', engine)
+    monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
+    tables.init_db()
+    return engine

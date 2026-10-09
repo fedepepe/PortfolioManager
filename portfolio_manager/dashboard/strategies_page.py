@@ -9,7 +9,7 @@ from dash import Input, Output, State, callback, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.metrics import PerfDataTabs
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, get_account, list_accounts
 from portfolio_manager.dashboard.common import (
     LAYOUT_TEMPLATE,
     card_wrapper,
@@ -131,7 +131,7 @@ def get_settings_card() -> dbc.Card:
 
 
 # DASHBOARD
-def build_content_strategies(account: Accounts):
+def build_content_strategies(account: Account):
     """Layout only: the figures and the settings are filled by callbacks, which also run when the page is loaded."""
     return html.Div(
         dbc.Card(
@@ -142,7 +142,7 @@ def build_content_strategies(account: Accounts):
                         dbc.Col(
                             [
                                 dcc.Dropdown(
-                                    [acc.name for acc in Accounts],
+                                    [acc.name for acc in list_accounts()],
                                     account.name,
                                     id='dropdown-strategies',
                                     clearable=False,
@@ -223,7 +223,7 @@ def controls_to_settings(
 
 
 # NAV ADJUSTED LINE PLOT: portfolio vs optimized portfolio
-def get_fig_strat_navs(account: Accounts, pf_data: PortfolioData, opt_data: OptimizedData | None) -> go.Figure:
+def get_fig_strat_navs(account: Account, pf_data: PortfolioData, opt_data: OptimizedData | None) -> go.Figure:
     """Effective NAV of the portfolio and of its optimized version, with the settings."""
     fig_navs = go.Figure(
         data=[
@@ -294,7 +294,7 @@ def select_account_strategies(account_name: str) -> str:
 )
 def load_settings(account_name: str) -> tuple:
     """Show the settings of the saved optimization of the account (defaults if there is none)."""
-    opt_data = get_optimized_data(Accounts.get_account_by_name(name=account_name))
+    opt_data = get_optimized_data(get_account(account_name))
     return settings_to_controls(opt_data.settings if opt_data is not None else OptimizationSettings())
 
 
@@ -326,7 +326,7 @@ def enable_method_settings(method: str) -> tuple:
 )
 def render_strategies(account_name: str, strategy_version) -> tuple:
     """Draw the figures of the Strategies page from the saved data."""
-    account = Accounts.get_account_by_name(name=account_name)
+    account = get_account(account_name)
     pf_data = get_portfolio_data(account)
     opt_data = get_optimized_data(account)
     figs = (get_fig_strat_navs(account, pf_data, opt_data), get_fig_strat_perf(pf_data, opt_data))
@@ -351,7 +351,7 @@ def run_optimization_callback(n_clicks, account_name: str, *controls) -> tuple:
         raise PreventUpdate
     try:
         settings = controls_to_settings(*controls)
-        summary = run_optimization(Accounts.get_account_by_name(name=account_name), settings=settings)
+        summary = run_optimization(get_account(account_name), settings=settings)
     except ValueError as e:
         return no_update, html.Span(f'Not run: {e}', className='text-danger')
     return time.time(), f'Optimized {time.strftime("%H:%M")} ({summary})'

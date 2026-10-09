@@ -2,8 +2,8 @@
 
 Examples:
     python tasks.py update                      # like the Update button, for every account
-    python tasks.py optimize --account degiro_eur
-    python tasks.py build-etf-catalog --account degiro_chf
+    python tasks.py optimize --account "Portfolio EUR"
+    python tasks.py add-account --name "Portfolio USD" --currency USD
     python tasks.py --help
 """
 
@@ -11,17 +11,29 @@ import argparse
 import logging
 from collections.abc import Callable
 
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, Brokers, add_account, get_account, list_accounts
 from portfolio_manager.storage.models import init_db
 
 logger = logging.getLogger(__name__)
 
-ACCOUNT_CHOICES = {account._name_.lower(): account for account in Accounts}
+
+def selected_accounts(args: argparse.Namespace) -> list[Account]:
+    """The account named with --account, or all accounts."""
+    if args.account is None:
+        return list_accounts()
+    account = get_account(args.account)
+    if account is None:
+        names = ', '.join(f'"{a.name}"' for a in list_accounts()) or 'none yet'
+        raise SystemExit(f'Unknown account "{args.account}" (accounts: {names})')
+    return [account]
 
 
-def selected_accounts(args: argparse.Namespace) -> list[Accounts]:
-    """The account given with --account, or all accounts."""
-    return list(Accounts) if args.account is None else [ACCOUNT_CHOICES[args.account]]
+def add_account_task(args: argparse.Namespace):
+    """Add a broker account; its credentials go in the credentials folder, in the file shown."""
+    account = add_account(
+        name=args.name, broker=Brokers(args.broker), credentials_file=args.credentials_file, currency=args.currency
+    )
+    logger.info('Account %s added: put its credentials in credentials/%s', account.name, account.credentials_file)
 
 
 def update(args: argparse.Namespace):
@@ -271,6 +283,7 @@ def import_degiro_excel(args: argparse.Namespace):
 
 # command name: (function, options it takes)
 COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]] = {
+    'add-account': (add_account_task, ('new_account',)),
     'update': (update, ('account',)),
     'backtest': (backtest, ('account',)),
     'show-benchmark': (show_benchmark, ('account',)),
@@ -295,7 +308,12 @@ def build_parser() -> argparse.ArgumentParser:
     for name, (function, options) in COMMANDS.items():
         subparser = subparsers.add_parser(name, help=function.__doc__)
         if 'account' in options:
-            subparser.add_argument('--account', choices=ACCOUNT_CHOICES, help='one account (default: all)')
+            subparser.add_argument('--account', help='name of one account (default: all)')
+        if 'new_account' in options:
+            subparser.add_argument('--name', required=True, help='name of the account (the portfolio name)')
+            subparser.add_argument('--broker', default=Brokers.DEGIRO.value, choices=[b.value for b in Brokers])
+            subparser.add_argument('--credentials-file', help='file in the credentials folder (default: from the name)')
+            subparser.add_argument('--currency', help='base currency, e.g. EUR')
         if 'isin' in options:
             subparser.add_argument('--isin', required=True, help='ISIN of the instrument')
         subparser.set_defaults(function=function)

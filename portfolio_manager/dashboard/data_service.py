@@ -26,7 +26,7 @@ from portfolio_manager.backtest.workflows import (
     optimized_portfolio_name,
     refresh_account,
 )
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, get_account
 from portfolio_manager.config.settings import DATA_DIR, RESULTS_DIR
 from portfolio_manager.dashboard.instruments_data import InstrumentsData
 from portfolio_manager.dashboard.portfolio_data import PortfolioData
@@ -51,7 +51,7 @@ class OptimizedData(NamedTuple):
     settings: OptimizationSettings  # settings of the saved optimization (defaults for files saved without them)
 
 
-def _benchmark_name(account: Accounts) -> str:
+def _benchmark_name(account: Account) -> str:
     return f'{account.name}_benchmark'
 
 
@@ -66,7 +66,7 @@ def _version(results: list[tuple[str, str, str]]) -> str:
     return str(max(versions))
 
 
-def data_version(account: Accounts) -> str:
+def data_version(account: Account) -> str:
     """Latest save of the data read by the portfolio page (the products are refreshed with the backtest)."""
     name = account.name
     results = [
@@ -80,12 +80,12 @@ def data_version(account: Accounts) -> str:
 
 @lru_cache(maxsize=4)
 def _portfolio_data(account_name: str, version: str) -> PortfolioData:
-    return PortfolioData(account=Accounts.get_account_by_name(account_name))
+    return PortfolioData(account=get_account(account_name))
 
 
 @lru_cache(maxsize=4)
 def _benchmark_data(account_name: str, version: str) -> PortfolioBacktestData:
-    account = Accounts.get_account_by_name(account_name)
+    account = get_account(account_name)
     try:
         return load_backtest_data(name=_benchmark_name(account), fields=BENCHMARK_FIELDS)
     except FileNotFoundError:
@@ -94,16 +94,16 @@ def _benchmark_data(account_name: str, version: str) -> PortfolioBacktestData:
         return backtest_portfolio_benchmark(account=account, index=index)
 
 
-def _catalog_version(account: Accounts) -> str:
+def _catalog_version(account: Account) -> str:
     return _version([(CATALOGS, catalog_file_name(account), RESULTS_DIR)])
 
 
 @lru_cache(maxsize=2)
 def _instruments_data(account_name: str, version: str) -> InstrumentsData:
-    return InstrumentsData(account=Accounts.get_account_by_name(account_name))
+    return InstrumentsData(account=get_account(account_name))
 
 
-def get_instruments_data(account: Accounts) -> InstrumentsData | None:
+def get_instruments_data(account: Account) -> InstrumentsData | None:
     """None if the account has no ETF catalog."""
     version = _catalog_version(account)
     if float(version) == 0.0:
@@ -111,14 +111,14 @@ def get_instruments_data(account: Accounts) -> InstrumentsData | None:
     return _instruments_data(account.name, version)
 
 
-def _optimized_version(account: Accounts) -> str:
+def _optimized_version(account: Account) -> str:
     name = optimized_portfolio_name(account)
     return _version([(BACKTESTS, name, DATA_DIR), (RESULTS, name, RESULTS_DIR)])
 
 
 @lru_cache(maxsize=2)
 def _optimized_data(account_name: str, version: str) -> OptimizedData:
-    account = Accounts.get_account_by_name(account_name)
+    account = get_account(account_name)
     name = optimized_portfolio_name(account)
     try:
         perf_dct = load_performance_data(name)
@@ -135,30 +135,30 @@ def _optimized_data(account_name: str, version: str) -> OptimizedData:
     )
 
 
-def get_optimized_data(account: Accounts) -> OptimizedData | None:
+def get_optimized_data(account: Account) -> OptimizedData | None:
     """None if no optimization has been computed for the account."""
     if backtest_saved_at(optimized_portfolio_name(account)) is None:
         return None
     return _optimized_data(account.name, _optimized_version(account))
 
 
-def get_portfolio_data(account: Accounts) -> PortfolioData:
+def get_portfolio_data(account: Account) -> PortfolioData:
     """Portfolio data of an account (cached until its files change)."""
     return _portfolio_data(account.name, data_version(account))
 
 
-def get_benchmark_data(account: Accounts) -> PortfolioBacktestData:
+def get_benchmark_data(account: Account) -> PortfolioBacktestData:
     """Benchmark backtest of an account (computed and saved if missing)."""
     return _benchmark_data(account.name, data_version(account))
 
 
-def update_account(account: Accounts):
+def update_account(account: Account):
     """One update at a time: a second request waits for the running one to finish."""
     with _UPDATE_LOCK:
         refresh_account(account=account)
 
 
-def run_optimization(account: Accounts, settings: OptimizationSettings) -> str:
+def run_optimization(account: Account, settings: OptimizationSettings) -> str:
     """Backtest of the optimized portfolio over the dates of the saved portfolio (saves its files); returns where the
     prices come from (online / offline) and the failed optimization dates, if any. Raises ValueError if the settings
     cannot be satisfied.

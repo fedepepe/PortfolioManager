@@ -5,20 +5,20 @@ import logging
 from degiro_connector.trading.api import API
 from degiro_connector.trading.models.credentials import build_credentials
 
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account, default_account
 from portfolio_manager.config.settings import CREDENTIALS_DIR
 
 logger = logging.getLogger(__name__)
 
 
-def get_degiro_connection(account: Accounts | None = None) -> API:
+def get_degiro_connection(account: Account | None = None) -> API:
     """Logs in to the account with its credentials file; without an account (market data, the same for every account)
     the default account is used.
     """
     if account is None:
-        account = Accounts.get_default_account()
+        account = default_account()
     credentials = build_credentials(
-        location=f'{CREDENTIALS_DIR}/{account.config_file}',
+        location=f'{CREDENTIALS_DIR}/{account.credentials_file}',
     )
     conn = API(credentials=credentials)
     conn.connect()

@@ -14,8 +14,8 @@ from portfolio_manager.analytics.performance import compute_portfolio_performanc
 from portfolio_manager.backtest.adjusted_prices import get_portfolio_adj_prices
 from portfolio_manager.backtest.engine import backtest_portfolio
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
-from portfolio_manager.config.account_settings import Benchmark
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.account_settings import DEFAULT_BENCHMARKS, Benchmark
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import DATA_DIR, DEFAULT_DATA_FREQ
 from portfolio_manager.degiro.charts import (
     fetch_fx_charts,
@@ -123,7 +123,7 @@ def load_backtest_data_excel(name: str, fields: list[str] | None = None) -> Port
     return PortfolioBacktestData(**data_dict)
 
 
-def update_data(account: Accounts):
+def update_data(account: Account):
     """Download the transactions, products, cash movements and charts of an account from Degiro."""
     conn = get_degiro_connection(account=account)
     fetch_tx_history(account=account, degiro_conn=conn)
@@ -141,7 +141,7 @@ SPLIT_PATTERN = 'FRAZIONAMENTO'  # split adjustment: one movement out (old units
 PRODUCT_CHANGE_PATTERN = 'CAMBIO'  # product change: a sale of the old product and a purchase of the new one
 
 
-def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
+def backtest_portfolio_account(account: Account) -> PortfolioBacktestData:
     """Backtest of the account from its saved Degiro data (trades, cash movements, prices), saved to its file."""
     prices_df = load_portfolio_charts(account=account)
     tx_hist_df = load_tx_history(account=account)
@@ -282,12 +282,15 @@ def warn_stale_prices(prices_df: pd.DataFrame, ts_end: pd.Timestamp, label: str)
         )
 
 
-def account_benchmark(account: Accounts) -> Benchmark:
-    """Benchmark of an account: the saved one, or its default if none is saved."""
-    return query_benchmark(account.name) or account.default_benchmark
+def account_benchmark(account: Account) -> Benchmark:
+    """Benchmark of an account: the saved one, or the default one of its currency (ValueError if there is none)."""
+    benchmark = query_benchmark(account.name) or DEFAULT_BENCHMARKS.get(account.currency)
+    if benchmark is None:
+        raise ValueError(f'{account.name} has no benchmark')
+    return benchmark
 
 
-def backtest_portfolio_benchmark(account: Accounts, index: pd.DatetimeIndex) -> PortfolioBacktestData:
+def backtest_portfolio_benchmark(account: Account, index: pd.DatetimeIndex) -> PortfolioBacktestData:
     """Backtest of the benchmark of an account over the given dates (saved)."""
     benchmark = account_benchmark(account)
     labels = [c.label for c in benchmark.components]
@@ -306,7 +309,7 @@ def backtest_portfolio_benchmark(account: Accounts, index: pd.DatetimeIndex) -> 
     return backtest_data_benchmark
 
 
-def refresh_benchmark(account: Accounts) -> PortfolioBacktestData:
+def refresh_benchmark(account: Account) -> PortfolioBacktestData:
     """Recompute and save the backtest of the benchmark of an account and the performance of the account against it,
     from the saved backtest of the account (after a change of the benchmark; no download from Degiro).
     """
@@ -318,7 +321,7 @@ def refresh_benchmark(account: Accounts) -> PortfolioBacktestData:
     return hist_benchmark_data
 
 
-def refresh_account(account: Accounts):
+def refresh_account(account: Account):
     """Fetch new data from Degiro, then recompute and save backtest and performance of portfolio and benchmark."""
     update_data(account=account)
     hist_portfolio_data = backtest_portfolio_account(account=account)
@@ -331,12 +334,12 @@ def refresh_account(account: Accounts):
 OPTIMIZATION_SETTINGS_LABEL = 'settings'
 
 
-def optimized_portfolio_name(account: Accounts) -> str:
+def optimized_portfolio_name(account: Account) -> str:
     """Name of the saved backtest and performance files of the optimized portfolio."""
     return f'{account.name} Opt. (Tangency)'
 
 
-def optimization_prices(account: Accounts) -> tuple[pd.DataFrame, str]:
+def optimization_prices(account: Account) -> tuple[pd.DataFrame, str]:
     """Full history of adjusted prices (Yahoo Finance, or the database when offline) and where they come from; products
     without adjusted prices use the unadjusted Degiro prices of the saved backtest (portfolio period only). One
     column per instrument: products with the same ISIN (e.g. one ETF on two exchanges) have the same prices, so only
@@ -361,7 +364,7 @@ def optimization_prices(account: Accounts) -> tuple[pd.DataFrame, str]:
 
 
 def backtest_portfolio_optimized(
-    account: Accounts,
+    account: Account,
     index: pd.DatetimeIndex,
     prices_adj_df: pd.DataFrame | None = None,
     settings: OptimizationSettings | None = None,

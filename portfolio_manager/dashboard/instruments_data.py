@@ -7,7 +7,7 @@ from portfolio_manager.analytics.instruments import (
     compute_catalog_performance_df,
     load_etf_catalog_data,
 )
-from portfolio_manager.config.accounts import Accounts
+from portfolio_manager.config.accounts import Account
 from portfolio_manager.market_data.yahoo import YF_PROD_INFO_LABEL, YFinHistCols
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class InstrumentsData:
     """ETF catalog of an account: prices, volumes, information and performance metrics."""
 
-    def __init__(self, account: Accounts):
+    def __init__(self, account: Account):
         self.account = account
         data = load_etf_catalog_data(account=account)
         self.adj_close_df = data[YFinHistCols.adj_close]

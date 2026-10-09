@@ -171,7 +171,12 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     dividends_df.loc[:, 'Date'] = [reset_time(ts) for ts in dividends_df['value_date']]
     deposits_df.loc[:, 'Date'] = [reset_time(ts) for ts in deposits_df['value_date']]
     ts_start = tx_hist_df['Date'].iloc[0] - pd.tseries.offsets.BDay(1)
-    prices_df = prices_df.loc[prices_df.index >= ts_start, product_ids].ffill()
+    # the backtest ends on the last day with the prices of all the products held now (not a partly updated day)
+    ts_end = last_complete_date(prices_df, tx_hist_df)
+    tx_hist_df = tx_hist_df.loc[tx_hist_df['Date'] <= ts_end, :]
+    dividends_df = dividends_df.loc[dividends_df['Date'] <= ts_end, :]
+    deposits_df = deposits_df.loc[deposits_df['Date'] <= ts_end, :]
+    prices_df = prices_df.loc[(prices_df.index >= ts_start) & (prices_df.index <= ts_end), product_ids].ffill()
     fx_rates_df = fx_rates_df.loc[fx_rates_df.index >= ts_start, :].reindex(prices_df.index).ffill()
     deposits_df = deposits_df.loc[deposits_df.index >= ts_start, :]
     assert all(d in prices_df.index for d in dividends_df['Date'])
@@ -196,6 +201,15 @@ def backtest_portfolio_account(account: Accounts) -> PortfolioBacktestData:
     )
     save_backtest_data(hist_portfolio_data=backtest_data)
     return backtest_data
+
+
+def last_complete_date(prices_df: pd.DataFrame, tx_hist_df: pd.DataFrame) -> pd.Timestamp:
+    """Last day with a price for every product held at the end of the trades (the last day of the prices if none is
+    held).
+    """
+    units = tx_hist_df.groupby(TxHistFields.product_id)[TxHistFields.quantity].sum()
+    held = [p for p in units.index[units.abs() > 1e-9] if p in prices_df and prices_df[p].notna().any()]
+    return min([prices_df[p].last_valid_index() for p in held], default=prices_df.index[-1])
 
 
 def split_multipliers(movements_df: pd.DataFrame) -> pd.DataFrame:

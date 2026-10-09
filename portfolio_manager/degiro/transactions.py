@@ -1,5 +1,6 @@
-"""Degiro transactions and cash movements of an account."""
+"""Degiro transactions and cash movements of an account, stored in the database."""
 
+import logging
 from datetime import date
 from enum import Enum
 from typing import Any
@@ -13,6 +14,10 @@ from portfolio_manager.config.accounts import Accounts
 from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.storage import files as fu
+from portfolio_manager.storage.models import DegiroCashMovement, DegiroTransaction
+from portfolio_manager.storage.queries import DegiroRecord, query_degiro_records, upsert_degiro_records
+
+logger = logging.getLogger(__name__)
 
 
 class TxHistFields:
@@ -71,50 +76,73 @@ def field_list_to_df(data: Any) -> pd.DataFrame:
     return df
 
 
+# columns of the saved transactions and cash movements, in the order Degiro returns them (index: date)
+TX_HIST_COLUMNS = [v for k, v in vars(TxHistFields).items() if not k.startswith('_') and v not in ('date', 'symbol')]
+CASH_MOVEMENTS_COLUMNS = [c.value for c in CashMovements if c != CashMovements.date]
+
+
+def tx_history_file_name(account: Accounts) -> str:
+    """Excel copy of the transactions of an account."""
+    return f'{account.name}_tx_hist'
+
+
+def movements_file_name(account: Accounts) -> str:
+    """Excel copy of the cash movements of an account."""
+    return f'{account.name}_movements'
+
+
+def _store_records(model: type[DegiroRecord], account: Accounts, df: pd.DataFrame, from_date: date):
+    # stored records are updated and kept when Degiro no longer returns them (older than its ten years)
+    stored = query_degiro_records(model, account.name)
+    missing = stored.index[~stored['id'].isin(df['id']) & (stored.index >= pd.Timestamp(from_date))]
+    if len(missing) > 0:
+        logger.warning(
+            '%d %s of %s stored but no longer returned by Degiro', len(missing), model.__tablename__, account.name
+        )
+    upsert_degiro_records(model, account.name, df)
+
+
 def fetch_tx_history(account: Accounts, degiro_conn: API | None = None) -> pd.DataFrame:
-    """Download and save the transactions of the last ten years."""
+    """Download the transactions of the last ten years into the database, with an Excel copy of all the stored ones."""
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
-    # FETCH ACCOUNT OVERVIEW
+    from_date = date(year=date.today().year - 10, month=1, day=1)
     transactions_history = degiro_conn.get_transactions_history(
-        transaction_request=HistoryRequest(
-            from_date=date(year=date.today().year - 10, month=1, day=1),
-            to_date=date.today(),
-        ),
+        transaction_request=HistoryRequest(from_date=from_date, to_date=date.today()),
         raw=False,
     )
     tx_history_df = field_list_to_df(data=transactions_history.data)
-    fu.save_df_to_excel(df=tx_history_df, file_name=f'{account.name}_tx_hist', folder_name=DATA_DIR)
+    _store_records(DegiroTransaction, account, tx_history_df, from_date)
+    fu.save_df_to_excel(df=load_tx_history(account), file_name=tx_history_file_name(account), folder_name=DATA_DIR)
     return tx_history_df
 
 
 def load_tx_history(account: Accounts) -> pd.DataFrame:
-    """Saved transactions of an account."""
-    tx_history_df = fu.load_df_from_excel(file_name=f'{account.name}_tx_hist', folder_name=DATA_DIR)
+    """Saved transactions of an account, by date."""
+    tx_history_df = query_degiro_records(DegiroTransaction, account.name)[TX_HIST_COLUMNS]
     tx_history_df = tx_history_df.astype({'product_id': int})
     return tx_history_df
 
 
-def fetch_account_movements(account: Accounts, degiro_conn: API | None = None):
-    """Download and save the cash movements of the last ten years."""
+def fetch_account_movements(account: Accounts, degiro_conn: API | None = None) -> pd.DataFrame:
+    """Download the cash movements of the last ten years into the database, with an Excel copy of all the stored
+    ones.
+    """
     if degiro_conn is None:
         degiro_conn = get_degiro_connection(account=account)
-    # FETCH ACCOUNT OVERVIEW
-    overview_request = OverviewRequest(
-        from_date=date(year=date.today().year - 10, month=1, day=1),
-        to_date=date.today(),
-    )
-
+    from_date = date(year=date.today().year - 10, month=1, day=1)
     account_overview = degiro_conn.get_account_overview(
-        overview_request=overview_request,
+        overview_request=OverviewRequest(from_date=from_date, to_date=date.today()),
         raw=False,
     )
     account_movements_df = field_list_to_df(data=account_overview.cash_movements)
-    fu.save_df_to_excel(df=account_movements_df, file_name=f'{account.name}_movements', folder_name=DATA_DIR)
+    _store_records(DegiroCashMovement, account, account_movements_df, from_date)
+    fu.save_df_to_excel(
+        df=load_account_movements(account), file_name=movements_file_name(account), folder_name=DATA_DIR
+    )
     return account_movements_df
 
 
 def load_account_movements(account: Accounts) -> pd.DataFrame:
-    """Saved cash movements of an account."""
-    account_movements_df = fu.load_df_from_excel(file_name=f'{account.name}_movements', folder_name=DATA_DIR)
-    return account_movements_df
+    """Saved cash movements of an account, by date."""
+    return query_degiro_records(DegiroCashMovement, account.name)[CASH_MOVEMENTS_COLUMNS]

@@ -9,8 +9,9 @@ import pandas as pd
 from portfolio_manager.analytics.metrics import PerfDataTabs, compute_portfolio_metrics
 from portfolio_manager.config.accounts import Accounts
 from portfolio_manager.config.settings import DEFAULT_DATA_FREQ, RESULTS_DIR
-from portfolio_manager.degiro.charts import load_fx_rates, load_portfolio_products
+from portfolio_manager.degiro.charts import load_fx_rates
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
+from portfolio_manager.degiro.products import load_portfolio_products
 from portfolio_manager.market_data.yahoo import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols, search_fetch_history
 from portfolio_manager.market_data.yahoo import Exchanges as ExchangesYF
 from portfolio_manager.storage.files import PD_DATA_TYPES, load_df_dict_from_excel, save_df_dict_to_excel

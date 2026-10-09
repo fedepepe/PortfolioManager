@@ -1,4 +1,4 @@
-"""Degiro product information: full catalog in the database, portfolio products in Excel."""
+"""Degiro product information, stored in the database: the full catalog and the products traded in the accounts."""
 
 import pandas as pd
 from degiro_connector.trading.api import API
@@ -7,10 +7,14 @@ from portfolio_manager.config.accounts import Accounts
 from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.degiro.definitions import ProductTypes
-from portfolio_manager.degiro.transactions import load_tx_history
-from portfolio_manager.storage.files import load_df_from_excel, save_df_to_excel
+from portfolio_manager.storage.files import save_df_to_excel
 from portfolio_manager.storage.models import Product
-from portfolio_manager.storage.queries import insert_product
+from portfolio_manager.storage.queries import (
+    insert_product,
+    query_account_product_ids,
+    query_products,
+    upsert_products,
+)
 
 
 def fetch_full_product_catalog(degiro_conn: API | None = None):
@@ -57,22 +61,22 @@ def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[i
     return product_info_df
 
 
-def save_product_info(account: Accounts, product_info_df: pd.DataFrame):
-    """Save the product information of an account."""
-    save_df_to_excel(df=product_info_df, file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
+def products_file_name(account: Accounts) -> str:
+    """Excel copy of the information of the products traded in an account."""
+    return f'{account.name}_products_info'
 
 
 def fetch_portfolio_products_info(account: Accounts, degiro_conn: API | None = None):
-    """Download and save the information of the products traded in an account."""
-    tx_history_df = load_tx_history(account=account)
-    product_ids = list(set(tx_history_df['product_id'].astype(int).to_list()))
-    product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=product_ids)
-    save_product_info(account=account, product_info_df=product_df)
+    """Download the information of the products traded in an account into the database, with an Excel copy."""
+    product_df = fetch_product_info(degiro_conn=degiro_conn, product_ids=query_account_product_ids(account.name))
+    upsert_products(product_df)
+    save_df_to_excel(df=load_portfolio_products(account), file_name=products_file_name(account), folder_name=DATA_DIR)
 
 
 def load_portfolio_products(account: Accounts) -> pd.DataFrame:
-    """Saved information of the products traded in an account."""
-    product_df = load_df_from_excel(file_name=f'{account.name}_products_info', folder_name=DATA_DIR)
+    """Saved information of the products traded in an account, one row per product id."""
+    product_df = query_products(product_id=query_account_product_ids(account.name))
+    product_df.index.name = None
     return product_df
 
 

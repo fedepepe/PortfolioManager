@@ -1,7 +1,12 @@
 import pandas as pd
 import pytest
 
-from portfolio_manager.backtest.workflows import adjust_tx_for_splits, product_changes, split_multipliers
+from portfolio_manager.backtest.workflows import (
+    adjust_tx_for_splits,
+    last_complete_date,
+    product_changes,
+    split_multipliers,
+)
 from portfolio_manager.degiro.transactions import TxHistFields as F
 
 
@@ -69,3 +74,12 @@ def test_split_after_product_change():
     adjust_tx_for_splits(tx, split_multipliers(SPLIT))
     assert tx[F.product_id].tolist() == [2]
     assert tx[F.quantity].tolist() == [900.0]
+
+
+def test_backtest_ends_on_last_day_with_prices_of_held_products():
+    days = pd.bdate_range('2026-10-05', periods=4)
+    prices = pd.DataFrame({1: [1.0, 1.0, 1.0, 1.0], 2: [2.0, 2.0, 2.0, None], 3: [3.0, None, None, None]}, index=days)
+    # product 2 is held, but its price of the last day is missing; product 3 was sold
+    tx = trades([1, 2, 3, 3], [10, 5, 4, -4], ['2026-10-05'] * 4)
+    assert last_complete_date(prices, tx) == days[2]
+    assert last_complete_date(prices, tx[tx[F.product_id] == 3]) == days[3]  # nothing held: all the prices

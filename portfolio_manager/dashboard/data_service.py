@@ -59,16 +59,15 @@ def _file_version(path: str) -> float:
     return os.path.getmtime(path) if os.path.isfile(path) else 0.0
 
 
-def _version(results: list[tuple[str, str, str]], files: list[str] = ()) -> str:
+def _version(results: list[tuple[str, str, str]]) -> str:
     # latest save of the given derived results (kind, name, folder of their Excel file before the Parquet tables)
-    # and files
     versions = [tables_version(derived_folder(kind, name)) for kind, name, _ in results]
     versions += [_file_version(f'{folder}/{to_file_name(name)}.xlsx') for _, name, folder in results]
-    return str(max(versions + [_file_version(f) for f in files]))
+    return str(max(versions))
 
 
 def data_version(account: Accounts) -> str:
-    """Latest save of the data read by the portfolio page."""
+    """Latest save of the data read by the portfolio page (the products are refreshed with the backtest)."""
     name = account.name
     results = [
         (BACKTESTS, name, DATA_DIR),
@@ -76,7 +75,7 @@ def data_version(account: Accounts) -> str:
         (RESULTS, name, RESULTS_DIR),
         (RESULTS, _benchmark_name(account), RESULTS_DIR),
     ]
-    return _version(results, files=[f'{DATA_DIR}/{to_file_name(name)}_products_info.xlsx'])
+    return _version(results)
 
 
 @lru_cache(maxsize=4)

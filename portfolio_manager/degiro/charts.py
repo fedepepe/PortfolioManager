@@ -12,9 +12,14 @@ from portfolio_manager.config.accounts import Accounts
 from portfolio_manager.config.settings import DATA_DIR, FX_RATES_CHART_FILE_NAME, PRODUCTS_CHART_FILE_NAME
 from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.degiro.definitions import ProductTypes
-from portfolio_manager.degiro.products import fetch_product_info, load_portfolio_products
-from portfolio_manager.storage.files import load_df_from_excel, save_df_to_excel
-from portfolio_manager.storage.queries import insert_degiro_hist, query_products
+from portfolio_manager.degiro.products import fetch_product_info
+from portfolio_manager.storage.files import save_df_to_excel
+from portfolio_manager.storage.queries import (
+    insert_degiro_hist,
+    query_account_product_ids,
+    query_degiro_hist,
+    query_products,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,43 +114,44 @@ def fetch_charts(
     return chart_df.sort_index()
 
 
-def save_charts(
-    account: Accounts,
-    chart_df: pd.DataFrame,
-    chart_name: str = PRODUCTS_CHART_FILE_NAME,
-    chart_type: ChartType = ChartType.PRICE,
+def charts_file_name(account: Accounts, chart_name: str, chart_type: ChartType = ChartType.PRICE) -> str:
+    """Excel copy of the saved charts of an account."""
+    return f'{account.name}_{chart_name}_{chart_type.value}'
+
+
+def _chart_product_ids(account: Accounts, chart_name: str) -> list[int]:
+    # products of the account, or every currency (exchange rates)
+    if chart_name == FX_RATES_CHART_FILE_NAME:
+        return query_products(product_type=ProductTypes.CURRENCY)['id'].to_list()
+    return query_account_product_ids(account.name)
+
+
+def fetch_portfolio_charts(
+    account: Accounts, degiro_conn: API | None = None, chart_name: str = PRODUCTS_CHART_FILE_NAME
 ):
-    """Merge freshly fetched charts into the saved ones (new values win, older history is kept)."""
-    file_name = f'{account.name}_{chart_name}_{chart_type.value}'
-    try:
-        df_old = load_df_from_excel(file_name=file_name, folder_name=DATA_DIR)
-    except FileNotFoundError:
-        df_old = pd.DataFrame()
-    # prefer freshly fetched values; keep older history and products missing from this fetch
-    chart_df = chart_df.combine_first(df_old).sort_index()
-    save_df_to_excel(df=chart_df, file_name=file_name, folder_name=DATA_DIR)
-
-
-def fetch_portfolio_charts(account: Accounts, degiro_conn: API | None = None):
-    """Download and save the price charts of the products of an account."""
-    products_df = load_portfolio_products(account=account)
-    chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=list(set(products_df['id'].astype(int).to_list())))
-    save_charts(chart_df=chart_df, account=account)
+    """Download the price charts of the products of an account (or of the exchange rates) into the database, with an
+    Excel copy.
+    """
+    fetch_charts(degiro_conn=degiro_conn, product_ids=_chart_product_ids(account, chart_name), return_df=False)
+    save_df_to_excel(
+        df=load_portfolio_charts(account, chart_name=chart_name),
+        file_name=charts_file_name(account, chart_name),
+        folder_name=DATA_DIR,
+    )
 
 
 def load_portfolio_charts(
     account: Accounts, chart_name: str = PRODUCTS_CHART_FILE_NAME, chart_type: ChartType = ChartType.PRICE
 ) -> pd.DataFrame:
-    """Saved charts of an account: date x product id."""
-    chart_df = load_df_from_excel(file_name=f'{account.name}_{chart_name}_{chart_type.value}', folder_name=DATA_DIR)
+    """Saved charts of an account: date x product id (products with data only)."""
+    chart_df = query_degiro_hist(_chart_product_ids(account, chart_name), columns=chart_type.value)
+    chart_df.index.name, chart_df.columns.name = None, None
     return chart_df
 
 
 def fetch_fx_charts(account: Accounts, degiro_conn: API | None = None):
-    """Download and save the exchange rate charts."""
-    results_df = query_products(product_type=ProductTypes.CURRENCY)
-    chart_df = fetch_charts(degiro_conn=degiro_conn, product_ids=results_df['id'].to_list())
-    save_charts(account=account, chart_df=chart_df, chart_name=FX_RATES_CHART_FILE_NAME)
+    """Download the exchange rate charts into the database, with an Excel copy."""
+    fetch_portfolio_charts(account, degiro_conn=degiro_conn, chart_name=FX_RATES_CHART_FILE_NAME)
 
 
 def load_fx_rates(

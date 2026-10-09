@@ -55,3 +55,11 @@ def test_etf_performance_requires_isin():
     assert parser.parse_args(['etf-performance', '--isin', 'IE00B4L5Y983']).isin == 'IE00B4L5Y983'
     with pytest.raises(SystemExit):
         parser.parse_args(['etf-performance'])
+
+
+def test_show_benchmark_of_an_account_without_one(no_db, caplog):
+    tasks.main(['add-account', '--name', 'Portfolio USD', '--currency', 'USD'])
+    tasks.main(['show-benchmark'])
+    messages = [r.getMessage() for r in caplog.records]
+    assert 'Portfolio USD has no benchmark yet' in messages
+    assert any(m.startswith('Benchmark of Portfolio CHF: 60% IWDC') for m in messages)

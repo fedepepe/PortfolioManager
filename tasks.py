@@ -64,7 +64,11 @@ def show_benchmark(args: argparse.Namespace):
     from portfolio_manager.backtest.workflows import account_benchmark
 
     for account in selected_accounts(args):
-        benchmark = account_benchmark(account)
+        try:
+            benchmark = account_benchmark(account)
+        except ValueError:
+            logger.info('%s has no benchmark yet', account.name)
+            continue
         logger.info('Benchmark of %s: %s', account.name, benchmark.describe())
         for component in benchmark.components:
             logger.info('  %-8s %5.1f%%  searched as %s', component.label, 100 * component.weight, component.search)

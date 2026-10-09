@@ -174,6 +174,81 @@ def convert_results(args: argparse.Namespace):
             logger.info('ETF catalog of %s converted', account.name)
 
 
+def import_degiro_excel(args: argparse.Namespace):
+    """Import the Degiro data saved as Excel files (transactions, cash movements, products, prices) into the database:
+    stored transactions, movements and prices are kept, products are updated.
+    """
+    import ast
+
+    import pandas as pd
+
+    from portfolio_manager.config.settings import DATA_DIR, FX_RATES_CHART_FILE_NAME, PRODUCTS_CHART_FILE_NAME
+    from portfolio_manager.degiro.charts import charts_file_name, load_portfolio_charts
+    from portfolio_manager.degiro.products import load_portfolio_products, products_file_name
+    from portfolio_manager.degiro.transactions import (
+        load_account_movements,
+        load_tx_history,
+        movements_file_name,
+        tx_history_file_name,
+    )
+    from portfolio_manager.storage.files import load_df_from_excel
+    from portfolio_manager.storage.models import DegiroCashMovement, DegiroTransaction
+    from portfolio_manager.storage.queries import insert_degiro_hist, upsert_degiro_records, upsert_products
+
+    def text(value) -> str:
+        if pd.isna(value):
+            return ''
+        return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
+
+    def product_fields_as_text(df: pd.DataFrame) -> pd.DataFrame:
+        # the product fields used by the application; the vwd id is a number or a text key: compared as text
+        fields = ['id', 'symbol', 'name', 'isin', 'currency', 'vwd_id', 'vwd_identifier_type', 'exchange_id']
+        return df[fields].applymap(text)
+
+    for account in selected_accounts(args):
+        tx_hist_df = load_df_from_excel(tx_history_file_name(account), folder_name=DATA_DIR)
+        upsert_degiro_records(DegiroTransaction, account.name, tx_hist_df, overwrite=False)
+        movements_df = load_df_from_excel(movements_file_name(account), folder_name=DATA_DIR)
+        upsert_degiro_records(DegiroCashMovement, account.name, movements_df, overwrite=False)
+        products_df = load_df_from_excel(products_file_name(account), folder_name=DATA_DIR)
+        # list fields were saved as their text representation
+        for column in ['buy_order_types', 'order_time_types', 'product_bit_types', 'sell_order_types']:
+            products_df[column] = [ast.literal_eval(v) if isinstance(v, str) else v for v in products_df[column]]
+        upsert_products(products_df)
+        for chart_name in [PRODUCTS_CHART_FILE_NAME, FX_RATES_CHART_FILE_NAME]:
+            chart_df = load_df_from_excel(charts_file_name(account, chart_name), folder_name=DATA_DIR)
+            for product_id in chart_df.columns:
+                insert_degiro_hist(product_id, chart_df[[product_id]].set_axis(['price'], axis=1), overwrite=False)
+            # stored prices are kept: report where they differ from the Excel file
+            stored = load_portfolio_charts(account, chart_name=chart_name).reindex_like(chart_df)
+            differ = ~((stored - chart_df).abs() <= 1e-9 * chart_df.abs()) & chart_df.notna()
+            logger.info(
+                '%s %s: %d prices, %d differ from the database (kept), on %s',
+                account.name,
+                chart_name,
+                int(chart_df.notna().sum().sum()),
+                int(differ.sum().sum()),
+                sorted({str(d.date()) for d in chart_df.index[differ.any(axis=1)]})[:10],
+            )
+        # the database holds at least the records of the Excel files, with the same values (records at the same time
+        # are sorted by id in the database)
+        for loaded, saved in [(load_tx_history(account), tx_hist_df), (load_account_movements(account), movements_df)]:
+            saved = saved.reset_index().sort_values(['date', 'id'], kind='stable').set_index('date')
+            loaded = loaded.loc[loaded['id'].isin(saved['id']), saved.columns]
+            pd.testing.assert_frame_equal(loaded, saved, check_dtype=False)
+        pd.testing.assert_frame_equal(
+            product_fields_as_text(load_portfolio_products(account).loc[products_df.index]),
+            product_fields_as_text(products_df),
+        )
+        logger.info(
+            '%s: %d transactions, %d cash movements and %d products imported',
+            account.name,
+            len(tx_hist_df),
+            len(movements_df),
+            len(products_df),
+        )
+
+
 # command name: (function, options it takes)
 COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]] = {
     'update': (update, ('account',)),
@@ -186,6 +261,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'build-etf-catalog': (build_etf_catalog, ('account',)),
     'catalog-performance': (catalog_performance, ('account',)),
     'convert-results': (convert_results, ('account',)),
+    'import-degiro-excel': (import_degiro_excel, ('account',)),
 }
 
 

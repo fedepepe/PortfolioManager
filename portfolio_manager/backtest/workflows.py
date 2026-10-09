@@ -14,6 +14,7 @@ from portfolio_manager.analytics.performance import compute_portfolio_performanc
 from portfolio_manager.backtest.adjusted_prices import get_portfolio_adj_prices
 from portfolio_manager.backtest.engine import backtest_portfolio
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
+from portfolio_manager.config.account_settings import Benchmark
 from portfolio_manager.config.accounts import Accounts
 from portfolio_manager.config.settings import DATA_DIR, DEFAULT_DATA_FREQ
 from portfolio_manager.degiro.charts import (
@@ -38,6 +39,7 @@ from portfolio_manager.degiro.transactions import (
 from portfolio_manager.optimization.optimizer import OptimizedWeights, compute_weights_optim_portfolio
 from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage import files as fu
+from portfolio_manager.storage.queries import query_benchmark
 from portfolio_manager.storage.tables import (
     derived_folder,
     has_tables,
@@ -280,21 +282,40 @@ def warn_stale_prices(prices_df: pd.DataFrame, ts_end: pd.Timestamp, label: str)
         )
 
 
+def account_benchmark(account: Accounts) -> Benchmark:
+    """Benchmark of an account: the saved one, or its default if none is saved."""
+    return query_benchmark(account.name) or account.default_benchmark
+
+
 def backtest_portfolio_benchmark(account: Accounts, index: pd.DatetimeIndex) -> PortfolioBacktestData:
     """Backtest of the benchmark of an account over the given dates (saved)."""
+    benchmark = account_benchmark(account)
+    labels = [c.label for c in benchmark.components]
     prices_adj_df = fetch_instr_adj_prices(
-        account=account, isin_lst=[v[2] for v in account.benchmark.values()], tick_lst=list(account.benchmark.keys())
-    )
+        account=account, isin_lst=[c.search for c in benchmark.components], tick_lst=labels
+    ).reindex(columns=labels)  # one column per instrument, in the order of the weights
     warn_stale_prices(prices_adj_df, ts_end=index[-1], label=f'Benchmark of {account.name}')
     backtest_data_benchmark = backtest_portfolio(
         name=f'{account.name}_benchmark',
         prices_df=prices_adj_df.reindex(index=index).ffill(),
-        target_exp=[v[0] for v in account.benchmark.values()],
+        target_exp=[c.weight for c in benchmark.components],
         curr_base=account.currency,
-        freq_rebalancing=[v[1] for v in account.benchmark.values()][0],
+        freq_rebalancing=benchmark.rebalancing_freq,
     )
     save_backtest_data(hist_portfolio_data=backtest_data_benchmark)
     return backtest_data_benchmark
+
+
+def refresh_benchmark(account: Accounts) -> PortfolioBacktestData:
+    """Recompute and save the backtest of the benchmark of an account and the performance of the account against it,
+    from the saved backtest of the account (after a change of the benchmark; no download from Degiro).
+    """
+    hist_portfolio_data = load_backtest_data(name=account.name)
+    hist_benchmark_data = backtest_portfolio_benchmark(account=account, index=hist_portfolio_data.nav.index)
+    compute_portfolio_performance(
+        account=account, hist_portfolio_data=hist_portfolio_data, hist_benchmark_data=hist_benchmark_data
+    )
+    return hist_benchmark_data
 
 
 def refresh_account(account: Accounts):

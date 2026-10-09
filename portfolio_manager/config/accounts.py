@@ -4,6 +4,7 @@ from enum import Enum
 from typing import NamedTuple
 
 from portfolio_manager.backtest.portfolio import Currencies
+from portfolio_manager.config.account_settings import Benchmark, BenchmarkComponent
 
 
 class Brokers(Enum):
@@ -14,39 +15,47 @@ class Brokers(Enum):
 
 
 class Account(NamedTuple):
-    """Settings of one account: name, broker, base currency, credentials file and benchmark."""
+    """One account: name, broker, base currency, credentials file and the benchmark it starts with (the user can
+    change it: the benchmark in use is saved in the database).
+    """
 
     name: str
     broker: Brokers
     currency: Currencies
     config_file: str
-    benchmark: dict[str, tuple[float, str, str | None]] | None = None
+    default_benchmark: Benchmark | None = None
 
 
 class Accounts(Account, Enum):
-    """The accounts; the benchmark maps each ticker to (weight, rebalancing frequency, ISIN or ticker)."""
+    """The accounts."""
 
     DEGIRO_CHF = Account(
         name='Portfolio CHF',
         broker=Brokers.DEGIRO,
         currency=Currencies.CHF,
         config_file='config.json',
-        benchmark={
-            'IWDC': (0.6, 'M', 'IE00B8BVCK12'),
-            'HYLD': (0.2, 'M', 'HYLD.L'),
-            'STHC': (0.2, 'M', 'STHC.SW'),
-        },
+        default_benchmark=Benchmark(
+            components=[
+                BenchmarkComponent(label='IWDC', search='IE00B8BVCK12', weight=0.6),
+                BenchmarkComponent(label='HYLD', search='HYLD.L', weight=0.2),
+                BenchmarkComponent(label='STHC', search='STHC.SW', weight=0.2),
+            ],
+            rebalancing_freq='M',
+        ),
     )
     DEGIRO_EUR = Account(
         name='Portfolio EUR',
         currency=Currencies.EUR,
         broker=Brokers.DEGIRO,
         config_file='config_2.json',
-        benchmark={
-            'SPYI': (0.6, 'M', 'SPYI.DE'),
-            'HYLE': (0.2, 'M', 'HYLE.DE'),
-            'IGLA': (0.2, 'M', 'IE00BYZ28V50'),
-        },
+        default_benchmark=Benchmark(
+            components=[
+                BenchmarkComponent(label='SPYI', search='SPYI.DE', weight=0.6),
+                BenchmarkComponent(label='HYLE', search='HYLE.DE', weight=0.2),
+                BenchmarkComponent(label='IGLA', search='IE00BYZ28V50', weight=0.2),
+            ],
+            rebalancing_freq='M',
+        ),
     )
 
     @classmethod

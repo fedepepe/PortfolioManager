@@ -10,10 +10,14 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from portfolio_manager.config.account_settings import Benchmark
+from portfolio_manager.config.account_settings import BenchmarkComponent as Component
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
 from portfolio_manager.market_data.yahoo import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols
 from portfolio_manager.storage.db import SessionLocal, engine
 from portfolio_manager.storage.models import (
+    AccountSetting,
+    BenchmarkComponent,
     DegiroCashMovement,
     DegiroHistData,
     DegiroTransaction,
@@ -191,6 +195,42 @@ def query_degiro_records(model: type[DegiroRecord], account_name: str) -> pd.Dat
         if isinstance(column.type, DateTime):
             df[column.name] = pd.to_datetime(df[column.name])
     return df.set_index('date')
+
+
+def query_benchmark(account_name: str) -> Benchmark | None:
+    """Saved benchmark of an account, None if it has no saved settings."""
+    with SessionLocal() as session:
+        setting = session.get(AccountSetting, account_name)
+        if setting is None:
+            return None
+        rows = session.scalars(
+            select(BenchmarkComponent)
+            .where(BenchmarkComponent.account == account_name)
+            .order_by(BenchmarkComponent.position)
+        ).all()
+        components = [Component(label=r.label, search=r.search, weight=r.weight) for r in rows]
+        return Benchmark(components=components, rebalancing_freq=setting.benchmark_rebalancing_freq)
+
+
+def save_benchmark(account_name: str, benchmark: Benchmark):
+    """Save the benchmark of an account (validated first), replacing the saved one."""
+    benchmark.validate()
+    stmt = sqlite_insert(AccountSetting).values(
+        account=account_name, benchmark_rebalancing_freq=benchmark.rebalancing_freq
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[AccountSetting.account],
+        set_={'benchmark_rebalancing_freq': stmt.excluded.benchmark_rebalancing_freq},
+    )
+    with SessionLocal() as session:
+        session.execute(stmt)
+        session.execute(delete(BenchmarkComponent).where(BenchmarkComponent.account == account_name))
+        session.add_all(
+            BenchmarkComponent(account=account_name, label=c.label, search=c.search, weight=c.weight, position=n)
+            for n, c in enumerate(benchmark.components)
+        )
+        session.commit()
+    logger.info('Benchmark of %s saved: %s', account_name, benchmark.describe())
 
 
 def query_account_product_ids(account_name: str) -> list[int]:

@@ -2,7 +2,19 @@
 
 import os
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, Index, Integer, Sequence, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    Sequence,
+    String,
+    UniqueConstraint,
+    inspect,
+)
 
 from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.storage.db import Base, engine
@@ -169,11 +181,48 @@ class DegiroYahooMap(Base):
     ticker = Column(String, nullable=False)
 
 
+# Version of the database schema (one row), see storage/migrations.py
+class SchemaVersion(Base):
+    """Version of the database schema."""
+
+    __tablename__ = 'schema_version'
+    id = Column(Integer, primary_key=True)
+    version = Column(Integer, nullable=False)
+
+
+# Settings of each account chosen by the user
+class AccountSetting(Base):
+    """Settings of an account."""
+
+    __tablename__ = 'account_settings'
+    account = Column(String, primary_key=True)
+    benchmark_rebalancing_freq = Column(String, nullable=False)
+
+
+# Instruments of the benchmark of each account, with their weights
+class BenchmarkComponent(Base):
+    """One instrument of the benchmark of an account."""
+
+    __tablename__ = 'benchmark_components'
+    account = Column(String, primary_key=True)
+    label = Column(String, primary_key=True)
+    search = Column(String, nullable=False)  # ISIN or Yahoo Finance ticker searched for its prices
+    weight = Column(Float, nullable=False)
+    position = Column(Integer, nullable=False)  # display order
+
+
 def init_db():
-    """Create the database file, its missing tables and indexes (called once at start-up)."""
+    """Create the database file, its missing tables and indexes, upgrade an older schema and add the default settings
+    of new accounts (called once at start-up).
+    """
+    from portfolio_manager.storage.migrations import seed_default_settings, upgrade_schema
+
     os.makedirs(DATA_DIR, exist_ok=True)
+    new_database = not inspect(engine).get_table_names()
     Base.metadata.create_all(engine)
     # create_all does not add new indexes to existing tables
     for table in Base.metadata.sorted_tables:
         for index in table.indexes:
             index.create(engine, checkfirst=True)
+    upgrade_schema(engine, new_database=new_database)
+    seed_default_settings()

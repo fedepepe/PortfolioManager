@@ -11,7 +11,7 @@ import portfolio_manager.market_data.history as history
 import portfolio_manager.storage.migrations as migrations
 import portfolio_manager.storage.models as tables
 import portfolio_manager.storage.queries as sql
-from portfolio_manager.analytics.instruments import prices_to_base_curr, traded_values
+from portfolio_manager.analytics.instruments import prices_to_base_curr
 from portfolio_manager.config.account_settings import Benchmark, BenchmarkComponent
 from portfolio_manager.config.accounts import Account, Brokers, add_account
 
@@ -219,17 +219,3 @@ def test_database_of_version_3_gets_the_new_yahoo_tables(tmp_path, monkeypatch):
     assert instruments.loc['HYLD.L', 'name_long'] == 'iShares Global High Yield'
     assert instruments.loc['HYLD.L', 'name_short'] is None and instruments.loc['VUKE.L', 'currency'] == 'GBp'
     assert (folder / 'old.db.bak-v3').is_file()
-
-
-def test_traded_value_is_the_average_of_close_times_volume_in_the_account_currency(temp_db):
-    # 70 trading days up to today: the last 63 make the average; pence converted to pounds, then to CHF
-    days = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=70)
-    sql.upsert_currency_pairs({'GBP/CHF': 11839929})
-    sql.insert_degiro_hist(11839929, pd.DataFrame({'price': 1.1}, index=days))
-    instrument_id = sql.upsert_yahoo_instrument('AAA.L', {'currency': 'GBp'})
-    closes, volumes = np.arange(70) + 100.0, np.full(70, 1000.0)
-    sql.save_yahoo_prices(instrument_id, pd.DataFrame({'close': closes, 'volume': volumes}, index=days))
-    account = Account('Portfolio CHF', Brokers.DEGIRO, 'config.json', 'CHF')
-    traded = traded_values(account, ['AAA.L'])
-    expected = (closes[-63:] * volumes[-63:]).mean() * 0.01 * 1.1
-    assert traded['AAA.L'].iloc[-1] == pytest.approx(expected)

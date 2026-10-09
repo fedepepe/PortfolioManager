@@ -5,11 +5,11 @@ account.
 import logging
 import time
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from portfolio_manager.analytics.metrics import PerfDataTabs, compute_portfolio_metrics
+from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs, compute_portfolio_metrics
 from portfolio_manager.config.accounts import Account, list_accounts
 from portfolio_manager.config.settings import RESULTS_DIR
 from portfolio_manager.degiro.charts import load_fx_rates
@@ -21,26 +21,26 @@ from portfolio_manager.market_data.history import (
     major_currency,
     refresh_history,
     search_listing,
+    traded_value,
 )
-from portfolio_manager.market_data.yahoo import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols
-from portfolio_manager.storage.files import PD_DATA_TYPES, load_df_dict_from_excel, save_df_dict_to_excel
+from portfolio_manager.market_data.yahoo import YFinInfoCols
+from portfolio_manager.storage.files import PD_DATA_TYPES, save_df_dict_to_excel, save_df_to_excel
 from portfolio_manager.storage.models import Product
 from portfolio_manager.storage.queries import (
     query_degiro_yahoo_map,
+    query_etf_catalog,
     query_products,
     query_yahoo_instruments,
-    query_yahoo_prices,
+    save_etf_catalog,
     upsert_degiro_yahoo_map,
 )
-from portfolio_manager.storage.tables import derived_folder, has_tables, load_tables, save_tables
 
 logger = logging.getLogger(__name__)
 
 MAX_ETF_CATALOG_SIZE = 250
-CATALOG_PERF_LABEL = 'Performance'
 # Degiro exchanges of the ETFs of the catalog
 CATALOG_EXCHANGES = [Exchanges.XET, Exchanges.SWX, Exchanges.MIL, Exchanges.EAM]
-TRADED_VALUE_DAYS = 63  # trading days (about 3 months) of the average traded value that ranks the catalog ETFs
+TRADED_VALUE_PERIOD = pd.DateOffset(months=3)  # average daily traded value over the last 3 calendar months
 MAX_DAYS_WITHOUT_PRICE = 30  # listings without a price for longer are left out of the catalog
 # Yahoo information fields (rows of the information tables of the catalogs) and their columns in the database
 INFO_COLUMNS = {
@@ -55,13 +55,31 @@ INFO_COLUMNS = {
 }
 
 
+# metrics of the catalog ETFs and their columns in the etf_catalog table
+CATALOG_METRICS = {
+    Metrics.TOTAL_RETURN: 'total_return',
+    Metrics.PA_RETURN: 'pa_return',
+    Metrics.LAST_YEAR_RETURN: 'return_1y',
+    Metrics.ANN_3Y_RETURN: 'return_3y',
+    Metrics.ANN_5Y_RETURN: 'return_5y',
+    Metrics.VOLATILITY: 'volatility',
+    Metrics.SHARPE_RATIO: 'sharpe_ratio',
+    Metrics.SORTINO_RATIO: 'sortino_ratio',
+    Metrics.BEST_MONTH: 'best_month',
+    Metrics.WORST_MONTH: 'worst_month',
+    Metrics.MAX_DD: 'max_drawdown',
+    Metrics.SKEWNESS: 'skewness',
+}
+
+
 class InstrPerfTableCols:
     """Columns of the instruments table."""
 
     ticker = 'Ticker'
     isin = 'ISIN'
     name = 'Name'
-    volume = 'Traded value (3M)'  # average daily traded value of the last 3 months, account currency
+    volume = 'Traded value (3M)'  # average daily traded value of the last 3 months, in the currency of the listing
+    currency = 'Currency'
 
 
 def prices_to_base_curr(account: Account, price_df: pd.DataFrame, curr_info: PD_DATA_TYPES | list[str]) -> pd.DataFrame:
@@ -123,10 +141,8 @@ def fetch_portfolio_instr_adj_prices(account: Account) -> pd.DataFrame:
     return prices.rename(columns=symbols.to_dict())
 
 
-def compute_product_performance(
-    adj_close_df: PD_DATA_TYPES, volume_df: PD_DATA_TYPES | None = None, prod_info_df: PD_DATA_TYPES | None = None
-) -> pd.DataFrame:
-    """Performance metrics of each price series (and its volume if given)."""
+def compute_product_performance(adj_close_df: PD_DATA_TYPES, prod_info_df: PD_DATA_TYPES | None = None) -> pd.DataFrame:
+    """Performance metrics of each price series: one row per ticker (with ISIN and name if the information is given)."""
     perf_metrics_df = pd.DataFrame()
     for ticker in adj_close_df.columns:
         isin_str = f' ({prod_info_df.loc[YFinInfoCols.isin.value, ticker]})' if prod_info_df is not None else ''
@@ -138,11 +154,6 @@ def compute_product_performance(
             )
         except ValueError:
             continue
-        # add dollar volume
-        if volume_df is not None:
-            if ticker in volume_df.columns:
-                volume_mean_90 = int(volume_df[ticker][volume_df[ticker].notnull()].values[-1])
-                results_dict[PerfDataTabs.RISK_METRICS][InstrPerfTableCols.volume] = volume_mean_90
         if prod_info_df is not None:
             isin = prod_info_df.loc[YFinInfoCols.isin.value, ticker]
             results_dict[PerfDataTabs.RISK_METRICS][InstrPerfTableCols.isin] = isin
@@ -220,84 +231,73 @@ def fetch_etf_catalog_data(full: bool = False):
     logger.info('ETF catalog downloaded: %s', ', '.join(f'{k} {v}' for k, v in results.items()))
 
 
-def traded_values(account: Account, tickers: list[str]) -> pd.DataFrame:
-    """Average daily traded value (close x volume) of the last TRADED_VALUE_DAYS trading days of each listing, in the
-    account currency: date x ticker (listings without a recent price are left out).
+def average_traded_values(tickers: list[str]) -> pd.DataFrame:
+    """Average daily traded value of the last 3 months (TRADED_VALUE_PERIOD before its last day) of each listing, in
+    the currency of the listing: columns traded_value and currency by ticker. Listings without a price in the last
+    MAX_DAYS_WITHOUT_PRICE days are left out.
     """
-    recent = query_yahoo_prices(tickers, start=date.today() - timedelta(days=200), columns=['close', 'volume'])
-    recent['traded'] = recent['close'] * recent['volume']
-    traded = recent.pivot(index='date', columns='ticker', values='traded')
-    last_day = pd.Timestamp(date.today() - timedelta(days=MAX_DAYS_WITHOUT_PRICE))
-    traded = traded.loc[:, [t for t in traded.columns if traded[t].last_valid_index() >= last_day]]
-    currencies = listing_currencies(list(traded.columns))
-    traded = traded[[t for t in traded.columns if t in currencies]]
-    traded = prices_to_base_curr(account=account, price_df=traded, curr_info=[currencies[t] for t in traded.columns])
-    # average over the trading days of each listing (exchanges have different holidays)
-    return pd.DataFrame({t: traded[t].dropna().rolling(TRADED_VALUE_DAYS).mean() for t in traded.columns})
+    recent = pd.Timestamp(date.today() - timedelta(days=MAX_DAYS_WITHOUT_PRICE))
+    traded, currencies = traded_value(tickers, start=(recent - TRADED_VALUE_PERIOD).date())
+    rows = {}
+    for ticker in traded.columns:
+        values = traded[ticker].dropna()
+        if not values.empty and values.index[-1] >= recent:
+            last_months = values[values.index > values.index[-1] - TRADED_VALUE_PERIOD]
+            rows[ticker] = {'traded_value': last_months.mean(), 'currency': currencies[ticker]}
+    return pd.DataFrame.from_dict(rows, orient='index', columns=['traded_value', 'currency'])
 
 
-def build_etf_catalog_data(account: Account) -> dict[YFinHistCols, pd.DataFrame]:
-    """Build and save the ETF catalog of an account from the stored history: the ETFs with the highest traded value,
-    their adjusted prices in the account currency and their performance metrics.
+def rank_by_traded_value(account: Account, averages: pd.DataFrame) -> list[str]:
+    """Tickers by decreasing average traded value; the values, in different currencies, are compared at the latest
+    exchange rates, so the order is the same whatever the currency of the account.
+    """
+    foreign = sorted(set(averages['currency']) - {account.currency})
+    fx_rates_df = load_fx_rates(account=account, curr_foreign_lst=foreign, index=pd.DatetimeIndex([]))
+    latest = fx_rates_df.ffill().iloc[-1] if not fx_rates_df.empty else pd.Series(dtype=float)
+    rates = averages['currency'].map(lambda c: 1.0 if c == account.currency else latest.get(f'{c}/{account.currency}'))
+    return averages['traded_value'].mul(rates.astype(float)).dropna().sort_values(ascending=False).index.to_list()
+
+
+def build_etf_catalog_data(account: Account) -> pd.DataFrame:
+    """Build and save the ETF catalog of an account from the stored history: the MAX_ETF_CATALOG_SIZE ETFs with the
+    highest average traded value and their performance metrics in the account currency (table etf_catalog, with an
+    Excel copy in the results folder).
     """
     tickers = sorted(set(query_degiro_yahoo_map(catalog_products()['id'].to_list()).values()))
-    traded_df = traded_values(account, tickers)
-    ranking = traded_df.apply(lambda x: x.dropna().iloc[-1] if x.notna().any() else 0.0)
-    most_liquid = ranking.sort_values(ascending=False).index[:MAX_ETF_CATALOG_SIZE].to_list()
-    close_adj_df = stored_adjusted_prices(account, most_liquid)
-    most_liquid = [t for t in most_liquid if t in close_adj_df.columns]
-    data_dict = {
-        YFinHistCols.adj_close: close_adj_df[most_liquid],
-        YFinHistCols.volume: traded_df[most_liquid],
-        YF_PROD_INFO_LABEL: instruments_info(most_liquid),
-    }
-    data_dict[CATALOG_PERF_LABEL] = compute_catalog_performance_df(data_dict)
-    save_etf_catalog_data(account=account, data_dict=data_dict)
-    return data_dict
-
-
-def compute_catalog_performance_df(data_dict: dict[str | YFinHistCols, pd.DataFrame]) -> pd.DataFrame:
-    """Performance metrics of the ETFs of a catalog."""
-    return compute_product_performance(
-        adj_close_df=data_dict[YFinHistCols.adj_close],
-        volume_df=data_dict[YFinHistCols.volume],
-        prod_info_df=data_dict[YF_PROD_INFO_LABEL],
-    )
-
-
-def compute_catalog_performance(account: Account) -> pd.DataFrame:
-    """Add the performance metrics to an existing catalog, from its saved data only."""
-    data_dict = load_etf_catalog_data(account=account)
-    data_dict[CATALOG_PERF_LABEL] = compute_catalog_performance_df(data_dict)
-    save_etf_catalog_data(account=account, data_dict=data_dict)
-    return data_dict[CATALOG_PERF_LABEL]
-
-
-CATALOGS = 'catalogs'  # kind of derived result (folder of the Parquet tables)
+    averages = average_traded_values(tickers)
+    most_traded = rank_by_traded_value(account, averages)[:MAX_ETF_CATALOG_SIZE]
+    perf_df = compute_product_performance(stored_adjusted_prices(account, most_traded))
+    perf_df = perf_df.set_index(InstrPerfTableCols.ticker)
+    catalog = pd.DataFrame({'ticker': [t for t in most_traded if t in perf_df.index]})
+    catalog['rank'] = range(1, len(catalog) + 1)
+    catalog['traded_value'] = averages.loc[catalog['ticker'], 'traded_value'].to_numpy()
+    catalog['currency'] = averages.loc[catalog['ticker'], 'currency'].to_numpy()
+    for metric, column in CATALOG_METRICS.items():
+        catalog[column] = perf_df.loc[catalog['ticker'], metric.name].to_numpy()
+    catalog['built_at'] = datetime.now()
+    save_etf_catalog(account.name, catalog)
+    save_df_to_excel(df=catalog_table(account), file_name=catalog_file_name(account), folder_name=RESULTS_DIR)
+    return catalog
 
 
 def catalog_file_name(account: Account) -> str:
-    """Name of the ETF catalog files of an account."""
+    """Name of the Excel copy of the ETF catalog of an account."""
     return f'{account.name}_catalog'
 
 
-def save_etf_catalog_data(account: Account, data_dict: dict[str | YFinHistCols, pd.DataFrame]):
-    """Save the ETF catalog of an account: Parquet tables and Excel file."""
-    data_dict_renamed = {str(k): data_dict[k] for k in data_dict}
-    save_df_dict_to_excel(df_dict=data_dict_renamed, folder_name=RESULTS_DIR, file_name=catalog_file_name(account))
-    save_etf_catalog_tables(account, data_dict_renamed)
-
-
-def save_etf_catalog_tables(account: Account, data_dict: dict[str, pd.DataFrame]):
-    """Save the Parquet tables of the ETF catalog of an account (keys: sheet names)."""
-    save_tables(derived_folder(CATALOGS, catalog_file_name(account)), data_dict)
-
-
-def load_etf_catalog_data(account: Account) -> dict[str | YFinHistCols, pd.DataFrame]:
-    """Keys: YFinHistCols for the price and volume sheets, YF_PROD_INFO_LABEL, and CATALOG_PERF_LABEL if computed."""
-    folder = derived_folder(CATALOGS, catalog_file_name(account))
-    if has_tables(folder):
-        data_dict = load_tables(folder)
-    else:  # saved before the Parquet tables
-        data_dict = load_df_dict_from_excel(folder_name=RESULTS_DIR, file_name=catalog_file_name(account))
-    return {YFinHistCols.get_entry_by_val(k): data_dict[k] for k in data_dict}
+def catalog_table(account: Account) -> pd.DataFrame:
+    """ETF catalog of an account as shown: ticker, ISIN, name, traded value, currency and metrics (labels), by rank."""
+    catalog = query_etf_catalog(account.name)
+    info = query_yahoo_instruments(catalog['ticker'].to_list()).reindex(catalog['ticker'])
+    table = pd.DataFrame(
+        {
+            InstrPerfTableCols.ticker: catalog['ticker'],
+            InstrPerfTableCols.isin: info['isin'].to_numpy(),
+            InstrPerfTableCols.name: info['name_long'].fillna(info['name_short']).to_numpy(),
+            InstrPerfTableCols.volume: catalog['traded_value'],
+            InstrPerfTableCols.currency: catalog['currency'],
+        }
+    )
+    for metric, column in CATALOG_METRICS.items():
+        table[metric.name] = catalog[column]
+    return table

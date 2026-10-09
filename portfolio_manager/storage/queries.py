@@ -1,12 +1,12 @@
 """Reads and writes of the database; every write opens its own session."""
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, select
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from portfolio_manager.storage.models import (
     DegiroHistData,
     DegiroTransaction,
     DegiroYahooMap,
+    EtfCatalogEntry,
     Product,
     YahooInstrument,
     YahooPrice,
@@ -424,6 +425,31 @@ def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame
     df = query_yahoo_instruments(tickers).reindex(tickers)
     df['name'] = df['name_long'].where(df['name_long'].notna(), df['name_short'])
     return df.rename_axis('ticker').reset_index()[columns]
+
+
+def save_etf_catalog(account_name: str, df: pd.DataFrame):
+    """Replace the ETF catalog of an account (one row per ticker, with the columns of the etf_catalog table)."""
+    rows = _rows(EtfCatalogEntry, df, account=account_name)
+    with SessionLocal() as session:
+        session.execute(delete(EtfCatalogEntry).where(EtfCatalogEntry.account == account_name))
+        if rows:
+            session.execute(insert(EtfCatalogEntry), rows)
+        session.commit()
+    logger.info('ETF catalog of %s saved: %d ETFs', account_name, len(rows))
+
+
+def query_etf_catalog(account_name: str) -> pd.DataFrame:
+    """ETF catalog of an account, by rank (without the account column)."""
+    columns = [c for c in EtfCatalogEntry.__table__.columns if c.name != 'account']
+    stmt = select(*columns).where(EtfCatalogEntry.account == account_name).order_by(EtfCatalogEntry.rank)
+    return pd.read_sql(stmt, engine)
+
+
+def query_etf_catalog_built_at(account_name: str) -> datetime | None:
+    """When the ETF catalog of an account was built, None if it has none."""
+    stmt = select(func.max(EtfCatalogEntry.built_at)).where(EtfCatalogEntry.account == account_name)
+    with engine.connect() as connection:
+        return connection.execute(stmt).scalar()
 
 
 def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):

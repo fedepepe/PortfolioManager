@@ -154,29 +154,16 @@ def build_etf_catalog(args: argparse.Namespace):
         logger.info('ETF catalog of %s built', account.name)
 
 
-def catalog_performance(args: argparse.Namespace):
-    """Add the performance metrics to an existing ETF catalog, from its saved data only."""
-    from portfolio_manager.analytics.instruments import compute_catalog_performance
-
-    for account in selected_accounts(args):
-        compute_catalog_performance(account=account)
-        logger.info('Performance of the ETF catalog of %s computed', account.name)
-
-
 def convert_results(args: argparse.Namespace):
-    """Convert the results saved as Excel files into Parquet tables (archives the Excel copies no longer needed)."""
+    """Convert the backtests and results saved as Excel files into Parquet tables (archives the Excel copies no
+    longer needed).
+    """
     import datetime
     import os
     import shutil
 
     import pandas as pd
 
-    from portfolio_manager.analytics.instruments import (
-        CATALOGS,
-        catalog_file_name,
-        load_etf_catalog_data,
-        save_etf_catalog_tables,
-    )
     from portfolio_manager.analytics.performance import RESULTS, load_performance_data, save_performance_tables
     from portfolio_manager.backtest.workflows import (
         BACKTESTS,
@@ -224,12 +211,6 @@ def convert_results(args: argparse.Namespace):
                 save_performance_tables(results, name, saved_at=os.path.getmtime(excel_file))
                 assert_same(results, load_performance_data(name))
                 logger.info('Performance results %s converted', name)
-        excel_file = os.path.join(RESULTS_DIR, f'{to_file_name(catalog_file_name(account))}.xlsx')
-        if os.path.isfile(excel_file) and not has_tables(derived_folder(CATALOGS, catalog_file_name(account))):
-            catalog = load_df_dict_from_excel(file_name=catalog_file_name(account), folder_name=RESULTS_DIR)
-            save_etf_catalog_tables(account, catalog)
-            assert_same(catalog, {str(k): v for k, v in load_etf_catalog_data(account).items()})
-            logger.info('ETF catalog of %s converted', account.name)
 
 
 def import_degiro_excel(args: argparse.Namespace):
@@ -322,7 +303,6 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'fetch-etf-catalog': (fetch_etf_catalog, ('full',)),
     'refresh-yahoo-history': (refresh_yahoo_history, ('full',)),
     'build-etf-catalog': (build_etf_catalog, ('account',)),
-    'catalog-performance': (catalog_performance, ('account',)),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
 }

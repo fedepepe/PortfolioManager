@@ -164,6 +164,31 @@ class YahooPrice(Base):
     __table_args__ = {'sqlite_with_rowid': False}  # the key is the table: no separate index
 
 
+# ETF catalog of each account: the most traded ETFs and their performance metrics in the account currency
+class EtfCatalogEntry(Base):
+    """One ETF of the catalog of an account."""
+
+    __tablename__ = 'etf_catalog'
+    account = Column(String, primary_key=True)
+    ticker = Column(String, primary_key=True)  # Yahoo Finance listing
+    rank = Column(Integer, nullable=False)  # by average traded value, 1 = most traded
+    traded_value = Column(Float)  # average daily traded value of the last 3 months, in the currency below
+    currency = Column(String)  # currency of the listing
+    total_return = Column(Float)
+    pa_return = Column(Float)
+    return_1y = Column(Float)
+    return_3y = Column(Float)
+    return_5y = Column(Float)
+    volatility = Column(Float)
+    sharpe_ratio = Column(Float)
+    sortino_ratio = Column(Float)
+    best_month = Column(Float)
+    worst_month = Column(Float)
+    max_drawdown = Column(Float)
+    skewness = Column(Float)
+    built_at = Column(DateTime, nullable=False)
+
+
 # Yahoo Finance listing chosen for each Degiro product (several products may share a listing)
 class DegiroYahooMap(Base):
     """Yahoo Finance listing chosen for each Degiro product."""

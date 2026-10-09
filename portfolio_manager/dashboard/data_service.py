@@ -12,7 +12,6 @@ from typing import NamedTuple
 
 import pandas as pd
 
-from portfolio_manager.analytics.instruments import CATALOGS, catalog_file_name
 from portfolio_manager.analytics.performance import RESULTS, load_performance_data
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.backtest.workflows import (
@@ -32,6 +31,7 @@ from portfolio_manager.dashboard.instruments_data import InstrumentsData
 from portfolio_manager.dashboard.portfolio_data import PortfolioData
 from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage.files import to_file_name
+from portfolio_manager.storage.queries import query_etf_catalog_built_at
 from portfolio_manager.storage.tables import derived_folder, tables_version
 
 # tables of the benchmark and optimized backtests shown by the dashboard (the others are not loaded)
@@ -95,7 +95,8 @@ def _benchmark_data(account_name: str, version: str) -> PortfolioBacktestData:
 
 
 def _catalog_version(account: Account) -> str:
-    return _version([(CATALOGS, catalog_file_name(account), RESULTS_DIR)])
+    built_at = query_etf_catalog_built_at(account.name)
+    return str(built_at.timestamp()) if built_at is not None else '0.0'
 
 
 @lru_cache(maxsize=2)

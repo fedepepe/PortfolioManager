@@ -14,7 +14,12 @@ from portfolio_manager.dashboard.data_service import get_instruments_data
 from portfolio_manager.dashboard.instruments_data import InstrumentsData
 
 MAX_INSTR_CORR = 50
-COLS_INFO_TABLE = [InstrPerfTableCols.ticker, InstrPerfTableCols.isin, InstrPerfTableCols.volume]
+COLS_INFO_TABLE = [
+    InstrPerfTableCols.ticker,
+    InstrPerfTableCols.isin,
+    InstrPerfTableCols.volume,
+    InstrPerfTableCols.currency,
+]
 COLS_PERF_TABLE = [
     Metrics.PA_RETURN,
     Metrics.LAST_YEAR_RETURN,

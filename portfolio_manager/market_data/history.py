@@ -207,6 +207,20 @@ def load_adjusted_closes(tickers: list[str]) -> pd.DataFrame:
     return pd.DataFrame(closes).reindex(columns=[t for t in tickers if t in closes])
 
 
+def traded_value(tickers: list[str], start: date | None = None) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Daily traded value (close x volume) of listings from a day on, each in the currency of the listing (amounts in
+    hundredths, e.g. pence, converted): date x ticker, and the currency of each listing (listings without a known
+    currency are left out).
+    """
+    df = query_yahoo_prices(tickers, start=start, columns=['close', 'volume'])
+    traded = df.assign(value=df['close'] * df['volume']).pivot(index='date', columns='ticker', values='value')
+    currencies = {}
+    for ticker, currency in listing_currencies(list(traded.columns)).items():
+        currencies[ticker], factor = major_currency(currency)
+        traded[ticker] *= factor
+    return traded[list(currencies)], currencies
+
+
 def listing_currencies(tickers: list[str]) -> dict[str, str]:
     """Currency of each listing, as Yahoo reports it (listings without a known currency are left out)."""
     currencies = query_yahoo_instruments(tickers)['currency'].dropna()

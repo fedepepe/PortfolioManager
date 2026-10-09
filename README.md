@@ -76,8 +76,10 @@ With no saved data, the dashboard opens on the **Accounts** page (also in the si
    takes a few minutes; then the figures are drawn, and the **Strategies** page can run optimizations.
 
 The **Instruments** page needs the ETF catalog, built by the long catalog tasks below (`fetch-product-catalog`,
-`fetch-etf-catalog`, `build-etf-catalog`): the catalog of an account keeps the 250 ETFs with the highest average
-traded value (close x volume, last 3 months, in the account currency).
+`fetch-etf-catalog`, `build-etf-catalog`). The catalog keeps the 250 ETFs with the highest average daily traded value
+(close x volume) of the last 3 months, each in the currency of its listing; the values are compared at the latest
+exchange rates, so the ranking is the same for every account. The performance metrics of the catalog ETFs are computed
+in the currency of each account and saved in the database (table `etf_catalog`), with an Excel copy in `results/`.
 
 ### Maintenance tasks
 
@@ -101,7 +103,7 @@ Nothing in these folders is committed:
 | Folder | Content |
 |---|---|
 | `data/` | the SQLite database (`degiro.db`) with the Degiro downloads, an Excel copy of the downloads of each account (transactions, cash movements, products, prices, exchange rates), and an Excel copy of each backtest (`*_visual.xlsx`: tickers as column labels), for inspection |
-| `data/derived/` | the working copy of the backtests, performance results and ETF catalogs (Parquet tables), read by the dashboard |
+| `data/derived/` | the working copy of the backtests and performance results (Parquet tables), read by the dashboard |
 | `results/` | an Excel copy of the performance results and the ETF catalogs, for inspection |
 | `credentials/` | the Degiro credentials |
 

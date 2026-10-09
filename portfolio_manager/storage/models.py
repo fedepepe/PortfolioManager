@@ -2,7 +2,7 @@
 
 import os
 
-from sqlalchemy import Boolean, Column, Date, Float, Index, Integer, Sequence, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, Index, Integer, Sequence, String, UniqueConstraint
 
 from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.storage.db import Base, engine
@@ -67,6 +67,53 @@ class DegiroHistData(Base):
     price = Column(Float)
     volume = Column(Float)
     __table_args__ = (Index('ix_degiro_hist_product_date', 'product_id', 'date', unique=True),)
+
+
+# Degiro transactions of each account (columns in the order Degiro returns them)
+class DegiroTransaction(Base):
+    """Degiro transactions (trades) of an account."""
+
+    __tablename__ = 'degiro_transactions'
+    account = Column(String, primary_key=True)
+    id = Column(Integer, primary_key=True)
+    date = Column(DateTime, nullable=False)
+    auto_fx_fee_in_base_currency = Column(Float)
+    buysell = Column(String)
+    counter_party = Column(String)
+    executing_entity_id = Column(String)
+    fee_in_base_currency = Column(Float)
+    fx_rate = Column(Float)
+    gross_fx_rate = Column(Float)
+    nett_fx_rate = Column(Float)
+    order_type_id = Column(Integer)
+    price = Column(Float)
+    product_id = Column(Integer, nullable=False)
+    quantity = Column(Integer)
+    total = Column(Float)
+    total_fees_in_base_currency = Column(Float)
+    total_in_base_currency = Column(Float)
+    total_plus_all_fees_in_base_currency = Column(Float)
+    total_plus_fee_in_base_currency = Column(Float)
+    transfered = Column(Boolean)
+    trading_venue = Column(String)
+    transaction_type_id = Column(Integer)
+
+
+# Degiro cash movements of each account: deposits, dividends, fees, currency conversions, ...
+class DegiroCashMovement(Base):
+    """Degiro cash movements of an account."""
+
+    __tablename__ = 'degiro_cash_movements'
+    account = Column(String, primary_key=True)
+    id = Column(Integer, primary_key=True)
+    date = Column(DateTime, nullable=False)
+    balance = Column(String)
+    change = Column(Float)
+    currency = Column(String)
+    description = Column(String)
+    product_id = Column(Integer)
+    type = Column(String)
+    value_date = Column(DateTime)
 
 
 # Yahoo Finance historical price table

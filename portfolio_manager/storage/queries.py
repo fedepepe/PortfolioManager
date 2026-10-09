@@ -1,10 +1,11 @@
 """Reads and writes of the database; every write opens its own session."""
 
 import logging
+from typing import Any
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
-from sqlalchemy import delete, func, insert, or_, select
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, or_, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,7 +14,9 @@ from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
 from portfolio_manager.market_data.yahoo import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols
 from portfolio_manager.storage.db import SessionLocal, engine
 from portfolio_manager.storage.models import (
+    DegiroCashMovement,
     DegiroHistData,
+    DegiroTransaction,
     DegiroYahooMap,
     Product,
     YahooFinanceHistData,
@@ -72,9 +75,9 @@ def insert_product(product: ProductItem):
         _commit(session, message=f'{product.id} - {product.name}')
 
 
-def insert_degiro_hist(product_id: int, df: pd.DataFrame):
+def insert_degiro_hist(product_id: int, df: pd.DataFrame, overwrite: bool = True):
     """Upsert historical data of one product; new non-null values overwrite stored ones, while a field missing from this
-    fetch keeps its stored value.
+    fetch keeps its stored value. Without overwrite, only the days not stored yet are added.
     """
     df = df.reindex(columns=DEGIRO_HIST_COLS).dropna(how='all')
     if df.empty:
@@ -88,13 +91,118 @@ def insert_degiro_hist(product_id: int, df: pd.DataFrame):
         for ts, row in df.iterrows()
     ]
     stmt = sqlite_insert(DegiroHistData)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=[DegiroHistData.product_id, DegiroHistData.date],
-        set_={col: func.coalesce(stmt.excluded[col], DegiroHistData.__table__.c[col]) for col in DEGIRO_HIST_COLS},
-    )
+    keys = [DegiroHistData.product_id, DegiroHistData.date]
+    if overwrite:
+        stmt = stmt.on_conflict_do_update(
+            index_elements=keys,
+            set_={col: func.coalesce(stmt.excluded[col], DegiroHistData.__table__.c[col]) for col in DEGIRO_HIST_COLS},
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(index_elements=keys)
     with SessionLocal() as session:
         session.execute(stmt, rows)
         _commit(session, message=f'Degiro historical data of product {product_id} ({len(rows)} rows)')
+
+
+def _value(column_type: Any, value: Any) -> Any:
+    # a frame value converted to the Python type of a table column (missing values become None)
+    if isinstance(value, list | tuple):
+        return list_to_str(value)
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(column_type, Boolean):
+        return bool(value)
+    if isinstance(column_type, Integer):
+        # a Degiro vwd id is a number or a text key
+        try:
+            return int(value)
+        except ValueError:
+            return str(value)
+    if isinstance(column_type, Float):
+        return float(value)
+    if isinstance(column_type, DateTime):
+        return pd.Timestamp(value).to_pydatetime()
+    if isinstance(column_type, Date):
+        return pd.Timestamp(value).date()
+    return str(value)
+
+
+def _rows(model: Any, df: pd.DataFrame, **fixed: Any) -> list[dict[str, Any]]:
+    # one row per frame row, with the frame columns that are table columns, plus fixed values
+    table_columns = model.__table__.columns
+    ignored = [c for c in df.columns if c not in table_columns]
+    if ignored:
+        logger.warning('Fields not stored in %s: %s', model.__tablename__, ignored)
+    columns = [c for c in df.columns if c in table_columns]
+    return [
+        {**fixed, **{c: _value(table_columns[c].type, v) for c, v in zip(columns, values, strict=True)}}
+        for values in df[columns].itertuples(index=False, name=None)
+    ]
+
+
+def upsert_products(df: pd.DataFrame, overwrite: bool = True):
+    """Store products (one row per product, with the columns of the products table); with overwrite, the stored
+    products are updated, otherwise only the new ones are added.
+    """
+    rows = _rows(Product, df)
+    if not rows:
+        return
+    stmt = sqlite_insert(Product)
+    if overwrite:
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[Product.id], set_={c: stmt.excluded[c] for c in rows[0] if c != Product.id.name}
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(index_elements=[Product.id])
+    with SessionLocal() as session:
+        session.execute(stmt, rows)
+        _commit(session, message=f'{len(rows)} products')
+
+
+DegiroRecord = DegiroTransaction | DegiroCashMovement
+
+
+def upsert_degiro_records(model: type[DegiroRecord], account_name: str, df: pd.DataFrame, overwrite: bool = True):
+    """Store the transactions or cash movements of an account (frame indexed by date, with an id column); with
+    overwrite, stored records with the same id are updated, otherwise only the new ones are added.
+    """
+    rows = _rows(model, df.reset_index(), account=account_name)
+    if not rows:
+        return
+    stmt = sqlite_insert(model)
+    keys = [model.account, model.id]
+    if overwrite:
+        stmt = stmt.on_conflict_do_update(
+            index_elements=keys, set_={c: stmt.excluded[c] for c in rows[0] if c not in ('account', 'id')}
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(index_elements=keys)
+    with SessionLocal() as session:
+        session.execute(stmt, rows)
+        _commit(session, message=f'{len(rows)} {model.__tablename__} of {account_name}')
+
+
+def query_degiro_records(model: type[DegiroRecord], account_name: str) -> pd.DataFrame:
+    """Transactions or cash movements of an account, indexed by date (sorted), without the account column."""
+    columns = [c for c in model.__table__.columns if c.name != 'account']
+    stmt = select(*columns).where(model.account == account_name).order_by(model.date, model.id)
+    df = pd.read_sql(stmt, engine)
+    for column in columns:
+        if isinstance(column.type, DateTime):
+            df[column.name] = pd.to_datetime(df[column.name])
+    return df.set_index('date')
+
+
+def query_account_product_ids(account_name: str) -> list[int]:
+    """Products traded in an account (sorted ids)."""
+    stmt = (
+        select(DegiroTransaction.product_id)
+        .where(DegiroTransaction.account == account_name)
+        .distinct()
+        .order_by(DegiroTransaction.product_id)
+    )
+    with engine.connect() as connection:
+        return list(connection.execute(stmt).scalars())
 
 
 def insert_yahoo_finance_data(data_dict: dict[YFinHistCols, pd.DataFrame], to_portfolio_instr_table: bool = True):
@@ -252,7 +360,7 @@ def _commit(session: Session, message: str | None = None):
 
 def query_products(
     product_name: str | None = None,
-    product_id: int | None = None,
+    product_id: int | list[int] | None = None,
     product_isin: str | None = None,
     product_symbol: str | None = None,
     product_type: ProductTypes | None = None,
@@ -265,7 +373,9 @@ def query_products(
         exchange = exchange.value
     if product_name is not None:
         query = query.where(Product.name == product_name)
-    if product_id is not None:
+    if isinstance(product_id, list):
+        query = query.where(Product.id.in_([int(i) for i in product_id]))
+    elif product_id is not None:
         query = query.where(Product.id == product_id)
     if product_isin is not None:
         query = query.where(Product.isin == product_isin)

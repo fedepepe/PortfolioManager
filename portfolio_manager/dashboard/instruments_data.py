@@ -4,6 +4,7 @@ import logging
 
 from portfolio_manager.analytics.instruments import (
     CATALOG_PERF_LABEL,
+    InstrPerfTableCols,
     compute_catalog_performance_df,
     load_etf_catalog_data,
 )
@@ -24,7 +25,8 @@ class InstrumentsData:
         self.volume_df = data[YFinHistCols.volume]
         self.prod_info_df = data[YF_PROD_INFO_LABEL]
         if CATALOG_PERF_LABEL in data:
-            self.perf_df = data[CATALOG_PERF_LABEL]
+            # catalogs built before the traded value had a share volume column instead
+            self.perf_df = data[CATALOG_PERF_LABEL].rename(columns={'Volume': InstrPerfTableCols.volume})
         else:
             # catalog saved before the performance metrics were stored with it: compute them in memory only
             logger.warning(

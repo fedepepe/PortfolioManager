@@ -8,10 +8,9 @@ from dataclasses import asdict
 
 import pandas as pd
 
-from portfolio_manager.analytics.instruments import fetch_instr_adj_prices
 from portfolio_manager.analytics.metrics import compute_results_from_navs
 from portfolio_manager.analytics.performance import compute_portfolio_performance, save_performance_data
-from portfolio_manager.backtest.adjusted_prices import get_portfolio_adj_prices
+from portfolio_manager.backtest.adjusted_prices import get_benchmark_adj_prices, get_portfolio_adj_prices
 from portfolio_manager.backtest.engine import backtest_portfolio
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.config.account_settings import DEFAULT_BENCHMARKS, Benchmark
@@ -297,10 +296,8 @@ def account_benchmark(account: Account) -> Benchmark:
 def backtest_portfolio_benchmark(account: Account, index: pd.DatetimeIndex) -> PortfolioBacktestData:
     """Backtest of the benchmark of an account over the given dates (saved)."""
     benchmark = account_benchmark(account)
-    labels = [c.label for c in benchmark.components]
-    prices_adj_df = fetch_instr_adj_prices(
-        account=account, isin_lst=[c.search for c in benchmark.components], tick_lst=labels
-    ).reindex(columns=labels)  # one column per instrument, in the order of the weights
+    # one column per instrument, in the order of the weights
+    prices_adj_df = get_benchmark_adj_prices(account, benchmark)
     warn_stale_prices(prices_adj_df, ts_end=index[-1], label=f'Benchmark of {account.name}')
     backtest_data_benchmark = backtest_portfolio(
         name=f'{account.name}_benchmark',

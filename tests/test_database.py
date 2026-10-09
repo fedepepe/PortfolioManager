@@ -1,4 +1,5 @@
 import os
+from datetime import date
 
 import pandas as pd
 from sqlalchemy import inspect
@@ -11,7 +12,9 @@ from portfolio_manager.storage.models import Product
 def test_init_db_creates_folder_tables_and_indexes(temp_db, tmp_path):
     assert os.path.isfile(tmp_path / 'db' / 'test.db')
     inspector = inspect(temp_db)
-    assert {'products', 'degiro_hist', 'yahoo_finance_info', 'degiro_yahoo_map'} <= set(inspector.get_table_names())
+    assert {'products', 'degiro_hist', 'yahoo_instruments', 'yahoo_prices', 'degiro_yahoo_map'} <= set(
+        inspector.get_table_names()
+    )
     assert any(ix['unique'] for ix in inspector.get_indexes('degiro_hist'))
     tables.init_db()  # running it again changes nothing
 
@@ -22,20 +25,28 @@ def test_degiro_yahoo_map_upsert(temp_db):
     assert sql.query_degiro_yahoo_map([1, 2, 3]) == {1: 'AAA.L', 2: 'BBB.L'}
 
 
-def test_yahoo_finance_info_upsert(temp_db):
-    sql.upsert_yahoo_finance_info('AAA.L', {'currency': 'USD', 'isin': 'XX0000000001', 'longName': None})
-    sql.upsert_yahoo_finance_info('AAA.L', {'currency': 'GBP'})
-    assert sql.query_yahoo_finance_info_field(['AAA.L'], 'currency') == {'AAA.L': 'GBP'}
-    assert sql.query_yahoo_finance_info_field(['AAA.L'], 'longName') == {}
+def test_yahoo_instrument_keeps_the_fields_not_given(temp_db):
+    first = sql.upsert_yahoo_instrument('AAA.L', {'currency': 'USD', 'isin': 'XX0000000001', 'name_long': ''})
+    assert sql.upsert_yahoo_instrument('AAA.L', {'currency': 'GBp'}) == first
+    assert sql.upsert_yahoo_instrument('AAA.L') == first
+    stored = sql.query_yahoo_instruments(['AAA.L']).loc['AAA.L']
+    assert (stored['currency'], stored['isin']) == ('GBp', 'XX0000000001') and stored['name_long'] is None
 
 
-def test_adjusted_prices_replace_whole_history(temp_db):
-    first = pd.Series([1.0, 2.0, 3.0], index=pd.bdate_range('2024-01-01', periods=3))
-    sql.replace_portfolio_instr_adj_close('AAA.L', first)
-    second = pd.Series([1.5, 2.5], index=pd.bdate_range('2024-01-02', periods=2))
-    sql.replace_portfolio_instr_adj_close('AAA.L', second)
-    stored = sql.query_portfolio_instr_adj_close(['AAA.L'])['AAA.L']
-    assert stored.tolist() == [1.5, 2.5]
+def test_yahoo_prices_update_or_replace_the_history(temp_db):
+    instrument_id = sql.upsert_yahoo_instrument('AAA.L')
+    days = pd.bdate_range('2024-01-01', periods=3)
+    sql.save_yahoo_prices(instrument_id, pd.DataFrame({'close': [1.0, 2.0, 3.0], 'dividend': [None, 0.1, None]}, days))
+    sql.save_yahoo_prices(
+        instrument_id, pd.DataFrame({'close': [3.5, 4.0]}, days[2:].append(pd.DatetimeIndex(['2024-01-04'])))
+    )
+    stored = sql.query_yahoo_prices(['AAA.L'])
+    assert stored['close'].tolist() == [1.0, 2.0, 3.5, 4.0] and stored['dividend'].iloc[1] == 0.1
+    assert sql.query_yahoo_last_date(instrument_id) == date(2024, 1, 4)
+    assert sql.query_yahoo_tickers_with_history() == ['AAA.L']
+    sql.save_yahoo_prices(instrument_id, pd.DataFrame({'close': [9.0]}, days[1:2]), replace=True)
+    assert sql.query_yahoo_prices(['AAA.L'])['close'].tolist() == [9.0]
+    assert sql.query_yahoo_prices(['AAA.L'], start=date(2024, 1, 3)).empty
 
 
 def test_degiro_hist_keeps_stored_values_for_missing_fields(temp_db):

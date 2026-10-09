@@ -143,5 +143,5 @@ def test_database_of_version_2_gets_the_currency_pairs_of_the_catalog(tmp_path, 
     monkeypatch.setattr(sql, 'engine', engine)
     monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
     tables.init_db()
-    assert migrations.schema_version(engine) == 3
+    assert migrations.schema_version(engine) == migrations.latest_version()
     assert sql.query_currency_pairs() == {'EUR/CHF': 714322, 'USD/CAD': 5466016, 'INR/EUR': 1531238}

@@ -127,10 +127,22 @@ def fetch_product_catalog(args: argparse.Namespace):
 
 
 def fetch_etf_catalog(args: argparse.Namespace):
-    """Download the Yahoo Finance history of every tradable ETF of the Degiro catalog (long)."""
+    """Download the Yahoo Finance history of the tradable ETFs of the Degiro catalog (long the first time: then only
+    the new days; --full downloads every history again).
+    """
     from portfolio_manager.analytics.instruments import fetch_etf_catalog_data
 
-    fetch_etf_catalog_data()
+    fetch_etf_catalog_data(full=args.full)
+
+
+def refresh_yahoo_history(args: argparse.Namespace):
+    """Bring the stored Yahoo Finance history of every listing up to date (--full: download every history again)."""
+    from portfolio_manager.market_data.history import refresh_history
+    from portfolio_manager.storage.queries import query_yahoo_tickers_with_history
+
+    tickers = query_yahoo_tickers_with_history()
+    for n, ticker in enumerate(tickers):
+        logger.info('(%d/%d) %s: %s', n + 1, len(tickers), ticker, refresh_history(ticker, full=args.full))
 
 
 def build_etf_catalog(args: argparse.Namespace):
@@ -307,7 +319,8 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'instruments-performance': (instruments_performance, ()),
     'etf-performance': (etf_performance, ('isin',)),
     'fetch-product-catalog': (fetch_product_catalog, ()),
-    'fetch-etf-catalog': (fetch_etf_catalog, ()),
+    'fetch-etf-catalog': (fetch_etf_catalog, ('full',)),
+    'refresh-yahoo-history': (refresh_yahoo_history, ('full',)),
     'build-etf-catalog': (build_etf_catalog, ('account',)),
     'catalog-performance': (catalog_performance, ('account',)),
     'convert-results': (convert_results, ('account',)),
@@ -329,6 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
             subparser.add_argument('--broker', default=Brokers.DEGIRO.value, choices=[b.value for b in Brokers])
             subparser.add_argument('--credentials-file', help='file in the credentials folder (default: from the name)')
             subparser.add_argument('--currency', help='base currency, e.g. EUR')
+        if 'full' in options:
+            subparser.add_argument('--full', action='store_true', help='download every history again')
         if 'isin' in options:
             subparser.add_argument('--isin', required=True, help='ISIN of the instrument')
         subparser.set_defaults(function=function)

@@ -3,17 +3,21 @@ from sqlalchemy import create_engine, insert
 
 import portfolio_manager.storage.queries as sql
 from portfolio_manager.storage.db import Base
-from portfolio_manager.storage.models import YahooFinanceProdInfo
+from portfolio_manager.storage.models import YahooInstrument
 
 INSTRUMENTS = {
     'HYLD.L': {
-        'longName': 'iShares Global High Yield Corp Bond UCITS ETF USD (Dist)',
+        'name_long': 'iShares Global High Yield Corp Bond UCITS ETF USD (Dist)',
         'isin': 'IE00B74DQ490',
         'currency': 'USD',
     },
-    'HYLA.L': {'longName': 'iShares Global High Yield Corp Bond UCITS ETF', 'isin': 'IE00BYWZ0440', 'currency': 'USD'},
-    'IWDC.SW': {'longName': 'iShares MSCI World CHF Hedged UCITS ETF (Acc)', 'isin': 'IE00B8BVCK12', 'currency': 'CHF'},
-    'XYZ': {'shortName': 'Short name only 50% fund', 'isin': 'US0000000001', 'currency': 'USD'},
+    'HYLA.L': {'name_long': 'iShares Global High Yield Corp Bond UCITS ETF', 'isin': 'IE00BYWZ0440', 'currency': 'USD'},
+    'IWDC.SW': {
+        'name_long': 'iShares MSCI World CHF Hedged UCITS ETF (Acc)',
+        'isin': 'IE00B8BVCK12',
+        'currency': 'CHF',
+    },
+    'XYZ': {'name_short': 'Short name only 50% fund', 'isin': 'US0000000001', 'currency': 'USD'},
 }
 
 
@@ -21,10 +25,11 @@ INSTRUMENTS = {
 def instruments_db(monkeypatch):
     # in-memory database with a few synthetic instruments, used instead of the project database
     engine = create_engine('sqlite://')
-    Base.metadata.create_all(engine, tables=[YahooFinanceProdInfo.__table__])
-    rows = [{'ticker': t, 'quote_type': k, 'value': v} for t, info in INSTRUMENTS.items() for k, v in info.items()]
+    Base.metadata.create_all(engine, tables=[YahooInstrument.__table__])
+    columns = ['name_long', 'name_short', 'isin', 'currency']
+    rows = [{'ticker': t, **{c: info.get(c) for c in columns}} for t, info in INSTRUMENTS.items()]
     with engine.begin() as connection:
-        connection.execute(insert(YahooFinanceProdInfo), rows)
+        connection.execute(insert(YahooInstrument), rows)
     monkeypatch.setattr(sql, 'engine', engine)
 
 

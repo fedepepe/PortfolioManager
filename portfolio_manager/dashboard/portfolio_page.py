@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
-from portfolio_manager.analytics.instruments import fetch_instr_hist_data, prices_to_base_curr
+from portfolio_manager.analytics.instruments import prices_to_base_curr
 from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.config.accounts import Account, get_account, list_accounts
@@ -27,8 +27,9 @@ from portfolio_manager.dashboard.data_service import (
     update_account,
 )
 from portfolio_manager.dashboard.portfolio_data import AllocationRiskLabels, PortfolioData
-from portfolio_manager.market_data.yahoo import YFinHistCols, YFinInfoCols
-from portfolio_manager.storage.queries import query_yahoo_finance_prod_info, search_yahoo_finance_instruments
+from portfolio_manager.market_data.history import load_adjusted_closes, refresh_history
+from portfolio_manager.market_data.yahoo import is_yahoo_reachable
+from portfolio_manager.storage.queries import query_yahoo_instruments, search_yahoo_finance_instruments
 from portfolio_manager.utils.logs import hide_secrets
 
 logger = logging.getLogger(__name__)
@@ -536,18 +537,19 @@ def update_instr_adj_close_fig(ticker: str | None, account_name: str) -> go.Figu
     if not ticker:  # cleared selection
         return get_fig_instr_adj_close()
     account = get_account(account_name)
-    results_df = query_yahoo_finance_prod_info(ticker=ticker)
-    if ticker not in results_df.columns:
+    instruments = query_yahoo_instruments([ticker])
+    if instruments.empty:
         return get_fig_instr_adj_close(title=f'No instrument found for "{ticker}"')
-    info = results_df[ticker]
-    name = info.get(YFinInfoCols.name_long.value) or info.get(YFinInfoCols.name_short.value) or ticker
-    currency = info[YFinInfoCols.currency.value]
-    # download only the selected listing (by ticker, not by a search returning several listings)
-    df = fetch_instr_hist_data(isin_lst=[None], columns=YFinHistCols.adj_close, ticker_lst=ticker, name_lst=name)[
-        YFinHistCols.adj_close
-    ]
-    # Yahoo Finance may return no usable history for the matched instrument
-    df = df.dropna(axis=1, how='all')
+    info = instruments.loc[ticker]
+    name = next((n for n in (info['name_long'], info['name_short']) if isinstance(n, str) and n), ticker)
+    currency = info['currency']
+    # bring the stored history of the selected listing up to date (the whole history the first time)
+    if is_yahoo_reachable():
+        try:
+            refresh_history(ticker)
+        except Exception as e:  # any download problem: the stored history is shown
+            logger.warning('Yahoo Finance download failed for %s: %s', ticker, e)
+    df = load_adjusted_closes([ticker])
     if df.empty:
         return get_fig_instr_adj_close(title=f'No price history found for {name} ({ticker})')
     df_base = prices_to_base_curr(account=account, price_df=df, curr_info=[currency])

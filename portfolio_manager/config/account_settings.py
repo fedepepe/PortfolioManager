@@ -7,11 +7,14 @@ BENCHMARK_FREQ_LABELS = {'M': 'Monthly', 'Q': 'Quarterly', 'Y': 'Yearly'}
 
 @dataclass(frozen=True)
 class BenchmarkComponent:
-    """One instrument of a benchmark: label, ISIN or Yahoo Finance ticker searched for its prices, weight."""
+    """One instrument of a benchmark: label, ISIN or Yahoo Finance ticker searched for its prices, weight; the Yahoo
+    Finance listing found by the search is kept (not part of the definition: ignored when comparing benchmarks).
+    """
 
     label: str
     search: str
     weight: float
+    ticker: str | None = field(default=None, compare=False)
 
 
 @dataclass

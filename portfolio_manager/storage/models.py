@@ -10,7 +10,6 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
-    Sequence,
     String,
     UniqueConstraint,
     inspect,
@@ -128,48 +127,41 @@ class DegiroCashMovement(Base):
     value_date = Column(DateTime)
 
 
-# Yahoo Finance historical price table
-class YahooFinanceHistData(Base):
-    """Yahoo Finance history of the ETF catalog, one row per ticker, date and field."""
+# Yahoo Finance instruments (listings): information refreshed at their first download
+class YahooInstrument(Base):
+    """A Yahoo Finance listing and its information."""
 
-    __tablename__ = 'yahoo_finance_hist'
-    id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
-    ticker = Column(String)
-    date = Column(Date)
+    __tablename__ = 'yahoo_instruments'
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String, nullable=False, unique=True)
+    isin = Column(String)
+    name_short = Column(String)
+    name_long = Column(String)
+    currency = Column(String)  # as Yahoo reports it: GBp, ZAc and ILA are hundredths of GBP, ZAR and ILS
     quote_type = Column(String)
-    value = Column(Float)
-    __table_args__ = (
-        UniqueConstraint('id', name='_id_unique'),
-        Index('ix_yf_hist_ticker_quote_date', 'ticker', 'quote_type', 'date', unique=True),
-    )
+    exchange = Column(String)
+    market = Column(String)
+    region = Column(String)
 
 
-# Yahoo Finance instruments catalog table
-class YahooFinanceProdInfo(Base):
-    """Yahoo Finance instrument information, one row per ticker and field."""
+# Yahoo Finance daily history, one row per instrument and day: prices adjusted for splits (not for dividends), and
+# the corporate actions of the day (dividends and capital gains per share, split ratio); the adjusted close is computed
+# from them
+class YahooPrice(Base):
+    """Yahoo Finance daily prices and corporate actions of an instrument."""
 
-    __tablename__ = 'yahoo_finance_info'
-    id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
-    ticker = Column(String)
-    quote_type = Column(String)
-    value = Column(String)
-    __table_args__ = (UniqueConstraint('ticker', 'quote_type', name='_ticker_quote_unique'),)
-
-
-# Yahoo Finance portfolio instruments historical price table
-class YahooFinanceHistDataPfInstr(Base):
-    """Yahoo Finance adjusted prices of the portfolio instruments."""
-
-    __tablename__ = 'yahoo_finance_hist_pf_instr'
-    id = Column(Integer, Sequence('close_id_seq'), primary_key=True)
-    ticker = Column(String)
-    date = Column(Date)
-    quote_type = Column(String)
-    value = Column(Float)
-    __table_args__ = (
-        UniqueConstraint('id', name='_id_unique'),
-        Index('ix_yf_hist_pf_instr_ticker_quote_date', 'ticker', 'quote_type', 'date', unique=True),
-    )
+    __tablename__ = 'yahoo_prices'
+    instrument_id = Column(Integer, primary_key=True)
+    date = Column(Date, primary_key=True)
+    open = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    close = Column(Float)
+    volume = Column(Float)
+    dividend = Column(Float)
+    split = Column(Float)
+    capital_gain = Column(Float)
+    __table_args__ = {'sqlite_with_rowid': False}  # the key is the table: no separate index
 
 
 # Yahoo Finance listing chosen for each Degiro product (several products may share a listing)
@@ -232,6 +224,7 @@ class BenchmarkComponent(Base):
     account = Column(String, primary_key=True)
     label = Column(String, primary_key=True)
     search = Column(String, nullable=False)  # ISIN or Yahoo Finance ticker searched for its prices
+    ticker = Column(String)  # Yahoo Finance listing found by the search (searched again if missing)
     weight = Column(Float, nullable=False)
     position = Column(Integer, nullable=False)  # display order
 

@@ -8,16 +8,17 @@ any step, the database file is copied next to it (degiro.db.bak-v{version}).
 """
 
 import logging
+import os
 import re
 import shutil
 import time
 from collections.abc import Callable
 
-from sqlalchemy import Connection, Engine, select
+from sqlalchemy import Connection, Engine, inspect, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from portfolio_manager.config.accounts import attach_default_benchmark, list_accounts
-from portfolio_manager.storage.models import BrokerAccount, CurrencyPair, Product, SchemaVersion
+from portfolio_manager.storage.models import BrokerAccount, CurrencyPair, Product, SchemaVersion, YahooInstrument
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,50 @@ def _currency_pairs_from_catalog(connection: Connection):
         )
 
 
+# fields of the Yahoo Finance information up to version 3 (one row per ticker and field) and their columns since
+YAHOO_INFO_FIELDS = {
+    'isin': 'isin',
+    'shortName': 'name_short',
+    'longName': 'name_long',
+    'currency': 'currency',
+    'quoteType': 'quote_type',
+    'exchange': 'exchange',
+    'market': 'market',
+    'region': 'region',
+}
+OLD_YAHOO_TABLES = ['yahoo_finance_info', 'yahoo_finance_hist', 'yahoo_finance_hist_pf_instr']
+
+
+def _yahoo_history_tables(connection: Connection):
+    # version 4: Yahoo Finance listings in yahoo_instruments (one row per listing) and their daily history with the
+    # corporate actions in yahoo_prices, downloaded again (the old tables had no dividends); the listing found for each
+    # instrument of a benchmark is kept
+    inspector = inspect(connection)
+    if 'ticker' not in [c['name'] for c in inspector.get_columns('benchmark_components')]:
+        connection.execute(text('ALTER TABLE benchmark_components ADD COLUMN ticker VARCHAR'))
+    if 'yahoo_finance_info' in inspector.get_table_names():
+        instruments: dict[str, dict] = {}
+        for ticker, field, value in connection.execute(
+            text('SELECT ticker, quote_type, value FROM yahoo_finance_info')
+        ):
+            if field in YAHOO_INFO_FIELDS:
+                instruments.setdefault(ticker, {'ticker': ticker})[YAHOO_INFO_FIELDS[field]] = value or None
+        rows = [{c: row.get(c) for c in ['ticker', *YAHOO_INFO_FIELDS.values()]} for row in instruments.values()]
+        if rows:
+            stmt = sqlite_insert(YahooInstrument).on_conflict_do_nothing(index_elements=[YahooInstrument.ticker])
+            connection.execute(stmt, rows)
+    for table in OLD_YAHOO_TABLES:
+        connection.execute(text(f'DROP TABLE IF EXISTS {table}'))
+
+
 # version -> step upgrading the database from the previous version
-UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {2: _accounts_from_code, 3: _currency_pairs_from_catalog}
+UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
+    2: _accounts_from_code,
+    3: _currency_pairs_from_catalog,
+    4: _yahoo_history_tables,
+}
+# steps that free much space: the database file is compacted after them
+COMPACT_AFTER = {4}
 
 
 def latest_version() -> int:
@@ -103,6 +146,22 @@ def upgrade_schema(engine: Engine, new_database: bool):
             UPGRADE_STEPS[step_version](connection)
             _set_version(connection, step_version)
         logger.info('Database upgraded to schema version %d', step_version)
+    if COMPACT_AFTER.intersection(pending):
+        compact_database(engine)
+
+
+def compact_database(engine: Engine):
+    """Rewrite the database file without the free space (VACUUM, outside of any transaction)."""
+    path = engine.url.database
+    size_before, start = os.path.getsize(path), time.time()
+    with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
+        connection.execute(text('VACUUM'))
+    logger.info(
+        'Database compacted from %.0f MB to %.0f MB (%.0f s)',
+        size_before / 1e6,
+        os.path.getsize(path) / 1e6,
+        time.time() - start,
+    )
 
 
 def seed_default_settings():

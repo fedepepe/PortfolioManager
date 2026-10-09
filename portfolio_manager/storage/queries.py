@@ -1,11 +1,12 @@
 """Reads and writes of the database; every write opens its own session."""
 
 import logging
+from datetime import date
 from typing import Any
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, or_, select
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,7 +14,6 @@ from sqlalchemy.orm import Session
 from portfolio_manager.config.account_settings import Benchmark
 from portfolio_manager.config.account_settings import BenchmarkComponent as Component
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
-from portfolio_manager.market_data.yahoo import YF_PROD_INFO_LABEL, YFinHistCols, YFinInfoCols
 from portfolio_manager.storage.db import SessionLocal, engine
 from portfolio_manager.storage.models import (
     AccountSetting,
@@ -25,15 +25,13 @@ from portfolio_manager.storage.models import (
     DegiroTransaction,
     DegiroYahooMap,
     Product,
-    YahooFinanceHistData,
-    YahooFinanceHistDataPfInstr,
-    YahooFinanceProdInfo,
+    YahooInstrument,
+    YahooPrice,
 )
 from portfolio_manager.storage.sql_utils import list_to_str, str_to_date
 
 logger = logging.getLogger(__name__)
 
-YAHOO_FINANCE_DATA_OVERWRITE_DICT = {YFinHistCols.adj_close: True}
 DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
 
 
@@ -262,7 +260,7 @@ def query_benchmark(account_name: str) -> Benchmark | None:
             .where(BenchmarkComponent.account == account_name)
             .order_by(BenchmarkComponent.position)
         ).all()
-        components = [Component(label=r.label, search=r.search, weight=r.weight) for r in rows]
+        components = [Component(label=r.label, search=r.search, weight=r.weight, ticker=r.ticker) for r in rows]
         return Benchmark(components=components, rebalancing_freq=setting.benchmark_rebalancing_freq)
 
 
@@ -280,11 +278,23 @@ def save_benchmark(account_name: str, benchmark: Benchmark):
         session.execute(stmt)
         session.execute(delete(BenchmarkComponent).where(BenchmarkComponent.account == account_name))
         session.add_all(
-            BenchmarkComponent(account=account_name, label=c.label, search=c.search, weight=c.weight, position=n)
+            BenchmarkComponent(
+                account=account_name, label=c.label, search=c.search, weight=c.weight, ticker=c.ticker, position=n
+            )
             for n, c in enumerate(benchmark.components)
         )
         session.commit()
     logger.info('Benchmark of %s saved: %s', account_name, benchmark.describe())
+
+
+def save_benchmark_tickers(account_name: str, tickers: dict[str, str]):
+    """Keep the Yahoo Finance listing found for instruments of the benchmark of an account (label -> ticker)."""
+    with SessionLocal() as session:
+        for label, ticker in tickers.items():
+            component = session.get(BenchmarkComponent, (account_name, label))
+            if component is not None:  # a benchmark that is not saved (a default one) keeps nothing
+                component.ticker = ticker
+        session.commit()
 
 
 def query_account_product_ids(account_name: str) -> list[int]:
@@ -299,124 +309,121 @@ def query_account_product_ids(account_name: str) -> list[int]:
         return list(connection.execute(stmt).scalars())
 
 
-def insert_yahoo_finance_data(data_dict: dict[YFinHistCols, pd.DataFrame], to_portfolio_instr_table: bool = True):
-    """Store Yahoo Finance information and history; existing data of a ticker is kept unless its field is set to be
-    overwritten.
+YAHOO_INFO_COLUMNS = ['isin', 'name_short', 'name_long', 'currency', 'quote_type', 'exchange', 'market', 'region']
+YAHOO_PRICE_COLUMNS = ['open', 'high', 'low', 'close', 'volume', 'dividend', 'split', 'capital_gain']
+
+
+def upsert_yahoo_instrument(ticker: str, info: dict[str, Any] | None = None) -> int:
+    """Save a Yahoo Finance listing with the given information fields (other stored fields are kept); returns its id."""
+    values = {k: (None if v in (None, '') else str(v)) for k, v in (info or {}).items() if k in YAHOO_INFO_COLUMNS}
+    stmt = sqlite_insert(YahooInstrument).values(ticker=ticker, **values)
+    if values:
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[YahooInstrument.ticker], set_={k: stmt.excluded[k] for k in values}
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(index_elements=[YahooInstrument.ticker])
+    with SessionLocal() as session:
+        session.execute(stmt)
+        session.commit()
+        return session.execute(select(YahooInstrument.id).where(YahooInstrument.ticker == ticker)).scalar_one()
+
+
+def query_yahoo_instruments(tickers: list[str] | None = None) -> pd.DataFrame:
+    """Information of Yahoo Finance listings, indexed by ticker (every listing if no ticker is given)."""
+    stmt = select(YahooInstrument)
+    if tickers is not None:
+        stmt = stmt.where(YahooInstrument.ticker.in_(tickers))
+    return pd.read_sql(stmt, engine).set_index('ticker')
+
+
+def query_yahoo_last_date(instrument_id: int) -> date | None:
+    """Last day of the stored history of a listing, None without history."""
+    stmt = select(func.max(YahooPrice.date)).where(YahooPrice.instrument_id == instrument_id)
+    with engine.connect() as connection:
+        return connection.execute(stmt).scalar()
+
+
+def save_yahoo_prices(instrument_id: int, df: pd.DataFrame, replace: bool = False):
+    """Save the daily history of a listing (date index, YAHOO_PRICE_COLUMNS): the given days overwrite the stored ones;
+    with replace, the stored history is deleted first.
     """
-    if data_dict[YF_PROD_INFO_LABEL].empty:
-        return
-    with SessionLocal() as session:
-        for col, df in data_dict.items():
-            if df.empty:
-                continue
-            overwrite = YAHOO_FINANCE_DATA_OVERWRITE_DICT.get(col, False)
-            if col == YF_PROD_INFO_LABEL:
-                # write into product info table
-                for ticker in df.columns:
-                    cond = (
-                        YahooFinanceProdInfo.ticker
-                        == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
-                    )
-                    query = session.query(YahooFinanceProdInfo).where(cond)
-                    if query.count() and not overwrite:
-                        continue
-                    query.delete()
-                    session.flush()
-                    data = []
-                    for t in range(df.shape[0]):
-                        data.append(
-                            YahooFinanceProdInfo(
-                                ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
-                                quote_type=df.index[t],
-                                value=df[ticker].iloc[t],
-                            )
-                        )
-                    session.add_all(data)
-            else:
-                # write into historical data table
-                if to_portfolio_instr_table:
-                    table = YahooFinanceHistDataPfInstr
-                else:
-                    table = YahooFinanceHistData
-                for ticker in df.columns:
-                    df_melt = pd.melt(df[ticker].reset_index(), id_vars='index', value_vars=ticker)
-                    cond = table.ticker == data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker]
-                    cond = cond & (table.quote_type == str(col))
-                    query = session.query(table).where(cond)
-                    if query.count() and not overwrite:
-                        continue
-                    query.delete()
-                    session.flush()
-                    data = []
-                    for t in range(df_melt.shape[0]):
-                        data.append(
-                            table(
-                                ticker=data_dict[YF_PROD_INFO_LABEL].loc[YFinInfoCols.symbol.value, ticker],
-                                date=df_melt['index'].iloc[t],
-                                quote_type=str(col),
-                                value=df_melt['value'].iloc[t],
-                            )
-                        )
-                    session.add_all(data)
-        _commit(session, message=f'Added Yahoo Finance data of product {data_dict[YF_PROD_INFO_LABEL]}.')
-
-
-def replace_portfolio_instr_adj_close(ticker: str, ser: pd.Series):
-    """Adjusted prices are recomputed backwards at each dividend: replace the whole stored history of the ticker."""
-    ser = ser.dropna()
-    if ser.empty:
-        return
-    table = YahooFinanceHistDataPfInstr
-    quote_type = str(YFinHistCols.adj_close)
+    df = df.reindex(columns=YAHOO_PRICE_COLUMNS)
     rows = [
-        {'ticker': ticker, 'date': pd.Timestamp(ts).date(), 'quote_type': quote_type, 'value': float(val)}
-        for ts, val in ser.items()
+        {
+            'instrument_id': instrument_id,
+            'date': pd.Timestamp(ts).date(),
+            **{c: _value(Float(), v) for c, v in row.items()},
+        }
+        for ts, row in df.iterrows()
     ]
-    with SessionLocal() as session:
-        session.execute(delete(table).where((table.ticker == ticker) & (table.quote_type == quote_type)))
-        session.execute(insert(table), rows)
-        _commit(session, message=f'Yahoo Finance adjusted prices of {ticker} ({len(ser)} rows)')
-
-
-def query_portfolio_instr_adj_close(tickers: list[str]) -> pd.DataFrame:
-    """Stored adjusted prices: date x ticker (exact ticker match)."""
-    table = YahooFinanceHistDataPfInstr
-    stmt = select(table.ticker, table.date, table.value).where(
-        table.ticker.in_(tickers) & (table.quote_type == str(YFinHistCols.adj_close))
-    )
-    df = pd.read_sql(stmt, engine)
-    if df.empty:
-        return pd.DataFrame()
-    df['date'] = pd.to_datetime(df['date'])
-    return df.pivot(index='date', columns='ticker', values='value').sort_index()
-
-
-def upsert_yahoo_finance_info(ticker: str, info: dict[str, str]):
-    """Insert or update the information fields of a ticker (empty values skipped)."""
-    rows = [
-        {'ticker': ticker, 'quote_type': field, 'value': str(value)}
-        for field, value in info.items()
-        if value is not None and not pd.isna(value)
-    ]
-    if not rows:
-        return
-    stmt = sqlite_insert(YahooFinanceProdInfo)
+    stmt = sqlite_insert(YahooPrice)
     stmt = stmt.on_conflict_do_update(
-        index_elements=[YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.quote_type],
-        set_={'value': stmt.excluded.value},
+        index_elements=[YahooPrice.instrument_id, YahooPrice.date],
+        set_={c: stmt.excluded[c] for c in YAHOO_PRICE_COLUMNS},
     )
     with SessionLocal() as session:
-        session.execute(stmt, rows)
-        _commit(session)
+        if replace:
+            session.execute(delete(YahooPrice).where(YahooPrice.instrument_id == instrument_id))
+        if rows:
+            session.execute(stmt, rows)
+        session.commit()
 
 
-def query_yahoo_finance_info_field(tickers: list[str], field: str) -> dict[str, str]:
-    """One info field per ticker (exact ticker match)."""
-    stmt = select(YahooFinanceProdInfo.ticker, YahooFinanceProdInfo.value).where(
-        YahooFinanceProdInfo.ticker.in_(tickers) & (YahooFinanceProdInfo.quote_type == field)
+def query_yahoo_prices(
+    tickers: list[str] | None = None, start: date | None = None, columns: list[str] | None = None
+) -> pd.DataFrame:
+    """Daily history of listings (every listing if no ticker is given), from a day on: one row per ticker and date,
+    with the requested YAHOO_PRICE_COLUMNS (all by default), sorted by ticker and date.
+    """
+    columns = columns or YAHOO_PRICE_COLUMNS
+    stmt = select(YahooInstrument.ticker, YahooPrice.date, *[YahooPrice.__table__.c[c] for c in columns]).join(
+        YahooInstrument, YahooInstrument.id == YahooPrice.instrument_id
+    )
+    if tickers is not None:
+        stmt = stmt.where(YahooInstrument.ticker.in_(tickers))
+    if start is not None:
+        stmt = stmt.where(YahooPrice.date >= start)
+    df = pd.read_sql(stmt.order_by(YahooInstrument.ticker, YahooPrice.date), engine)
+    df['date'] = pd.to_datetime(df['date'])
+    return df
+
+
+def query_yahoo_tickers_with_history() -> list[str]:
+    """Listings with a stored history (sorted tickers)."""
+    stmt = select(YahooInstrument.ticker).where(
+        select(YahooPrice.instrument_id).where(YahooPrice.instrument_id == YahooInstrument.id).exists()
     )
     with engine.connect() as connection:
-        return dict(connection.execute(stmt).all())
+        return sorted(connection.execute(stmt).scalars())
+
+
+def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame:
+    """Instruments whose Yahoo ticker or ISIN starts with text or, from 3 characters, whose name contains it; one row
+    per ticker (ticker, name, isin, currency): ticker matches first, then ISIN, then name matches.
+    """
+    columns = ['ticker', 'name', 'isin', 'currency']
+    text = text.strip()
+    if not text:
+        return pd.DataFrame(columns=columns)
+    pattern = text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')  # typed text taken literally
+    instr = YahooInstrument
+    conditions = [
+        instr.ticker.ilike(f'{pattern}%', escape='\\'),
+        instr.isin.ilike(f'{pattern}%', escape='\\'),
+    ]
+    if len(text) >= 3:
+        conditions.append(
+            instr.name_long.ilike(f'%{pattern}%', escape='\\') | instr.name_short.ilike(f'%{pattern}%', escape='\\')
+        )
+    tickers = []
+    for cond in conditions:
+        stmt = select(instr.ticker).where(cond).order_by(instr.ticker).limit(limit)
+        tickers += [t for t in pd.read_sql(stmt, engine)['ticker'] if t not in tickers]
+    tickers = tickers[:limit]
+    df = query_yahoo_instruments(tickers).reindex(tickers)
+    df['name'] = df['name_long'].where(df['name_long'].notna(), df['name_short'])
+    return df.rename_axis('ticker').reset_index()[columns]
 
 
 def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
@@ -513,136 +520,6 @@ def query_degiro_hist(
     if len(columns) == 1:
         return data[columns[0]]
     return data
-
-
-def query_yahoo_finance_prod_info(
-    isin: str | list[str] | None = None, ticker: str | list[str] | None = None
-) -> pd.DataFrame:
-    """Information of the tickers starting with the given ticker(s), or listed with ISINs starting with the given
-    ISIN(s): field x ticker.
-    """
-
-    def _query_yahoo_finance_prod_info_single(isin: str = None, ticker: str = None) -> pd.DataFrame:
-        if isin is not None:
-            cond = (YahooFinanceProdInfo.quote_type == YFinInfoCols.isin.value) & (
-                YahooFinanceProdInfo.value.ilike(f'{isin}%')
-            )
-            stmt = select(YahooFinanceProdInfo.ticker).where(cond)
-            ticker_lst = pd.read_sql(stmt, engine)[YahooFinanceProdInfo.ticker.name].to_list()
-            if ticker_lst:
-                cond = []
-                for t in ticker_lst:
-                    cond.append(YahooFinanceProdInfo.ticker.ilike(f'{t}%'))
-                cond = or_(*cond)
-            else:
-                cond = False
-        elif ticker is not None:
-            cond = YahooFinanceProdInfo.ticker.ilike(f'{ticker}%')
-        else:
-            cond = True
-        stmt = select(YahooFinanceProdInfo).where(cond)
-        df = pd.read_sql(stmt, engine)
-        df = df.pivot(
-            columns=YahooFinanceProdInfo.ticker.name,
-            index=YahooFinanceProdInfo.quote_type.name,
-            values=YahooFinanceProdInfo.value.name,
-        )
-        return df
-
-    df = pd.DataFrame()
-    if isinstance(isin, str):
-        isin = [isin]
-    elif isinstance(ticker, str):
-        ticker = [ticker]
-    if isin is not None:
-        for entry in isin:
-            df_single = _query_yahoo_finance_prod_info_single(isin=entry)
-            df = pd.concat([df, df_single], axis=1)
-    elif ticker is not None:
-        for entry in ticker:
-            df_single = _query_yahoo_finance_prod_info_single(ticker=entry)
-            df = pd.concat([df, df_single], axis=1)
-    else:
-        df = _query_yahoo_finance_prod_info_single()
-    return df
-
-
-def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame:
-    """Instruments whose Yahoo ticker or ISIN starts with text or, from 3 characters, whose name contains it; one row
-    per ticker (ticker, name, isin, currency): ticker matches first, then ISIN, then name matches.
-    """
-    columns = ['ticker', 'name', 'isin', 'currency']
-    text = text.strip()
-    if not text:
-        return pd.DataFrame(columns=columns)
-    pattern = text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')  # typed text taken literally
-    info = YahooFinanceProdInfo
-    names = [YFinInfoCols.name_long.value, YFinInfoCols.name_short.value]
-    conditions = [
-        info.ticker.ilike(f'{pattern}%', escape='\\'),
-        (info.quote_type == YFinInfoCols.isin.value) & info.value.ilike(f'{pattern}%', escape='\\'),
-    ]
-    if len(text) >= 3:
-        conditions.append(info.quote_type.in_(names) & info.value.ilike(f'%{pattern}%', escape='\\'))
-    tickers = []
-    for cond in conditions:
-        stmt = select(info.ticker).where(cond).distinct().order_by(info.ticker).limit(limit)
-        tickers += [t for t in pd.read_sql(stmt, engine)[info.ticker.name] if t not in tickers]
-    tickers = tickers[:limit]
-    if not tickers:
-        return pd.DataFrame(columns=columns)
-    stmt = select(info.ticker, info.quote_type, info.value).where(
-        info.ticker.in_(tickers) & info.quote_type.in_(names + [YFinInfoCols.isin.value, YFinInfoCols.currency.value])
-    )
-    df = pd.read_sql(stmt, engine).pivot_table(
-        index=info.ticker.name, columns=info.quote_type.name, values=info.value.name, aggfunc='first'
-    )
-    df = df.reindex(index=tickers, columns=names + [YFinInfoCols.isin.value, YFinInfoCols.currency.value])
-    df['name'] = df[names[0]].where(df[names[0]].notna() & (df[names[0]] != ''), df[names[1]])
-    return (
-        df.rename(columns={YFinInfoCols.isin.value: 'isin', YFinInfoCols.currency.value: 'currency'})
-        .reset_index()
-        .rename(columns={info.ticker.name: 'ticker'})[columns]
-    )
-
-
-def query_yahoo_finance_hist_data(
-    tickers: str | list[str] | None = None,
-    isin: str | None = None,
-    columns: str | list[str] | YFinHistCols | list[YFinHistCols] | None = None,
-) -> pd.DataFrame | dict[str, pd.DataFrame]:
-    """Stored Yahoo Finance history (date x ticker) of the given tickers or ISIN, one frame per column."""
-    if isinstance(tickers, list):  # list of tickers is only possible in case of Yahoo tickers
-        ticker_lst = tickers
-    else:
-        info_df = query_yahoo_finance_prod_info(isin=isin, ticker=tickers)
-        if info_df.empty:
-            return {}
-        ticker_lst = info_df.loc[YFinInfoCols.symbol.value, :].to_list()
-    if columns is None:
-        columns = [col for col in YFinHistCols]
-    elif isinstance(columns, str) or isinstance(columns, YFinHistCols):
-        columns = [columns]
-    data = {}
-    for col in columns:
-        cond = YahooFinanceHistData.quote_type == str(col)
-        cond = cond & (YahooFinanceHistData.ticker.in_(ticker_lst))
-        stmt = select(YahooFinanceHistData).where(cond)
-        df = pd.read_sql(stmt, engine)
-        if df.empty:
-            continue
-        df = df.pivot(
-            columns=YahooFinanceHistData.ticker.name,
-            index=YahooFinanceHistData.date.name,
-            values=YahooFinanceHistData.value.name,
-        )
-        df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
-        data[col] = df
-    if len(columns) == 1:
-        return df
-    else:
-        return data
 
 
 def get_max_product_id() -> int:

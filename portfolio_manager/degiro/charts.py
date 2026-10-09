@@ -11,14 +11,13 @@ from degiro_connector.trading.api import API
 from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import DATA_DIR, FX_RATES_CHART_FILE_NAME, PRODUCTS_CHART_FILE_NAME
 from portfolio_manager.degiro.connection import get_degiro_connection
-from portfolio_manager.degiro.definitions import ProductTypes
 from portfolio_manager.degiro.products import fetch_product_info
 from portfolio_manager.storage.files import save_df_to_excel
 from portfolio_manager.storage.queries import (
     insert_degiro_hist,
     query_account_product_ids,
+    query_currency_pairs,
     query_degiro_hist,
-    query_products,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,9 +119,9 @@ def charts_file_name(account: Account, chart_name: str, chart_type: ChartType = 
 
 
 def _chart_product_ids(account: Account, chart_name: str) -> list[int]:
-    # products of the account, or every currency (exchange rates)
+    # products of the account, or the currency pairs (exchange rates)
     if chart_name == FX_RATES_CHART_FILE_NAME:
-        return query_products(product_type=ProductTypes.CURRENCY)['id'].to_list()
+        return sorted(query_currency_pairs().values())
     return query_account_product_ids(account.name)
 
 
@@ -154,6 +153,34 @@ def fetch_fx_charts(account: Account, degiro_conn: API | None = None):
     fetch_portfolio_charts(account, degiro_conn=degiro_conn, chart_name=FX_RATES_CHART_FILE_NAME)
 
 
+# currencies through which a rate is computed when no pair links two currencies
+CROSS_CURRENCIES = ('EUR', 'USD')
+
+
+def exchange_rate(pair_prices: pd.DataFrame, currency: str, base: str) -> pd.Series | None:
+    """Price of one unit of a currency in the base currency, from the prices of the currency pairs ({base}/{quote}
+    columns): the direct pair, the inverse pair, or a cross rate through EUR or USD; None without any.
+    """
+
+    def from_pair(first: str, second: str) -> pd.Series | None:
+        if f'{first}/{second}' in pair_prices:
+            return pair_prices[f'{first}/{second}']
+        if f'{second}/{first}' in pair_prices:
+            return 1.0 / pair_prices[f'{second}/{first}']
+        return None
+
+    rate = from_pair(currency, base)
+    for via in CROSS_CURRENCIES:
+        if rate is not None:
+            break
+        if via in (currency, base):
+            continue
+        to_via, from_via = from_pair(currency, via), from_pair(via, base)
+        if to_via is not None and from_via is not None:
+            rate = to_via.mul(from_via)
+    return None if rate is None else rate.rename(f'{currency}/{base}')
+
+
 def load_fx_rates(
     account: Account,
     curr_foreign_lst: list[str],
@@ -162,38 +189,17 @@ def load_fx_rates(
     """Exchange rates of the foreign currencies to the account currency ({currency}/{base}), with a column of ones for
     the base currency.
     """
-    results_df = query_products(product_type=ProductTypes.CURRENCY)
-    fx_rates_df_tmp = load_portfolio_charts(account=account, chart_name=FX_RATES_CHART_FILE_NAME)
-    fx_rates_df_tmp = fx_rates_df_tmp.rename(columns=dict(results_df.loc[fx_rates_df_tmp.columns, 'name']))
-    fx_rates_df_tmp.columns = [c.split(' X-RATE')[0].replace('-', '/') for c in fx_rates_df_tmp.columns]
-    # additional fx
-    if 'CHF/GBP' not in fx_rates_df_tmp and 'GBP/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'GBP/CHF'] = fx_rates_df_tmp['EUR/CHF'].div(fx_rates_df_tmp['EUR/GBP'])
-    if 'CHF/JPY' not in fx_rates_df_tmp and 'JPY/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'JPY/CHF'] = fx_rates_df_tmp['EUR/CHF'].div(fx_rates_df_tmp['EUR/JPY'])
-    if 'CHF/CAD' not in fx_rates_df_tmp and 'CAD/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'CAD/CHF'] = fx_rates_df_tmp['EUR/CHF'].div(fx_rates_df_tmp['EUR/CAD'])
-    if 'CHF/AUD' not in fx_rates_df_tmp and 'AUD/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'AUD/CHF'] = fx_rates_df_tmp['EUR/CHF'].div(fx_rates_df_tmp['EUR/AUD'])
-    if 'CHF/DKK' not in fx_rates_df_tmp and 'DKK/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'DKK/CHF'] = fx_rates_df_tmp['USD/CHF'].div(fx_rates_df_tmp['USD/DKK'])
-    if 'CHF/SEK' not in fx_rates_df_tmp and 'SEK/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'SEK/CHF'] = fx_rates_df_tmp['USD/CHF'].div(fx_rates_df_tmp['USD/SEK'])
-    if 'CHF/NOK' not in fx_rates_df_tmp and 'NOK/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'NOK/CHF'] = fx_rates_df_tmp['USD/CHF'].div(fx_rates_df_tmp['USD/NOK'])
-    if 'CHF/PLN' not in fx_rates_df_tmp and 'PLN/CHF' not in fx_rates_df_tmp:
-        fx_rates_df_tmp.loc[:, 'PLN/CHF'] = fx_rates_df_tmp['USD/CHF'].div(fx_rates_df_tmp['USD/PLN'])
-    fx_rates_df = pd.DataFrame()
+    pairs = query_currency_pairs()
+    pair_prices = load_portfolio_charts(account=account, chart_name=FX_RATES_CHART_FILE_NAME)
+    pair_prices = pair_prices.rename(columns={product_id: pair for pair, product_id in pairs.items()})
+    rates = []
     for cur in curr_foreign_lst:
-        if f'{cur}/{account.currency}' in fx_rates_df_tmp:
-            fx_rates_df = pd.concat([fx_rates_df, fx_rates_df_tmp[f'{cur}/{account.currency}']], axis=1)
-        elif f'{account.currency}/{cur}' in fx_rates_df_tmp:
-            ser = (1.0 / fx_rates_df_tmp[f'{account.currency}/{cur}']).rename(f'{cur}/{account.currency}')
-            fx_rates_df = pd.concat([fx_rates_df, ser], axis=1)
-        else:
+        rate = exchange_rate(pair_prices, currency=cur, base=account.currency)
+        if rate is None:
             logger.warning('Missing foreign exchange historical time series for %s/%s', cur, account.currency)
-    if fx_rates_df.empty:
-        fx_rates_df = fx_rates_df.reindex(index=index)
+        else:
+            rates.append(rate)
+    fx_rates_df = pd.concat(rates, axis=1) if rates else pd.DataFrame(index=index)
     # dummy column of ones for domestic currency
     fx_rates_df[f'{account.currency}/{account.currency}'] = 1.0
     fx_rates_df.index = pd.to_datetime(fx_rates_df.index)

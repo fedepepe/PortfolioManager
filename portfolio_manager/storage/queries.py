@@ -19,6 +19,7 @@ from portfolio_manager.storage.models import (
     AccountSetting,
     BenchmarkComponent,
     BrokerAccount,
+    CurrencyPair,
     DegiroCashMovement,
     DegiroHistData,
     DegiroTransaction,
@@ -219,6 +220,35 @@ def insert_account(name: str, broker: str, credentials_file: str, currency: str 
         )
         session.commit()
     logger.info('Account %s added', name)
+
+
+def update_account_currency(name: str, currency: str):
+    """Save the base currency of an account."""
+    with SessionLocal() as session:
+        session.get(BrokerAccount, name).currency = currency
+        session.commit()
+    logger.info('Base currency of %s: %s', name, currency)
+
+
+def upsert_currency_pairs(pairs: dict[str, int]):
+    """Save currency pairs ({base}/{quote} -> product id of the exchange rate); a stored pair gets the new product."""
+    rows = [
+        {'pair': pair, 'base': pair[:3], 'quote': pair[4:], 'product_id': int(product_id)}
+        for pair, product_id in pairs.items()
+    ]
+    if not rows:
+        return
+    stmt = sqlite_insert(CurrencyPair)
+    stmt = stmt.on_conflict_do_update(index_elements=[CurrencyPair.pair], set_={'product_id': stmt.excluded.product_id})
+    with SessionLocal() as session:
+        session.execute(stmt, rows)
+        _commit(session, message=f'{len(rows)} currency pairs')
+
+
+def query_currency_pairs() -> dict[str, int]:
+    """Currency pairs ({base}/{quote}) and the product id of their exchange rate."""
+    with engine.connect() as connection:
+        return dict(connection.execute(select(CurrencyPair.pair, CurrencyPair.product_id)).all())
 
 
 def query_benchmark(account_name: str) -> Benchmark | None:

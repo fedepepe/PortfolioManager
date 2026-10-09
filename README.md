@@ -28,10 +28,15 @@ credentials file. At the first start-up the dashboard asks for the first account
 shows where its credentials file goes; accounts can also be added from the command line:
 
 ```bash
-python tasks.py add-account --name "Portfolio USD" --currency USD   # credentials file: portfolio_usd.json
+python tasks.py add-account --name "Portfolio USD"   # credentials file: portfolio_usd.json
+python tasks.py connect-account --account "Portfolio USD"   # base currency and currency pairs from Degiro
 ```
 
-An account in CHF or EUR starts with a default benchmark (see `portfolio_manager/config/account_settings.py`).
+At each **Update** (and with `connect-account`) the base currency of the account and the currency pairs traded at
+Degiro are read from the account information; the exchange rates use the direct pair of two currencies, otherwise a cross rate through
+EUR or USD.
+
+Once its currency is known, an account in CHF or EUR gets a default benchmark (see `portfolio_manager/config/account_settings.py`).
 
 Each account needs a JSON credentials file in the `credentials/` folder (never committed), with the fields expected by
 [degiro-connector](https://github.com/Chavithra/degiro-connector):
@@ -40,12 +45,12 @@ Each account needs a JSON credentials file in the `credentials/` folder (never c
 {
   "username": "...",
   "password": "...",
-  "int_account": 1234567,
   "totp_secret_key": "..."
 }
 ```
 
-`totp_secret_key` is needed with two-factor authentication. If the environment variable `DEGIRO_ACCOUNT` is set,
+`totp_secret_key` is needed with two-factor authentication; `int_account` (the account number) may be added, otherwise
+it is read from Degiro at each login. If the environment variable `DEGIRO_ACCOUNT` is set,
 the library reads the credentials from it instead of the file, for every account.
 
 ## Running

@@ -204,6 +204,17 @@ class BrokerAccount(Base):
     position = Column(Integer, nullable=False)  # order in which the accounts were added
 
 
+# Currency pairs traded at Degiro, with the product of their exchange rate (from the account information)
+class CurrencyPair(Base):
+    """A currency pair, e.g. EUR/CHF: the price of one EUR in CHF is the price of the product."""
+
+    __tablename__ = 'currency_pairs'
+    pair = Column(String, primary_key=True)  # {base}/{quote}
+    base = Column(String, nullable=False)
+    quote = Column(String, nullable=False)
+    product_id = Column(Integer, nullable=False)
+
+
 # Settings of each account chosen by the user
 class AccountSetting(Base):
     """Settings of an account."""

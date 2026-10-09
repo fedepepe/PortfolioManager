@@ -9,7 +9,7 @@ from dash.exceptions import PreventUpdate
 from portfolio_manager.config.accounts import Brokers, add_account
 
 # fields of a Degiro credentials file (see README)
-DEGIRO_CREDENTIALS_EXAMPLE = {'username': '...', 'password': '...', 'int_account': 1234567, 'totp_secret_key': '...'}
+DEGIRO_CREDENTIALS_EXAMPLE = {'username': '...', 'password': '...', 'totp_secret_key': '...'}
 
 
 def build_content_add_account() -> html.Div:

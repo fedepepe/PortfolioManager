@@ -36,6 +36,15 @@ def add_account_task(args: argparse.Namespace):
     logger.info('Account %s added: put its credentials in credentials/%s', account.name, account.credentials_file)
 
 
+def connect_account(args: argparse.Namespace):
+    """Log in to the broker: save the base currency of the account and the currency pairs (no other download)."""
+    from portfolio_manager.degiro.connection import connect_account as connect
+
+    for account in selected_accounts(args):
+        account = connect(account)
+        logger.info('%s connected: base currency %s', account.name, account.currency)
+
+
 def update(args: argparse.Namespace):
     """Download the account data from Degiro, then recompute backtests and performance (like the Update button)."""
     from portfolio_manager.dashboard.data_service import update_account
@@ -288,6 +297,7 @@ def import_degiro_excel(args: argparse.Namespace):
 # command name: (function, options it takes)
 COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]] = {
     'add-account': (add_account_task, ('new_account',)),
+    'connect-account': (connect_account, ('account',)),
     'update': (update, ('account',)),
     'backtest': (backtest, ('account',)),
     'show-benchmark': (show_benchmark, ('account',)),

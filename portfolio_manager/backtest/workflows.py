@@ -23,7 +23,7 @@ from portfolio_manager.degiro.charts import (
     load_fx_rates,
     load_portfolio_charts,
 )
-from portfolio_manager.degiro.connection import get_degiro_connection
+from portfolio_manager.degiro.connection import connect_account, get_degiro_connection
 from portfolio_manager.degiro.products import (
     adjust_prod_column_labels,
     fetch_portfolio_products_info,
@@ -123,14 +123,18 @@ def load_backtest_data_excel(name: str, fields: list[str] | None = None) -> Port
     return PortfolioBacktestData(**data_dict)
 
 
-def update_data(account: Account):
-    """Download the transactions, products, cash movements and charts of an account from Degiro."""
+def update_data(account: Account) -> Account:
+    """Download the account information (base currency, currency pairs), transactions, products, cash movements and
+    charts of an account from Degiro; returns the account with its currency.
+    """
     conn = get_degiro_connection(account=account)
+    account = connect_account(account, conn=conn)
     fetch_tx_history(account=account, degiro_conn=conn)
     fetch_portfolio_products_info(account=account, degiro_conn=conn)
     fetch_account_movements(account=account, degiro_conn=conn)
     fetch_portfolio_charts(account=account, degiro_conn=conn)
     fetch_fx_charts(account=account, degiro_conn=conn)
+    return account
 
 
 # descriptions of the Degiro cash movements (in the language of the account: Italian)
@@ -323,7 +327,7 @@ def refresh_benchmark(account: Account) -> PortfolioBacktestData:
 
 def refresh_account(account: Account):
     """Fetch new data from Degiro, then recompute and save backtest and performance of portfolio and benchmark."""
-    update_data(account=account)
+    account = update_data(account=account)
     hist_portfolio_data = backtest_portfolio_account(account=account)
     hist_benchmark_data = backtest_portfolio_benchmark(account=account, index=hist_portfolio_data.nav.index)
     compute_portfolio_performance(

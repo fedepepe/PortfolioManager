@@ -80,7 +80,7 @@ def old_db(tmp_path, monkeypatch):
 
 def test_database_of_version_1_gets_the_accounts_defined_in_the_code(old_db, tmp_path):
     tables.init_db()
-    assert migrations.schema_version(old_db) == 2
+    assert migrations.schema_version(old_db) == migrations.latest_version()
     assert os.path.isfile(tmp_path / 'db' / 'old.db.bak-v1')  # copied at the baseline, before step 2
     assert list_accounts() == [
         Account('Portfolio CHF', Brokers.DEGIRO, 'config.json', 'CHF'),

@@ -8,6 +8,7 @@ any step, the database file is copied next to it (degiro.db.bak-v{version}).
 """
 
 import logging
+import re
 import shutil
 import time
 from collections.abc import Callable
@@ -16,7 +17,7 @@ from sqlalchemy import Connection, Engine, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from portfolio_manager.config.accounts import attach_default_benchmark, list_accounts
-from portfolio_manager.storage.models import BrokerAccount, SchemaVersion
+from portfolio_manager.storage.models import BrokerAccount, CurrencyPair, Product, SchemaVersion
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,24 @@ def _accounts_from_code(connection: Connection):
     connection.execute(stmt, [dict(row, position=n) for n, row in enumerate(rows)])
 
 
+def _currency_pairs_from_catalog(connection: Connection):
+    # version 3: the exchange rates are found through the currency pairs of the account information; up to version 2
+    # through the currency products of the catalog, whose names give the pair (EUR/CHF, USD-CAD X-RATE)
+    rows = connection.execute(select(Product.id, Product.name).where(Product.product_type == 'CURRENCY')).all()
+    pairs = []
+    for product_id, name in rows:
+        match = re.fullmatch(r'([A-Z]{3})[/-]([A-Z]{3})( X-RATE)?', name or '')
+        if match:
+            base, quote = match.group(1), match.group(2)
+            pairs.append({'pair': f'{base}/{quote}', 'base': base, 'quote': quote, 'product_id': product_id})
+    if pairs:
+        connection.execute(
+            sqlite_insert(CurrencyPair).on_conflict_do_nothing(index_elements=[CurrencyPair.pair]), pairs
+        )
+
+
 # version -> step upgrading the database from the previous version
-UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {2: _accounts_from_code}
+UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {2: _accounts_from_code, 3: _currency_pairs_from_catalog}
 
 
 def latest_version() -> int:

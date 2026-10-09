@@ -6,6 +6,7 @@ from portfolio_manager.backtest.workflows import (
     last_complete_date,
     product_changes,
     split_multipliers,
+    warn_stale_prices,
 )
 from portfolio_manager.degiro.transactions import TxHistFields as F
 
@@ -83,3 +84,15 @@ def test_backtest_ends_on_last_day_with_prices_of_held_products():
     tx = trades([1, 2, 3, 3], [10, 5, 4, -4], ['2026-10-05'] * 4)
     assert last_complete_date(prices, tx) == days[2]
     assert last_complete_date(prices, tx[tx[F.product_id] == 3]) == days[3]  # nothing held: all the prices
+
+
+def test_warning_for_prices_missing_on_the_last_day(caplog):
+    days = pd.bdate_range('2026-10-06', periods=4)  # 10-06 .. 10-09
+    # A misses 10-08 but has 10-09 already, B has 10-08, C stops on 10-07
+    prices = pd.DataFrame(
+        {'A': [1.0, 1.0, None, 1.0], 'B': [2.0, 2.0, 2.0, None], 'C': [3.0, 3.0, None, None]}, index=days
+    )
+    warn_stale_prices(prices, ts_end=days[2], label='Benchmark')
+    messages = [r.getMessage() for r in caplog.records]
+    assert len(messages) == 2
+    assert 'of A on 2026-10-08 (last before on 2026-10-07)' in messages[0] and 'of C' in messages[1]

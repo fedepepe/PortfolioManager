@@ -1,5 +1,6 @@
 """Data update and backtests of the accounts, their benchmarks and optimized portfolios."""
 
+import logging
 import os
 import re
 import time
@@ -45,6 +46,8 @@ from portfolio_manager.storage.tables import (
     save_tables,
 )
 from portfolio_manager.utils.dates import reset_time
+
+logger = logging.getLogger(__name__)
 
 BACKTESTS = 'backtests'  # kind of derived result (folder of the Parquet tables)
 
@@ -261,11 +264,28 @@ def _dividends_to_base_currency(
     return dividends_df
 
 
+def warn_stale_prices(prices_df: pd.DataFrame, ts_end: pd.Timestamp, label: str):
+    """Log a warning for each instrument without a price on the last day (the backtest repeats its last price)."""
+    for instrument in prices_df.columns:
+        if pd.notna(prices_df[instrument].get(ts_end)):
+            continue
+        # the prices may go on after the missing day (a later day already published)
+        last = prices_df.loc[prices_df.index < ts_end, instrument].last_valid_index()
+        logger.warning(
+            '%s: no price of %s on %s (last before on %s): its last price is repeated',
+            label,
+            instrument,
+            ts_end.date(),
+            None if last is None else last.date(),
+        )
+
+
 def backtest_portfolio_benchmark(account: Accounts, index: pd.DatetimeIndex) -> PortfolioBacktestData:
     """Backtest of the benchmark of an account over the given dates (saved)."""
     prices_adj_df = fetch_instr_adj_prices(
         account=account, isin_lst=[v[2] for v in account.benchmark.values()], tick_lst=list(account.benchmark.keys())
     )
+    warn_stale_prices(prices_adj_df, ts_end=index[-1], label=f'Benchmark of {account.name}')
     backtest_data_benchmark = backtest_portfolio(
         name=f'{account.name}_benchmark',
         prices_df=prices_adj_df.reindex(index=index).ffill(),

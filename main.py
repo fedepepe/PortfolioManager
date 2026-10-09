@@ -1,6 +1,5 @@
 """Web server: serves the dashboard (Dash, mounted in FastAPI) at /portfolio_manager."""
 
-import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -10,6 +9,7 @@ from fastapi.responses import RedirectResponse
 
 from portfolio_manager.dashboard.app import app
 from portfolio_manager.storage.models import init_db
+from portfolio_manager.utils.logs import configure_logging
 
 
 @asynccontextmanager
@@ -34,5 +34,5 @@ def index():
 
 # Start the FastAPI server
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+    configure_logging()
     uvicorn.run(server, host='127.0.0.1')

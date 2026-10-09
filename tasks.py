@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 from portfolio_manager.config.accounts import Account, Brokers, add_account, get_account, list_accounts
 from portfolio_manager.storage.models import init_db
+from portfolio_manager.utils.logs import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -337,10 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None):
     """Run the task given on the command line."""
     args = build_parser().parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
-    )
+    configure_logging(logging.DEBUG if args.verbose else logging.INFO)
     init_db()
     args.function(args)
 

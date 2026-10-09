@@ -135,6 +135,17 @@ def fetch_etf_catalog(args: argparse.Namespace):
     fetch_etf_catalog_data(full=args.full)
 
 
+def research_listings(args: argparse.Namespace):
+    """Search again the Yahoo Finance listing of the products whose listing is not on a preferred exchange (dry run;
+    --apply replaces the listings).
+    """
+    from portfolio_manager.analytics.instruments import research_listings as research
+
+    for product_id, stored, found in research(apply=args.apply):
+        change = 'unchanged' if found == stored else ('replaced' if args.apply else 'would be replaced')
+        logger.info('product %d: %s -> %s (%s)', product_id, stored, found, change if found else 'nothing found')
+
+
 def refresh_yahoo_history(args: argparse.Namespace):
     """Bring the stored Yahoo Finance history of every listing up to date (--full: download every history again)."""
     from portfolio_manager.market_data.history import refresh_history
@@ -302,6 +313,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'fetch-product-catalog': (fetch_product_catalog, ()),
     'fetch-etf-catalog': (fetch_etf_catalog, ('full',)),
     'refresh-yahoo-history': (refresh_yahoo_history, ('full',)),
+    'research-listings': (research_listings, ('apply',)),
     'build-etf-catalog': (build_etf_catalog, ('account',)),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
@@ -322,6 +334,8 @@ def build_parser() -> argparse.ArgumentParser:
             subparser.add_argument('--broker', default=Brokers.DEGIRO.value, choices=[b.value for b in Brokers])
             subparser.add_argument('--credentials-file', help='file in the credentials folder (default: from the name)')
             subparser.add_argument('--currency', help='base currency, e.g. EUR')
+        if 'apply' in options:
+            subparser.add_argument('--apply', action='store_true', help='apply the changes (default: only show them)')
         if 'full' in options:
             subparser.add_argument('--full', action='store_true', help='download every history again')
         if 'isin' in options:

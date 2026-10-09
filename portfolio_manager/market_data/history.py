@@ -133,6 +133,11 @@ def refresh_info(ticker: str, isin: str | None = None):
     upsert_yahoo_instrument(ticker, fields)
 
 
+def on_preferred_exchange(ticker: str) -> bool:
+    """Whether a listing is on one of the preferred exchanges (its ticker ends with their suffix)."""
+    return any(ticker.endswith(f'.{x.code}') for x in Exchanges)
+
+
 def choose_ticker(tickers: list[str], ticker: str | None = None) -> str:
     """Follow the priority order of exchanges: first {ticker}.{exchange}, then any ticker listed on an exchange."""
     for prefix in ([ticker] if ticker is not None else []) + [None]:
@@ -162,7 +167,8 @@ def _candidates(search: str | None, ticker: str | None) -> tuple[list[dict], str
 def search_listing(search: str | None = None, ticker: str | None = None, name: str | None = None) -> str | None:
     """Find the Yahoo Finance listing of an instrument (by a search text, usually its ISIN, then by its ticker), store
     its history and information, and return its ticker; None if no listing with prices is found. Among several
-    listings: the closest name, without a name the preferred exchange.
+    listings: those on the preferred exchanges if there are any, then the closest name (without a name, the first
+    preferred exchange).
     """
     search = None if is_missing(search) else search
     ticker = None if is_missing(ticker) else ticker
@@ -177,7 +183,8 @@ def search_listing(search: str | None = None, ticker: str | None = None, name: s
             histories[symbol] = history
     if not histories:
         return None
-    symbols = list(histories)
+    # the listings on the preferred exchanges, if any: a closer name on another exchange (e.g. Tokyo) does not win
+    symbols = [s for s in histories if on_preferred_exchange(s)] or list(histories)
     if len(symbols) > 1 and not is_missing(name):
         chosen = max(symbols, key=lambda s: SequenceMatcher(None, name, names[s]).ratio())
     else:

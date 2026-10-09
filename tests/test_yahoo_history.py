@@ -219,3 +219,33 @@ def test_database_of_version_3_gets_the_new_yahoo_tables(tmp_path, monkeypatch):
     assert instruments.loc['HYLD.L', 'name_long'] == 'iShares Global High Yield'
     assert instruments.loc['HYLD.L', 'name_short'] is None and instruments.loc['VUKE.L', 'currency'] == 'GBp'
     assert (folder / 'old.db.bak-v3').is_file()
+
+
+def test_preferred_exchange_wins_over_a_closer_name(yahoo):
+    isin = 'JE00B1VS3002'
+    yahoo.quotes[isin] = [
+        {'symbol': '1675.T', 'longname': 'WisdomTree Physical Silver'},  # same name, Tokyo
+        {'symbol': 'PHAG.L', 'longname': 'WisdomTree Physical Silver ETC'},
+    ]
+    yahoo.histories['1675.T'] = yahoo_frame([3000.0])
+    yahoo.histories['PHAG.L'] = yahoo_frame([25.0])
+    assert history.search_listing(search=isin, ticker='PHAG', name='WisdomTree Physical Silver') == 'PHAG.L'
+    # without a listing on a preferred exchange, any exchange
+    yahoo.histories['PHAG.L'] = yahoo_frame([])
+    assert history.search_listing(search=isin, ticker='PHAG', name='WisdomTree Physical Silver') == '1675.T'
+
+
+def test_listings_off_the_preferred_exchanges_are_searched_again(yahoo):
+    import portfolio_manager.analytics.instruments as instruments
+
+    isin = 'JE00B1VS3002'
+    sql.upsert_products(pd.DataFrame({'id': [7], 'isin': [isin], 'symbol': ['PHAG'], 'name': ['Physical Silver']}))
+    sql.upsert_degiro_yahoo_map(product_ids=[7, 8], ticker='1675.T')  # product 8 is not in the products table
+    sql.upsert_degiro_yahoo_map(product_ids=[9], ticker='IWDC.SW')  # already on a preferred exchange
+    yahoo.quotes[isin] = [{'symbol': '1675.T'}, {'symbol': 'PHAG.L'}]
+    yahoo.histories['1675.T'] = yahoo_frame([3000.0])
+    yahoo.histories['PHAG.L'] = yahoo_frame([25.0])
+    assert instruments.research_listings() == [(7, '1675.T', 'PHAG.L')]
+    assert sql.query_degiro_yahoo_map([7])[7] == '1675.T'  # dry run
+    instruments.research_listings(apply=True)
+    assert sql.query_degiro_yahoo_map([7, 9]) == {7: 'PHAG.L', 9: 'IWDC.SW'}

@@ -57,16 +57,20 @@ class Exchange(NamedTuple):
 
 
 class Exchanges(Exchange, Enum):
-    """Exchanges in order of preference when an instrument is listed on several."""
+    """Preferred exchanges, in order: an instrument listed on one of them is taken from there (the first one when no
+    name tells the listings apart), otherwise from any exchange.
+    """
 
     DE = Exchange('DE', 'Frankfurt')
     L = Exchange('L', 'London')
     MI = Exchange('MI', 'Milan')
     SW = Exchange('SW', 'Switzerland')
+    AS = Exchange('AS', 'Amsterdam')
+    PA = Exchange('PA', 'Paris')
     BE = Exchange('BE', 'Berlin')
     MU = Exchange('MU', 'Munich')
     DU = Exchange('DU', 'Dusseldorf')
-    SG = Exchange('SG', 'Singapore')
+    SG = Exchange('SG', 'Stuttgart')
     XC = Exchange('XC')
     XD = Exchange('XD')
 

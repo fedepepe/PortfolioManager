@@ -19,6 +19,7 @@ from portfolio_manager.market_data.history import (
     listing_currencies,
     load_adjusted_closes,
     major_currency,
+    on_preferred_exchange,
     refresh_history,
     search_listing,
     traded_value,
@@ -237,6 +238,21 @@ def fetch_etf_catalog_data(full: bool = False):
         )
         time.sleep(0.2)  # spread the requests to Yahoo Finance
     logger.info('ETF catalog downloaded: %s', ', '.join(f'{k} {v}' for k, v in results.items()))
+
+
+def research_listings(apply: bool = False) -> list[tuple[int, str, str | None]]:
+    """Search again the Yahoo Finance listing of the products whose stored listing is not on a preferred exchange
+    (found before the preference applied, e.g. in Tokyo); with apply, a different listing found replaces it.
+    Returns (product id, stored ticker, ticker found now or None).
+    """
+    listings = {p: t for p, t in query_degiro_yahoo_map().items() if not on_preferred_exchange(t)}
+    changes = []
+    for product in query_products(product_id=list(listings)).itertuples():
+        found = search_listing(search=product.isin, ticker=product.symbol, name=product.name)
+        changes.append((product.id, listings[product.id], found))
+        if apply and found is not None and found != listings[product.id]:
+            upsert_degiro_yahoo_map(product_ids=[product.id], ticker=found)
+    return changes
 
 
 def average_traded_values(tickers: list[str]) -> pd.DataFrame:

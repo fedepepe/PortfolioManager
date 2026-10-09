@@ -461,11 +461,11 @@ def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
         _commit(session)
 
 
-def query_degiro_yahoo_map(product_ids: list[int]) -> dict[int, str]:
-    """Yahoo Finance ticker of each mapped product."""
-    stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker).where(
-        DegiroYahooMap.product_id.in_([int(p) for p in product_ids])
-    )
+def query_degiro_yahoo_map(product_ids: list[int] | None = None) -> dict[int, str]:
+    """Yahoo Finance ticker of each mapped product (of every mapped product if no product is given)."""
+    stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker)
+    if product_ids is not None:
+        stmt = stmt.where(DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
     with engine.connect() as connection:
         return dict(connection.execute(stmt).all())
 

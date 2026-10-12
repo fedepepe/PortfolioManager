@@ -87,11 +87,31 @@ def _yahoo_history_tables(connection: Connection):
         connection.execute(text(f'DROP TABLE IF EXISTS {table}'))
 
 
+def _listing_searches(connection: Connection):
+    # version 5: the listing of a product may be missing (not found), with the status, rule and date of its search;
+    # SQLite cannot drop the NOT NULL of a column: the table is rebuilt, the stored listings found by an earlier search
+    columns = [c['name'] for c in inspect(connection).get_columns('degiro_yahoo_map')]
+    if 'status' in columns:
+        return
+    connection.execute(
+        text(
+            'CREATE TABLE degiro_yahoo_map_v5 (product_id INTEGER NOT NULL PRIMARY KEY, ticker VARCHAR, '
+            'status VARCHAR NOT NULL, rule VARCHAR, searched_at DATETIME)'
+        )
+    )
+    connection.execute(
+        text("INSERT INTO degiro_yahoo_map_v5 SELECT product_id, ticker, 'found', NULL, NULL FROM degiro_yahoo_map")
+    )
+    connection.execute(text('DROP TABLE degiro_yahoo_map'))
+    connection.execute(text('ALTER TABLE degiro_yahoo_map_v5 RENAME TO degiro_yahoo_map'))
+
+
 # version -> step upgrading the database from the previous version
 UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     2: _accounts_from_code,
     3: _currency_pairs_from_catalog,
     4: _yahoo_history_tables,
+    5: _listing_searches,
 }
 # steps that free much space: the database file is compacted after them
 COMPACT_AFTER = {4}

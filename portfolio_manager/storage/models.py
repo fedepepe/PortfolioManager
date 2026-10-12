@@ -189,13 +189,18 @@ class EtfCatalogEntry(Base):
     built_at = Column(DateTime, nullable=False)
 
 
-# Yahoo Finance listing chosen for each Degiro product (several products may share a listing)
+# Yahoo Finance listing of each Degiro product (several products may share a listing)
 class DegiroYahooMap(Base):
-    """Yahoo Finance listing chosen for each Degiro product."""
+    """Search of the Yahoo Finance listing of each Degiro product: the listing (none if not found), the status of the
+    last search (found, not found, failed), the rule that chose the listing and when the search was made.
+    """
 
     __tablename__ = 'degiro_yahoo_map'
     product_id = Column(Integer, primary_key=True)
-    ticker = Column(String, nullable=False)
+    ticker = Column(String)
+    status = Column(String, nullable=False)
+    rule = Column(String)
+    searched_at = Column(DateTime)
 
 
 # Version of the database schema (one row), see storage/migrations.py

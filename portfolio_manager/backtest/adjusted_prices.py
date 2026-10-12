@@ -9,13 +9,17 @@ from typing import NamedTuple
 
 import pandas as pd
 
-from portfolio_manager.analytics.instruments import stored_adjusted_prices
+from portfolio_manager.analytics.instruments import (
+    products_to_search,
+    search_product_listing,
+    stored_adjusted_prices,
+)
 from portfolio_manager.config.account_settings import Benchmark
 from portfolio_manager.config.accounts import Account
 from portfolio_manager.degiro.products import load_portfolio_products
-from portfolio_manager.market_data.history import is_missing, refresh_history, search_listing
+from portfolio_manager.market_data.history import ListingSearches, refresh_history, search_listing, store_listing
 from portfolio_manager.market_data.yahoo import is_yahoo_reachable
-from portfolio_manager.storage.queries import query_degiro_yahoo_map, save_benchmark_tickers, upsert_degiro_yahoo_map
+from portfolio_manager.storage.queries import query_degiro_yahoo_map, save_benchmark_tickers, save_listing_search
 
 logger = logging.getLogger(__name__)
 
@@ -27,45 +31,44 @@ class AdjPrices(NamedTuple):
     summary: str  # where the prices come from, for logs and the dashboard
 
 
-def _listing(ticker: str | None, search: str | None, symbol: str | None, name: str | None) -> tuple[str | None, str]:
-    # online: the stored listing brought up to date, or the listing searched (and stored) the first time;
-    # (ticker, what was done), the ticker is None if no listing is found
+def _listing(ticker: str, store: bool = False, isin: str | None = None) -> tuple[str, str]:
+    # online: the history of a listing brought up to date (stored with its information if new); (ticker, what was
+    # done: new, updated, replaced, not found, failed): the stored history is used when a download fails
     try:
-        if ticker is None:
-            ticker = search_listing(search=search, ticker=symbol, name=name)
-            return ticker, 'found' if ticker is not None else 'not found'
+        if store:
+            store_listing(ticker, isin=isin)
+            return ticker, 'new'
         return ticker, refresh_history(ticker)
     except Exception as e:  # any download problem: the stored history is used
-        logger.warning('Yahoo Finance download failed for %s: %s', ticker or search or symbol, e)
+        logger.warning('Yahoo Finance download failed for %s: %s', ticker, e)
         return ticker, 'failed'
 
 
 def get_portfolio_adj_prices(account: Account) -> AdjPrices:
-    """Adjusted prices of the products of an account, in the account currency: products with the same ISIN (e.g. one
-    ETF on two exchanges) share one Yahoo Finance listing; products without a listing are left out.
+    """Adjusted prices of the products of an account, in the account currency. Each product has its own Yahoo Finance
+    listing (its line on its exchange first, see search_product_listing): searched when due (never searched, failed,
+    not found a while ago), otherwise brought up to date; products without a listing are left out.
     """
     products_df = load_portfolio_products(account=account)
     online = is_yahoo_reachable()
-    stored_map = query_degiro_yahoo_map(products_df['id'].to_list())
-    groups = products_df.groupby(products_df['isin'].fillna(products_df['id'].astype(str)), sort=False)
-    ticker_by_product: dict[int, str] = {}
+    ticker_by_product = query_degiro_yahoo_map(products_df['id'].to_list())
     results = []
-    for _, group in groups:
-        product_ids = group['id'].astype(int).to_list()
-        first = group.iloc[0]
-        ticker = next((stored_map[p] for p in product_ids if p in stored_map), None)
-        if online:
-            ticker, result = _listing(
-                ticker,
-                search=None if is_missing(first['isin']) else first['isin'],
-                symbol=None if is_missing(first['symbol']) else first['symbol'],
-                name=None if is_missing(first['name']) else first['name'],
-            )
-            results.append(result)
-            if result == 'found':
-                upsert_degiro_yahoo_map(product_ids=product_ids, ticker=ticker)
-        if ticker is not None:
-            ticker_by_product.update({p: ticker for p in product_ids})
+    if online:
+        to_search = set(products_to_search(products_df)['id'])
+        searches, stored = ListingSearches(), set()
+        for product in products_df.itertuples():
+            if product.id not in to_search:
+                continue
+            listing = search_product_listing(product, searches)
+            if listing.status != 'failed' or product.id not in ticker_by_product:
+                save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
+            results.append(listing.status)
+            if listing.ticker is not None:
+                ticker = _listing(listing.ticker, store=True, isin=product.isin)[0]
+                ticker_by_product[product.id] = ticker
+                stored.add(ticker)
+        for ticker in sorted(set(ticker_by_product.values()) - stored):
+            results.append(_listing(ticker)[1])
 
     base_df = stored_adjusted_prices(account, sorted(set(ticker_by_product.values())))
     prices = pd.DataFrame({p: base_df[t] for p, t in ticker_by_product.items() if t in base_df.columns})
@@ -94,10 +97,15 @@ def get_benchmark_adj_prices(account: Account, benchmark: Benchmark) -> pd.DataF
     tickers, found = {}, {}
     for component in benchmark.components:
         ticker = component.ticker
-        if online:
-            ticker, result = _listing(ticker, search=component.search, symbol=component.label, name=None)
-            if result == 'found':
+        if online and ticker is None:
+            try:
+                ticker = search_listing(search=component.search, ticker=component.label)
+            except Exception as e:  # any download problem: searched again next time
+                logger.warning('Yahoo Finance search failed for %s: %s', component.search, e)
+            if ticker is not None:
                 found[component.label] = ticker
+        elif online:
+            _listing(ticker)
         if ticker is not None:
             tickers[component.label] = ticker
     if found:

@@ -69,7 +69,7 @@ def test_catalog_built_into_the_database(market, tmp_path, monkeypatch):
     monkeypatch.setattr(instruments, 'MAX_ETF_CATALOG_SIZE', 2)
     monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
     for product_id, ticker in [(1, 'AAA'), (2, 'BBB.L'), (3, 'CCC.SW')]:
-        sql.upsert_degiro_yahoo_map([product_id], ticker)
+        sql.save_listing_search([product_id], ticker, 'found', 'own line')
     instruments.build_etf_catalog_data(CHF)
     catalog = sql.query_etf_catalog('Portfolio CHF')
     assert catalog['ticker'].tolist() == ['BBB.L', 'AAA'] and catalog['rank'].tolist() == [1, 2]

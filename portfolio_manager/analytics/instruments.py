@@ -13,27 +13,33 @@ from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs, compute_p
 from portfolio_manager.config.accounts import Account, list_accounts
 from portfolio_manager.config.settings import RESULTS_DIR
 from portfolio_manager.degiro.charts import load_fx_rates
-from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
+from portfolio_manager.degiro.definitions import Exchanges, ProductTypes, yahoo_suffix
 from portfolio_manager.degiro.products import load_portfolio_products
 from portfolio_manager.market_data.history import (
+    Listing,
+    ListingSearches,
+    find_listing,
     listing_currencies,
     load_adjusted_closes,
     major_currency,
-    on_preferred_exchange,
     refresh_history,
+    refresh_info,
     search_listing,
+    store_listing,
     traded_value,
 )
 from portfolio_manager.market_data.yahoo import YFinInfoCols
 from portfolio_manager.storage.files import PD_DATA_TYPES, save_df_dict_to_excel, save_df_to_excel
 from portfolio_manager.storage.models import Product
 from portfolio_manager.storage.queries import (
+    query_account_product_ids,
     query_degiro_yahoo_map,
     query_etf_catalog,
+    query_listing_searches,
     query_products,
     query_yahoo_instruments,
     save_etf_catalog,
-    upsert_degiro_yahoo_map,
+    save_listing_search,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +49,8 @@ MAX_ETF_CATALOG_SIZE = 250
 CATALOG_EXCHANGES = [Exchanges.XET, Exchanges.SWX, Exchanges.MIL, Exchanges.EAM]
 TRADED_VALUE_PERIOD = pd.DateOffset(months=3)  # average daily traded value over the last 3 calendar months
 MAX_DAYS_WITHOUT_PRICE = 30  # listings without a price for longer are left out of the catalog
+PRODUCT_SEARCH_RETRY = timedelta(days=30)  # a product whose listing was not found is searched again after this
+LISTING_REVIEW_FILE = 'yahoo_mapping'  # Excel copy of the mapping of the Degiro products, for review
 # Yahoo information fields (rows of the information tables of the catalogs) and their columns in the database
 INFO_COLUMNS = {
     YFinInfoCols.currency.value: 'currency',
@@ -205,54 +213,142 @@ def catalog_products() -> pd.DataFrame:
     return etf_info_df.drop_duplicates(subset=['isin', 'symbol'], keep='first')
 
 
-def fetch_etf_catalog_data(full: bool = False):
-    """Download the Yahoo Finance history of the ETFs of the catalog into the database: the listing of an ETF is
-    searched once, then only the new days are downloaded (the whole history again with full). An interrupted run
-    resumes where it stopped.
+def traded_product_ids() -> set[int]:
+    """Products traded in any account."""
+    return {p for account in list_accounts() for p in query_account_product_ids(account.name)}
+
+
+def search_product_listing(product, searches: ListingSearches | None = None) -> Listing:
+    """Find the Yahoo Finance listing of a Degiro product (a row of the products table): its own line first (see
+    find_listing); a failed search is a result too.
+    """
+    try:
+        return find_listing(
+            search=product.isin,
+            ticker=product.symbol,
+            name=product.name,
+            exchange=yahoo_suffix(product.exchange_id),
+            searches=searches,
+        )
+    except Exception as e:  # any download problem: searched again at the next run
+        logger.warning('Yahoo Finance search failed for %s (%s): %s', product.symbol, product.isin, e)
+        return Listing(None, 'failed')
+
+
+def products_to_search(products: pd.DataFrame, remap: bool = False, retry: bool = False) -> pd.DataFrame:
+    """The products whose listing must be searched: never searched, failed, not found PRODUCT_SEARCH_RETRY ago (or
+    with retry), found only with remap.
+    """
+    searches = query_listing_searches(products['id'].to_list()).set_index('product_id')
+    now = pd.Timestamp(datetime.now())
+
+    def due(product_id: int) -> bool:
+        if product_id not in searches.index:
+            return True
+        search = searches.loc[product_id]
+        if search['status'] == 'failed':
+            return True
+        if search['status'] == 'not found':
+            return retry or pd.isna(search['searched_at']) or now - search['searched_at'] >= PRODUCT_SEARCH_RETRY
+        return remap
+
+    return products[products['id'].map(due)]
+
+
+def map_listings(products: pd.DataFrame, remap: bool = False, retry: bool = False) -> Counter:
+    """Search and save the Yahoo Finance listing of the products to search (see products_to_search); a failed search
+    keeps the listing found before. Returns the count of each status.
+    """
+    todo = products_to_search(products, remap=remap, retry=retry)
+    found_before = query_degiro_yahoo_map(todo['id'].to_list())
+    searches, results = ListingSearches(), Counter()
+    for n, product in enumerate(todo.itertuples()):
+        listing = search_product_listing(product, searches)
+        if listing.status != 'failed' or product.id not in found_before:
+            save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
+        results[listing.status] += 1
+        logger.info(
+            '%5.1f%% (%d/%d) %s %s %s: %s',
+            100 * (n + 1) / len(todo),
+            n + 1,
+            len(todo),
+            product.isin,
+            product.symbol,
+            listing.ticker or '',
+            listing.rule or listing.status,
+        )
+    logger.info('Listings searched: %s', ', '.join(f'{k} {v}' for k, v in results.items()) or 'none due')
+    return results
+
+
+def map_etf_catalog(remap: bool = False, retry: bool = False) -> Counter:
+    """Search the Yahoo Finance listing of the ETFs of the catalog (see map_listings), then save the Excel copy of the
+    mapping for review. The products traded in an account keep their listing: see remap_portfolio_listings.
     """
     products = catalog_products()
-    listings = query_degiro_yahoo_map(products['id'].to_list())
+    results = map_listings(products[~products['id'].isin(traded_product_ids())], remap=remap, retry=retry)
+    export_listing_review()
+    return results
+
+
+def remap_portfolio_listings(apply: bool = False) -> pd.DataFrame:
+    """Search again the listing of the products traded in the accounts: the products whose listing would change
+    (product_id, symbol, name, stored, found, rule); with apply, the new listings are saved and downloaded.
+    """
+    products = query_products(product_id=sorted(traded_product_ids()))
+    stored = query_degiro_yahoo_map(products['id'].to_list())
+    searches, changes = ListingSearches(), []
+    for product in products.itertuples():
+        listing = search_product_listing(product, searches)
+        if listing.status != 'failed' and listing.ticker != stored.get(product.id):
+            changes.append(
+                (product.id, product.symbol, product.name, stored.get(product.id), listing.ticker, listing.rule)
+            )
+            if apply:
+                save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
+                if listing.ticker is not None:
+                    store_listing(listing.ticker, isin=product.isin)
+    return pd.DataFrame(changes, columns=['product_id', 'symbol', 'name', 'stored', 'found', 'rule'])
+
+
+def export_listing_review():
+    """Excel copy of the mapping of the Degiro products to Yahoo Finance listings, for review (results folder)."""
+    searches = query_listing_searches()
+    products = query_products(product_id=searches['product_id'].to_list()).reset_index(drop=True)
+    instruments = query_yahoo_instruments(sorted(searches['ticker'].dropna().unique()))
+    review = searches.merge(
+        products[['id', 'exchange_id', 'symbol', 'isin', 'name']], left_on='product_id', right_on='id', how='left'
+    )
+    review['yahoo_name'] = review['ticker'].map(instruments['name_long'].fillna(instruments['name_short']))
+    review['yahoo_currency'] = review['ticker'].map(instruments['currency'])
+    columns = ['product_id', 'exchange_id', 'symbol', 'isin', 'name', 'ticker', 'yahoo_name', 'yahoo_currency']
+    review = review[columns + ['status', 'rule', 'searched_at']].sort_values(['status', 'isin'])
+    save_df_to_excel(df=review.set_index('product_id'), file_name=LISTING_REVIEW_FILE, folder_name=RESULTS_DIR)
+
+
+def fetch_etf_catalog_data(full: bool = False):
+    """Download the Yahoo Finance history of the listings of the catalog ETFs (see map_etf_catalog): the whole history
+    of a new listing (or of every listing with full), otherwise the new days. An interrupted run resumes where it
+    stopped.
+    """
+    listings = query_degiro_yahoo_map(catalog_products()['id'].to_list())
+    isins = query_products(product_id=list(listings)).set_index('id')['isin']
+    isin_by_ticker = {t: isins.get(p) for p, t in listings.items()}
+    tickers = sorted(isin_by_ticker)
+    currencies = listing_currencies(tickers)
     results = Counter()
-    for n, product in enumerate(products.itertuples()):
-        ticker = listings.get(product.id)
+    for n, ticker in enumerate(tickers):
         try:
-            if ticker is None:
-                ticker = search_listing(search=product.isin, ticker=product.symbol, name=product.name)
-                if ticker is not None:
-                    upsert_degiro_yahoo_map(product_ids=[product.id], ticker=ticker)
-                result = 'new' if ticker is not None else 'not found'
-            else:
-                result = refresh_history(ticker, full=full)
-        except Exception as e:  # any download problem: the ETF is retried at the next run
-            logger.warning('Yahoo Finance download failed for %s: %s', product.isin, e)
+            result = refresh_history(ticker, full=full)
+            if ticker not in currencies:
+                refresh_info(ticker, isin=isin_by_ticker[ticker])
+        except Exception as e:  # any download problem: retried at the next run
+            logger.warning('Yahoo Finance download failed for %s: %s', ticker, e)
             result = 'failed'
         results[result] += 1
-        logger.info(
-            '%5.1f%% (%d/%d) %s %s: %s',
-            100 * (n + 1) / len(products),
-            n + 1,
-            len(products),
-            product.isin,
-            ticker or '',
-            result,
-        )
+        logger.info('%5.1f%% (%d/%d) %s: %s', 100 * (n + 1) / len(tickers), n + 1, len(tickers), ticker, result)
         time.sleep(0.2)  # spread the requests to Yahoo Finance
-    logger.info('ETF catalog downloaded: %s', ', '.join(f'{k} {v}' for k, v in results.items()))
-
-
-def research_listings(apply: bool = False) -> list[tuple[int, str, str | None]]:
-    """Search again the Yahoo Finance listing of the products whose stored listing is not on a preferred exchange
-    (found before the preference applied, e.g. in Tokyo); with apply, a different listing found replaces it.
-    Returns (product id, stored ticker, ticker found now or None).
-    """
-    listings = {p: t for p, t in query_degiro_yahoo_map().items() if not on_preferred_exchange(t)}
-    changes = []
-    for product in query_products(product_id=list(listings)).itertuples():
-        found = search_listing(search=product.isin, ticker=product.symbol, name=product.name)
-        changes.append((product.id, listings[product.id], found))
-        if apply and found is not None and found != listings[product.id]:
-            upsert_degiro_yahoo_map(product_ids=[product.id], ticker=found)
-    return changes
+    logger.info('ETF catalog history downloaded: %s', ', '.join(f'{k} {v}' for k, v in results.items()))
 
 
 def average_traded_values(tickers: list[str]) -> pd.DataFrame:

@@ -452,18 +452,37 @@ def query_etf_catalog_built_at(account_name: str) -> datetime | None:
         return connection.execute(stmt).scalar()
 
 
-def upsert_degiro_yahoo_map(product_ids: list[int], ticker: str):
-    """Map Degiro products to a Yahoo Finance ticker."""
+def save_listing_search(product_ids: list[int], ticker: str | None, status: str, rule: str | None = None):
+    """Save the result of the search of the Yahoo Finance listing of products (dated now)."""
+    rows = [
+        {'product_id': int(p), 'ticker': ticker, 'status': status, 'rule': rule, 'searched_at': datetime.now()}
+        for p in product_ids
+    ]
     stmt = sqlite_insert(DegiroYahooMap)
-    stmt = stmt.on_conflict_do_update(index_elements=[DegiroYahooMap.product_id], set_={'ticker': stmt.excluded.ticker})
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[DegiroYahooMap.product_id],
+        set_={c: stmt.excluded[c] for c in ['ticker', 'status', 'rule', 'searched_at']},
+    )
     with SessionLocal() as session:
-        session.execute(stmt, [{'product_id': int(p), 'ticker': ticker} for p in product_ids])
-        _commit(session)
+        session.execute(stmt, rows)
+        session.commit()
+
+
+def query_listing_searches(product_ids: list[int] | None = None) -> pd.DataFrame:
+    """Searches of the Yahoo Finance listing of products (of every searched product if none is given): product_id,
+    ticker, status, rule, searched_at.
+    """
+    stmt = select(DegiroYahooMap)
+    if product_ids is not None:
+        stmt = stmt.where(DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
+    df = pd.read_sql(stmt, engine)
+    df['searched_at'] = pd.to_datetime(df['searched_at'])
+    return df
 
 
 def query_degiro_yahoo_map(product_ids: list[int] | None = None) -> dict[int, str]:
-    """Yahoo Finance ticker of each mapped product (of every mapped product if no product is given)."""
-    stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker)
+    """Yahoo Finance listing of each product with one (of every such product if no product is given)."""
+    stmt = select(DegiroYahooMap.product_id, DegiroYahooMap.ticker).where(DegiroYahooMap.ticker.is_not(None))
     if product_ids is not None:
         stmt = stmt.where(DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
     with engine.connect() as connection:

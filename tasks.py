@@ -127,23 +127,35 @@ def fetch_product_catalog(args: argparse.Namespace):
 
 
 def fetch_etf_catalog(args: argparse.Namespace):
-    """Download the Yahoo Finance history of the tradable ETFs of the Degiro catalog (long the first time: then only
-    the new days; --full downloads every history again).
+    """Download the Yahoo Finance history of the listings of the catalog ETFs found by map-etf-catalog (long the first
+    time: then only the new days; --full downloads every history again).
     """
     from portfolio_manager.analytics.instruments import fetch_etf_catalog_data
 
     fetch_etf_catalog_data(full=args.full)
 
 
-def research_listings(args: argparse.Namespace):
-    """Search again the Yahoo Finance listing of the products whose listing is not on a preferred exchange (dry run;
-    --apply replaces the listings).
+def map_etf_catalog(args: argparse.Namespace):
+    """Search the Yahoo Finance listing of the ETFs of the catalog (never searched, failed, not found a month ago;
+    --retry: every not found one; --remap: also the found ones) and save the Excel copy of the mapping for review.
     """
-    from portfolio_manager.analytics.instruments import research_listings as research
+    from portfolio_manager.analytics.instruments import map_etf_catalog as map_catalog
 
-    for product_id, stored, found in research(apply=args.apply):
-        change = 'unchanged' if found == stored else ('replaced' if args.apply else 'would be replaced')
-        logger.info('product %d: %s -> %s (%s)', product_id, stored, found, change if found else 'nothing found')
+    map_catalog(remap=args.remap, retry=args.retry)
+
+
+def remap_portfolio_listings(args: argparse.Namespace):
+    """Search again the Yahoo Finance listing of the products traded in the accounts and show the changes (--apply:
+    save them).
+    """
+    from portfolio_manager.analytics.instruments import remap_portfolio_listings as remap
+
+    changes = remap(apply=args.apply)
+    for change in changes.itertuples():
+        logger.info(
+            '%s (%s): %s -> %s (%s)', change.symbol, change.product_id, change.stored, change.found, change.rule
+        )
+    logger.info('%d listings %s', len(changes), 'changed' if args.apply else 'would change (--apply to save them)')
 
 
 def refresh_yahoo_history(args: argparse.Namespace):
@@ -313,7 +325,8 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'fetch-product-catalog': (fetch_product_catalog, ()),
     'fetch-etf-catalog': (fetch_etf_catalog, ('full',)),
     'refresh-yahoo-history': (refresh_yahoo_history, ('full',)),
-    'research-listings': (research_listings, ('apply',)),
+    'map-etf-catalog': (map_etf_catalog, ('remap',)),
+    'remap-portfolio-listings': (remap_portfolio_listings, ('apply',)),
     'build-etf-catalog': (build_etf_catalog, ('account',)),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
@@ -334,6 +347,9 @@ def build_parser() -> argparse.ArgumentParser:
             subparser.add_argument('--broker', default=Brokers.DEGIRO.value, choices=[b.value for b in Brokers])
             subparser.add_argument('--credentials-file', help='file in the credentials folder (default: from the name)')
             subparser.add_argument('--currency', help='base currency, e.g. EUR')
+        if 'remap' in options:
+            subparser.add_argument('--remap', action='store_true', help='search again the products with a listing')
+            subparser.add_argument('--retry', action='store_true', help='search again every product not found')
         if 'apply' in options:
             subparser.add_argument('--apply', action='store_true', help='apply the changes (default: only show them)')
         if 'full' in options:

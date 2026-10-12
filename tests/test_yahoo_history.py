@@ -1,3 +1,4 @@
+from collections import Counter
 from types import SimpleNamespace
 
 import numpy as np
@@ -41,7 +42,7 @@ def yahoo_frame(closes, dividends=None, days=DAYS) -> pd.DataFrame:
 @pytest.fixture
 def yahoo(temp_db, monkeypatch):
     # a fake Yahoo Finance: histories, search results and information by ticker
-    source = SimpleNamespace(histories={}, quotes={}, info={}, downloads=[])
+    source = SimpleNamespace(histories={}, quotes={}, info={}, downloads=[], failing=set())
 
     class Ticker:
         isin = '-'
@@ -55,7 +56,11 @@ def yahoo(temp_db, monkeypatch):
             return df if start is None else df[df.index.tz_localize(None) >= pd.Timestamp(start)]
 
     monkeypatch.setattr(history.yf, 'Ticker', Ticker)
-    monkeypatch.setattr(history, 'search_ticker', lambda text: SimpleNamespace(quotes=source.quotes.get(text, [])))
+    monkeypatch.setattr(
+        history,
+        'search_ticker',
+        lambda text: None if text in source.failing else SimpleNamespace(quotes=source.quotes.get(text, [])),
+    )
     monkeypatch.setattr(history, 'get_ticker_info', lambda ticker: source.info.get(ticker, {}))
     return source
 
@@ -235,22 +240,6 @@ def test_preferred_exchange_wins_over_a_closer_name(yahoo):
     assert history.search_listing(search=isin, ticker='PHAG', name='WisdomTree Physical Silver') == '1675.T'
 
 
-def test_listings_off_the_preferred_exchanges_are_searched_again(yahoo):
-    import portfolio_manager.analytics.instruments as instruments
-
-    isin = 'JE00B1VS3002'
-    sql.upsert_products(pd.DataFrame({'id': [7], 'isin': [isin], 'symbol': ['PHAG'], 'name': ['Physical Silver']}))
-    sql.upsert_degiro_yahoo_map(product_ids=[7, 8], ticker='1675.T')  # product 8 is not in the products table
-    sql.upsert_degiro_yahoo_map(product_ids=[9], ticker='IWDC.SW')  # already on a preferred exchange
-    yahoo.quotes[isin] = [{'symbol': '1675.T'}, {'symbol': 'PHAG.L'}]
-    yahoo.histories['1675.T'] = yahoo_frame([3000.0])
-    yahoo.histories['PHAG.L'] = yahoo_frame([25.0])
-    assert instruments.research_listings() == [(7, '1675.T', 'PHAG.L')]
-    assert sql.query_degiro_yahoo_map([7])[7] == '1675.T'  # dry run
-    instruments.research_listings(apply=True)
-    assert sql.query_degiro_yahoo_map([7, 9]) == {7: 'PHAG.L', 9: 'IWDC.SW'}
-
-
 def test_ticker_searched_when_the_isin_finds_no_preferred_listing(yahoo):
     isin = 'JE00B1VS3002'
     yahoo.quotes[isin] = [{'symbol': f'{isin}.SG'}, {'symbol': '1675.T'}]  # Stuttgart without prices, Tokyo
@@ -267,3 +256,129 @@ def test_listing_found_by_ticker_needs_a_similar_name(yahoo):
     yahoo.histories['FMET.L'] = yahoo_frame([10.0])
     assert history.search_listing(search='IE000GETKIK8', ticker='FMET', name='Fidelity Metaverse ETF Acc') is None
     assert history.search_listing(search='IE000GETKIK8', ticker='FMET') == 'FMET.L'  # without a name: no check
+
+
+def test_own_line_probed_directly_when_the_isin_search_misses_it(yahoo):
+    isin = 'IE00B74DQ490'
+    yahoo.quotes[isin] = [{'symbol': 'HYLD.L', 'longname': 'iShares Global High Yield Corp Bond UCITS ETF USD'}]
+    yahoo.quotes['HYLD.SW'] = [{'symbol': 'HYLD.SW', 'longname': 'iShares Global High Yield Corp Bond UCITS ETF USD'}]
+    yahoo.histories['HYLD.L'] = yahoo_frame([85.0])
+    yahoo.histories['HYLD.SW'] = yahoo_frame([80.0])
+    name = 'iShares Global HY Corp Bond UCITS ETF USD'
+    assert history.find_listing(isin, 'HYLD', name, exchange='SW') == history.Listing('HYLD.SW', 'found', 'own line')
+    # a listing with the same ticker but another name is not the own line
+    yahoo.quotes['HYLD.SW'] = [{'symbol': 'HYLD.SW', 'longname': 'Hyland Software Inc'}]
+    searches = history.ListingSearches()
+    assert history.find_listing(isin, 'HYLD', name, exchange='SW', searches=searches).ticker == 'HYLD.L'
+
+
+def test_search_without_answer_is_failed(yahoo):
+    yahoo.failing.add('IE00B74DQ490')
+    assert history.find_listing('IE00B74DQ490', name='iShares Global HY') == history.Listing(None, 'failed')
+    yahoo.failing.clear()
+    assert history.find_listing('IE00B74DQ490', name='iShares Global HY') == history.Listing(None, 'not found')
+
+
+def products(rows):
+    # products of the Degiro catalog: id, isin, symbol, name, exchange (Xetra 194, SIX 947)
+    return pd.DataFrame(rows, columns=['id', 'isin', 'symbol', 'name', 'exchange_id'])
+
+
+def test_which_products_are_searched(yahoo):
+    import portfolio_manager.analytics.instruments as instruments
+
+    sql.save_listing_search([2], 'BBB.DE', 'found', 'own line')
+    sql.save_listing_search([3], None, 'failed')
+    sql.save_listing_search([4], None, 'not found')
+    sql.save_listing_search([5], None, 'not found')
+    old = (pd.Timestamp.now() - instruments.PRODUCT_SEARCH_RETRY - pd.Timedelta(days=1)).to_pydatetime()
+    with sql.engine.begin() as connection:
+        connection.execute(text('UPDATE degiro_yahoo_map SET searched_at = :t WHERE product_id = 5'), {'t': old})
+    df = products([(n, f'XX{n}', f'S{n}', f'ETF {n}', 194) for n in range(1, 6)])
+    assert instruments.products_to_search(df)['id'].tolist() == [1, 3, 5]  # never searched, failed, not found long ago
+    assert instruments.products_to_search(df, retry=True)['id'].tolist() == [1, 3, 4, 5]
+    assert instruments.products_to_search(df, remap=True)['id'].tolist() == [1, 2, 3, 5]
+
+
+def test_mapping_of_the_catalog(yahoo, tmp_path, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    catalog = products(
+        [
+            (1, 'IE00B4L5Y983', 'EUNL', 'iShares Core MSCI World', 194),
+            (2, 'IE00B4L5Y983', 'SWDA', 'iShares Core MSCI World', 947),  # same fund on SIX: its own line
+            (3, 'IE00B74DQ490', 'HYLD', 'iShares Global HY', 947),  # traded in an account: kept
+            (4, 'XX0000000000', 'NONE', 'Unknown ETF', 194),
+            (5, 'IE00BZ56RN96', 'FAIL', 'Failing ETF', 194),
+        ]
+    )
+    sql.upsert_products(catalog)
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: {3})
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    yahoo.quotes['IE00B4L5Y983'] = [{'symbol': 'EUNL.DE'}, {'symbol': 'SWDA.SW'}, {'symbol': 'IWDA.L'}]
+    for ticker in ['EUNL.DE', 'SWDA.SW', 'IWDA.L']:
+        yahoo.histories[ticker] = yahoo_frame([90.0])
+    yahoo.failing.update({'IE00BZ56RN96', 'FAIL', 'FAIL.DE'})
+    sql.save_listing_search([5], 'OLD.DE', 'found', 'name')
+    assert instruments.map_etf_catalog(remap=True) == Counter({'found': 2, 'not found': 1, 'failed': 1})
+    # a failed search keeps the listing found before
+    assert sql.query_degiro_yahoo_map() == {1: 'EUNL.DE', 2: 'SWDA.SW', 5: 'OLD.DE'}
+    review = pd.read_excel(tmp_path / 'yahoo_mapping.xlsx')
+    assert sorted(review['product_id']) == [1, 2, 4, 5] and set(review['rule'].dropna()) == {'own line', 'name'}
+
+
+def test_remap_of_the_portfolio_products(yahoo, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    sql.upsert_products(products([(3, 'IE00B74DQ490', 'HYLD', 'iShares Global HY Corp Bond', 947)]))
+    sql.save_listing_search([3], 'HYLD.L', 'found', 'preferred exchange')
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: {3})
+    yahoo.quotes['IE00B74DQ490'] = [{'symbol': 'HYLD.L'}, {'symbol': 'HYLD.SW'}]
+    yahoo.histories['HYLD.L'] = yahoo_frame([85.0])
+    yahoo.histories['HYLD.SW'] = yahoo_frame([80.0, 81.0])
+    changes = instruments.remap_portfolio_listings()
+    assert changes[['product_id', 'stored', 'found', 'rule']].values.tolist() == [[3, 'HYLD.L', 'HYLD.SW', 'own line']]
+    assert sql.query_degiro_yahoo_map() == {3: 'HYLD.L'}  # shown only
+    instruments.remap_portfolio_listings(apply=True)
+    assert sql.query_degiro_yahoo_map() == {3: 'HYLD.SW'}
+    assert history.stored_history('HYLD.SW')['close'].tolist() == [80.0, 81.0]
+
+
+def test_catalog_history_of_the_mapped_listings(yahoo, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    catalog = products([(1, 'IE00B4L5Y983', 'EUNL', 'iShares Core MSCI World', 194), (2, 'XX1', 'X', 'X', 194)])
+    sql.upsert_products(catalog)
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments.time, 'sleep', lambda seconds: None)
+    sql.save_listing_search([1], 'EUNL.DE', 'found', 'own line')
+    sql.save_listing_search([2], None, 'not found')
+    yahoo.histories['EUNL.DE'] = yahoo_frame([90.0, 91.0])
+    yahoo.info['EUNL.DE'] = {'currency': 'EUR', 'longName': 'iShares Core MSCI World UCITS ETF'}
+    instruments.fetch_etf_catalog_data()
+    assert history.stored_history('EUNL.DE')['close'].tolist() == [90.0, 91.0]
+    stored = sql.query_yahoo_instruments(['EUNL.DE']).loc['EUNL.DE']
+    assert (stored['currency'], stored['isin']) == ('EUR', 'IE00B4L5Y983')
+
+
+def test_database_of_version_4_keeps_its_listings(tmp_path, monkeypatch):
+    folder = tmp_path / 'db'
+    folder.mkdir()
+    engine = create_engine(f'sqlite:///{folder / "old.db"}')
+    with engine.begin() as connection:
+        for statement in [
+            'CREATE TABLE schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)',
+            'INSERT INTO schema_version VALUES (1, 4)',
+            'CREATE TABLE degiro_yahoo_map (product_id INTEGER NOT NULL PRIMARY KEY, ticker VARCHAR NOT NULL)',
+            "INSERT INTO degiro_yahoo_map VALUES (1, 'EUNL.DE'), (2, 'HYLD.L')",
+        ]:
+            connection.execute(text(statement))
+    monkeypatch.setattr(tables, 'engine', engine)
+    monkeypatch.setattr(sql, 'engine', engine)
+    monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
+    tables.init_db()
+    assert migrations.schema_version(engine) == migrations.latest_version()
+    searches = sql.query_listing_searches().set_index('product_id')
+    assert searches['ticker'].to_dict() == {1: 'EUNL.DE', 2: 'HYLD.L'} and set(searches['status']) == {'found'}
+    sql.save_listing_search([3], None, 'not found')  # the listing may be missing now

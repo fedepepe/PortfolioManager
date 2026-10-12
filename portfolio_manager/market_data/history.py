@@ -10,6 +10,7 @@ import logging
 import re
 from datetime import date, timedelta
 from difflib import SequenceMatcher
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -49,6 +50,7 @@ INFO_FIELDS = {
     'market': 'market',
     'region': 'region',
 }
+MIN_NAME_SIMILARITY = 0.6  # listings found by ticker must have a more similar name than this
 ISIN_PATTERN = re.compile(r'[A-Z]{2}[A-Z0-9]{9}[0-9]')
 # currencies quoted by Yahoo in hundredths of the currency: pence, South African cents, Israeli agorot
 MINOR_UNITS = {'GBp': 'GBP', 'GBX': 'GBP', 'ZAc': 'ZAR', 'ILA': 'ILS'}
@@ -148,56 +150,137 @@ def choose_ticker(tickers: list[str], ticker: str | None = None) -> str:
     return tickers[0]
 
 
-def _search_quotes(search: str) -> list[dict]:
-    # every listing found by a search text (an ISIN, a name, ...)
-    results = search_ticker(search)
-    return results.quotes if results is not None else []
+def name_similarity(name: str, other: str) -> float:
+    """Similarity of two instrument names, from 0 to 1 (case ignored)."""
+    return SequenceMatcher(None, name.lower(), other.lower()).ratio()
 
 
-def _ticker_quotes(ticker: str) -> list[dict]:
-    # the listings of a ticker: exact, or with the suffix of a preferred exchange
-    symbols = [ticker] + [f'{ticker}.{x.code}' for x in Exchanges]
-    return [q for q in _search_quotes(ticker) if q.get('symbol') in symbols]
+class Listing(NamedTuple):
+    """Result of the search of a listing: ticker (None if none), status (found, not found, failed) and the rule that
+    chose it (own line, preferred exchange, name, symbol search, other exchange).
+    """
+
+    ticker: str | None
+    status: str
+    rule: str | None = None
 
 
-def _add_candidates(quotes: list[dict], names: dict[str, str], histories: dict[str, pd.DataFrame]):
-    # the listings not seen yet, with their name; those with prices get their history (in place)
-    for quote in quotes:
-        symbol = quote['symbol']
-        if symbol in names:
-            continue
-        names[symbol] = quote.get('longname') or quote.get('shortname') or ''
-        history = download_history(symbol)
-        if not history['close'].dropna().empty:
-            histories[symbol] = history
+class ListingSearches:
+    """Searches and price probes of one run, kept so that products of the same fund repeat neither."""
+
+    def __init__(self):
+        self.quotes: dict[str, list[dict] | None] = {}
+        self.last_prices: dict[str, pd.Timestamp | None] = {}
+
+    def search(self, text: str) -> list[dict] | None:
+        """Listings found by a search text (an ISIN, a ticker, ...); None if Yahoo did not answer."""
+        if text not in self.quotes:
+            results = search_ticker(text)
+            self.quotes[text] = results.quotes if results is not None else None
+        return self.quotes[text]
+
+    def last_price(self, ticker: str) -> pd.Timestamp | None:
+        """Month of the last price of a listing in the last 10 years (monthly prices: one light request); None if it
+        has none.
+        """
+        if ticker not in self.last_prices:
+            closes = yf.Ticker(ticker).history(period=HISTORY_PERIOD, interval='1mo', auto_adjust=False)['Close']
+            self.last_prices[ticker] = closes.last_valid_index() if not closes.dropna().empty else None
+        return self.last_prices[ticker]
+
+    def name(self, ticker: str) -> str:
+        """Yahoo name of a listing, from the search of its ticker (from its information if the search misses it)."""
+        quotes = self.search(ticker) or []
+        label = next((q.get('longname') or q.get('shortname') for q in quotes if q.get('symbol') == ticker), None)
+        if not label:
+            info = get_ticker_info(ticker) or {}
+            label = info.get('longName') or info.get('shortName')
+        return label or ''
+
+
+def find_listing(
+    search: str | None = None,
+    ticker: str | None = None,
+    name: str | None = None,
+    exchange: str | None = None,
+    searches: ListingSearches | None = None,
+) -> Listing:
+    """Find the Yahoo Finance listing of an instrument (nothing is stored). The candidates are the listings found by the
+    search text (usually the ISIN) that have prices; when none is on a preferred exchange, also those of the ticker
+    with a name similar to the given one. The choice: the ticker on its own exchange (the Yahoo suffix of the exchange
+    of the instrument, e.g. EUNL.DE for EUNL on Xetra; probed directly if the search misses it, then accepted with a
+    similar name), otherwise the listings on the preferred exchanges if any, then the closest name (without a name,
+    the first preferred exchange).
+    """
+    search, ticker, name = (None if is_missing(v) else v for v in (search, ticker, name))
+    searches = searches or ListingSearches()
+    names, by_symbol, failed = {}, set(), False
+
+    def add(quotes: list[dict] | None, guard: bool) -> list[str]:
+        # the listings with prices among the quotes (with a similar name if guarded); remembers their names
+        nonlocal failed
+        if quotes is None:
+            failed = True
+            return []
+        found = []
+        for quote in quotes:
+            symbol = quote['symbol']
+            label = quote.get('longname') or quote.get('shortname') or ''
+            if guard and name is not None and name_similarity(name, label) <= MIN_NAME_SIMILARITY:
+                continue
+            names.setdefault(symbol, label)
+            if searches.last_price(symbol) is not None:
+                found.append(symbol)
+        return found
+
+    candidates = add(searches.search(search), guard=False) if search is not None else []
+    own_line = f'{ticker}.{exchange}' if ticker is not None and exchange is not None else None
+    if own_line in candidates:
+        return Listing(own_line, 'found', 'own line')
+    # the ISIN search often returns only some listings: the own line is probed directly, and accepted with a similar
+    # name (a ticker may belong to another instrument)
+    if own_line is not None and searches.last_price(own_line) is not None:
+        label = searches.name(own_line)
+        if name is None or name_similarity(name, label) > MIN_NAME_SIMILARITY:
+            return Listing(own_line, 'found', 'own line')
+    if ticker is not None and not any(on_preferred_exchange(c) for c in candidates):
+        # a ticker may belong to another instrument on another exchange: only listings with a similar name
+        symbols = [ticker] + [f'{ticker}.{x.code}' for x in Exchanges]
+        quotes = searches.search(ticker)
+        quotes = [q for q in quotes if q.get('symbol') in symbols] if quotes is not None else None
+        by_symbol = set(add(quotes, guard=True)) - set(candidates)
+        candidates += sorted(by_symbol)
+        if own_line in candidates:
+            return Listing(own_line, 'found', 'own line')
+    if not candidates:
+        return Listing(None, 'failed' if failed else 'not found')
+    preferred = [c for c in candidates if on_preferred_exchange(c)]
+    pool = preferred or candidates
+    if len(pool) > 1 and name is not None:
+        chosen = max(pool, key=lambda c: name_similarity(name, names[c]))
+        rule = 'name'
+    else:
+        chosen = choose_ticker(pool, ticker)
+        rule = 'preferred exchange' if preferred else 'other exchange'
+    return Listing(chosen, 'found', 'symbol search' if chosen in by_symbol else rule)
+
+
+def store_listing(ticker: str, isin: str | None = None) -> str:
+    """Store the history and the information of a listing found by a search; returns its ticker."""
+    refresh_history(ticker, full=True)
+    refresh_info(ticker, isin=isin)
+    return ticker
 
 
 def search_listing(search: str | None = None, ticker: str | None = None, name: str | None = None) -> str | None:
-    """Find the Yahoo Finance listing of an instrument, store its history and information, and return its ticker;
-    None if no listing with prices is found. The candidates are the listings found by the search text (usually the
-    ISIN), plus those of the ticker when the search finds none with prices on a preferred exchange. Among several:
-    those on the preferred exchanges if there are any, then the closest name (without a name, the first preferred
-    exchange).
+    """Find the Yahoo Finance listing of an instrument (see find_listing), store its history and information, and
+    return its ticker; None if no listing is found.
     """
-    search = None if is_missing(search) else search
-    ticker = None if is_missing(ticker) else ticker
-    names, histories = {}, {}
-    if search is not None:
-        _add_candidates(_search_quotes(search), names, histories)
-    if ticker is not None and not any(on_preferred_exchange(s) for s in histories):
-        _add_candidates(_ticker_quotes(ticker), names, histories)
-    if not histories:
+    listing = find_listing(search=search, ticker=ticker, name=name)
+    if listing.ticker is None:
         return None
-    found_isin = search if search is not None and ISIN_PATTERN.fullmatch(search) else None
-    # the listings on the preferred exchanges, if any: a closer name on another exchange (e.g. Tokyo) does not win
-    symbols = [s for s in histories if on_preferred_exchange(s)] or list(histories)
-    if len(symbols) > 1 and not is_missing(name):
-        chosen = max(symbols, key=lambda s: SequenceMatcher(None, name, names[s]).ratio())
-    else:
-        chosen = choose_ticker(symbols, ticker)
-    save_yahoo_prices(upsert_yahoo_instrument(chosen), histories[chosen], replace=True)
-    refresh_info(chosen, isin=found_isin)
-    return chosen
+    isin = search if search is not None and ISIN_PATTERN.fullmatch(search) else None
+    return store_listing(listing.ticker, isin=isin)
 
 
 def adjusted_close(history: pd.DataFrame) -> pd.Series:

@@ -49,7 +49,7 @@ def yahoo(temp_db, monkeypatch):
         def __init__(self, ticker):
             self.ticker = ticker
 
-        def history(self, interval, auto_adjust, actions, start=None, period=None):
+        def history(self, interval, auto_adjust, actions=False, start=None, period=None):
             source.downloads.append((self.ticker, start))
             df = source.histories.get(self.ticker, yahoo_frame([]))
             return df if start is None else df[df.index.tz_localize(None) >= pd.Timestamp(start)]
@@ -254,8 +254,16 @@ def test_listings_off_the_preferred_exchanges_are_searched_again(yahoo):
 def test_ticker_searched_when_the_isin_finds_no_preferred_listing(yahoo):
     isin = 'JE00B1VS3002'
     yahoo.quotes[isin] = [{'symbol': f'{isin}.SG'}, {'symbol': '1675.T'}]  # Stuttgart without prices, Tokyo
-    yahoo.quotes['PHPD'] = [{'symbol': 'PHPD.L'}, {'symbol': 'PHPDX'}]
+    yahoo.quotes['PHPD'] = [{'symbol': 'PHPD.L', 'longname': 'WisdomTree Physical Palladium'}, {'symbol': 'PHPDX'}]
     yahoo.histories['1675.T'] = yahoo_frame([3000.0])
     yahoo.histories['PHPD.L'] = yahoo_frame([150.0])
     assert history.search_listing(search=isin, ticker='PHPD', name='WisdomTree Physical Palladium') == 'PHPD.L'
     assert sql.query_yahoo_instruments(['PHPD.L']).loc['PHPD.L', 'isin'] == isin
+
+
+def test_listing_found_by_ticker_needs_a_similar_name(yahoo):
+    # the ISIN finds nothing on a preferred exchange; the ticker belongs to a share on London
+    yahoo.quotes['FMET'] = [{'symbol': 'FMET.L', 'longname': 'Fulcrum Metals plc'}]
+    yahoo.histories['FMET.L'] = yahoo_frame([10.0])
+    assert history.search_listing(search='IE000GETKIK8', ticker='FMET', name='Fidelity Metaverse ETF Acc') is None
+    assert history.search_listing(search='IE000GETKIK8', ticker='FMET') == 'FMET.L'  # without a name: no check

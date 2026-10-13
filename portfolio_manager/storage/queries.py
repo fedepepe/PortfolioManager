@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, select
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -465,32 +465,28 @@ def save_listing_search(product_ids: list[int], ticker: str | None, status: str,
     )
     with SessionLocal() as session:
         session.execute(stmt, rows)
+        # only an accepted own line is remembered
+        session.execute(
+            update(DegiroYahooMap)
+            .where(DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
+            .where(or_(DegiroYahooMap.own_line_decision.is_(None), DegiroYahooMap.own_line_decision != 'accepted'))
+            .values(own_line=None, own_line_name=None, own_line_decision=None)
+        )
         session.commit()
 
 
-def save_own_line_proposal(product_id: int, own_line: str, name: str):
-    """Propose the own line of a product to the user (pending), unless the user already decided on this own line."""
+def save_accepted_own_line(product_id: int, own_line: str, name: str):
+    """Remember the own line of a product accepted by the user (with its Yahoo name): not asked again."""
     with SessionLocal() as session:
         search = session.get(DegiroYahooMap, int(product_id))
-        if search is None or (search.own_line == own_line and search.own_line_decision in ('accepted', 'rejected')):
-            return
-        search.own_line, search.own_line_name, search.own_line_decision = own_line, name, 'pending'
-        session.commit()
-
-
-def decide_own_line(product_id: int, accepted: bool):
-    """Save the decision of the user on the own line proposed for a product (accepted: it becomes its listing)."""
-    with SessionLocal() as session:
-        search = session.get(DegiroYahooMap, int(product_id))
-        search.own_line_decision = 'accepted' if accepted else 'rejected'
-        if accepted:
-            search.ticker, search.status, search.rule = search.own_line, 'found', 'own line (confirmed)'
+        search.own_line, search.own_line_name, search.own_line_decision = own_line, name, 'accepted'
         session.commit()
 
 
 def query_listing_searches(product_ids: list[int] | None = None) -> pd.DataFrame:
     """Searches of the Yahoo Finance listing of products (of every searched product if none is given): product_id,
-    ticker, status, rule, searched_at, own_line, own_line_name, own_line_decision.
+    ticker, status, rule, searched_at, and the own line accepted by the user (own_line, own_line_name,
+    own_line_decision).
     """
     stmt = select(DegiroYahooMap)
     if product_ids is not None:

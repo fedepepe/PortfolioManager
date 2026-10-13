@@ -402,15 +402,26 @@ def spdr_quotes(yahoo):
     return isin
 
 
-def test_own_line_with_another_name_is_proposed(yahoo):
+def test_own_line_with_another_name_is_asked(yahoo):
     isin = spdr_quotes(yahoo)
-    found = history.find_listing(isin, 'SPYI', 'SPDR MSCI ACWI IMI', exchange='DE', currency='EUR')
-    assert (found.ticker, found.proposal) == ('IMID.L', 'SPYI.DE')  # the other listing meanwhile
+    args = (isin, 'SPYI', 'SPDR MSCI ACWI IMI')
+    # not asked (no terminal): the other listing, with the own line reported
+    found = history.find_listing(*args, exchange='DE', currency='EUR')
+    assert (found.ticker, found.rule, found.proposal) == ('IMID.L', 'preferred exchange', 'SPYI.DE')
     assert found.proposal_name.startswith('State Street')
-    accepted = history.find_listing(isin, 'SPYI', 'SPDR MSCI ACWI IMI', exchange='DE', accepted='SPYI.DE')
-    assert accepted == history.Listing('SPYI.DE', 'found', 'own line (confirmed)')
-    rejected = history.find_listing(isin, 'SPYI', 'SPDR MSCI ACWI IMI', exchange='DE', rejected='SPYI.DE')
-    assert (rejected.ticker, rejected.proposal) == ('IMID.L', None)
+    # asked: the question shows both listings
+    questions = []
+    accepted = history.find_listing(*args, exchange='DE', confirm=lambda q: questions.append(q) or True)
+    assert (accepted.ticker, accepted.status, accepted.rule) == ('SPYI.DE', 'found', 'own line (confirmed)')
+    question = questions[0]
+    assert (question.own_line, question.alternative.ticker) == ('SPYI.DE', 'IMID.L')
+    assert question.own_line_name.startswith('State Street')
+    assert question.alternative_name == 'SPDR MSCI ACWI IMI UCITS ETF'
+    rejected = history.find_listing(*args, exchange='DE', confirm=lambda q: False)
+    assert (rejected.ticker, rejected.proposal) == ('IMID.L', 'SPYI.DE')
+    # accepted before: not asked again
+    remembered = history.find_listing(*args, exchange='DE', accepted='SPYI.DE', confirm=lambda q: 1 / 0)
+    assert (remembered.ticker, remembered.rule) == ('SPYI.DE', 'own line (confirmed)')
 
 
 def test_listings_in_the_currency_of_the_product_first(yahoo):
@@ -438,7 +449,7 @@ def test_equal_names_follow_the_preferred_exchange_order(yahoo):
     assert history.find_listing(isin, 'PDOT', '21Shares Polkadot ETP', exchange='DE').ticker == 'ADOT.MI'  # Milan first
 
 
-def test_confirmation_of_the_proposed_own_lines(yahoo, tmp_path, monkeypatch):
+def map_spdr(yahoo, tmp_path, monkeypatch):
     import portfolio_manager.analytics.instruments as instruments
 
     isin = spdr_quotes(yahoo)
@@ -447,35 +458,36 @@ def test_confirmation_of_the_proposed_own_lines(yahoo, tmp_path, monkeypatch):
     monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
     monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
     monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
-    assert instruments.map_etf_catalog()['own line to confirm'] == 1
-    pending = instruments.own_lines_to_confirm()
-    assert pending[['product_id', 'own_line', 'listing_used']].values.tolist() == [[1, 'SPYI.DE', 'IMID.L']]
-    sheets = pd.read_excel(tmp_path / 'yahoo_mapping.xlsx', sheet_name=None)
-    assert list(sheets) == ['Mapping', 'To confirm'] and len(sheets['To confirm']) == 1
-    # a new search keeps the proposal pending; accepted, it becomes the listing (with its history)
-    instruments.map_etf_catalog(remap=True)
-    assert len(instruments.own_lines_to_confirm()) == 1
-    instruments.confirm_own_lines(accept=[1], reject=[])
-    assert sql.query_degiro_yahoo_map() == {1: 'SPYI.DE'} and instruments.own_lines_to_confirm().empty
-    assert history.stored_history('SPYI.DE')['close'].tolist() == [180.0]
-    instruments.map_etf_catalog(remap=True)  # searched again: stays on the accepted own line
+    return instruments
+
+
+def test_accepted_own_line_is_remembered(yahoo, tmp_path, monkeypatch):
+    instruments = map_spdr(yahoo, tmp_path, monkeypatch)
+    asked = []
+    results = instruments.map_etf_catalog(confirm=lambda product, doubt: asked.append(product.id) or True)
+    assert asked == [1] and results['found'] == 1 and not results['own line not used']
+    assert sql.query_degiro_yahoo_map() == {1: 'SPYI.DE'}
+    instruments.map_etf_catalog(remap=True, confirm=lambda product, doubt: 1 / 0)  # not asked again
     searches = sql.query_listing_searches().set_index('product_id')
-    assert (searches.loc[1, 'ticker'], searches.loc[1, 'rule']) == ('SPYI.DE', 'own line (confirmed)')
+    assert searches.loc[1, ['ticker', 'rule', 'own_line', 'own_line_decision']].tolist() == [
+        'SPYI.DE',
+        'own line (confirmed)',
+        'SPYI.DE',
+        'accepted',
+    ]
+    assert len(pd.read_excel(tmp_path / 'yahoo_mapping.xlsx', sheet_name=None)) == 1  # no sheet of proposals
 
 
-def test_rejected_own_line_is_not_proposed_again(yahoo, tmp_path, monkeypatch):
-    import portfolio_manager.analytics.instruments as instruments
-
-    isin = spdr_quotes(yahoo)
-    catalog = products([(1, isin, 'SPYI', 'SPDR MSCI ACWI IMI', 194)])
-    sql.upsert_products(catalog)
-    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
-    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
-    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
-    instruments.map_etf_catalog()
-    instruments.confirm_own_lines(accept=[], reject=[1])
-    assert instruments.map_etf_catalog(remap=True)['own line to confirm'] == 0
-    assert sql.query_degiro_yahoo_map() == {1: 'IMID.L'} and instruments.own_lines_to_confirm().empty
+def test_rejected_or_unasked_own_line_is_not_stored(yahoo, tmp_path, monkeypatch):
+    instruments = map_spdr(yahoo, tmp_path, monkeypatch)
+    results = instruments.map_etf_catalog()  # not asked (no terminal)
+    assert results['own line not used'] == 1 and sql.query_degiro_yahoo_map() == {1: 'IMID.L'}
+    asked = []
+    instruments.map_etf_catalog(remap=True, confirm=lambda product, doubt: asked.append(product.id) or False)
+    instruments.map_etf_catalog(remap=True, confirm=lambda product, doubt: asked.append(product.id) or False)
+    assert asked == [1, 1]  # a rejection is asked again at the next search
+    searches = sql.query_listing_searches().set_index('product_id')
+    assert searches.loc[1, 'ticker'] == 'IMID.L' and pd.isna(searches.loc[1, 'own_line'])
 
 
 def test_remap_of_the_products_not_on_their_own_line(yahoo):

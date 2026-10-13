@@ -8,6 +8,7 @@ capital gains), as Yahoo computes it; the prices are already adjusted for splits
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from typing import NamedTuple
@@ -148,7 +149,7 @@ def name_similarity(name: str, other: str) -> float:
 class Listing(NamedTuple):
     """Result of the search of a listing: ticker (None if none), status (found, not found, failed), the rule that chose
     it (own line, own line (confirmed), preferred exchange, currency, name, symbol search, other exchange) and, when
-    the own line has prices but another name, that own line and its name, proposed to the user for confirmation.
+    the own line has prices but another name, that own line and its Yahoo name.
     """
 
     ticker: str | None
@@ -205,6 +206,23 @@ def exchange_rank(ticker: str) -> int:
     return next((n for n, x in enumerate(Exchanges) if ticker.endswith(f'.{x.code}')), len(Exchanges))
 
 
+class OwnLineDoubt(NamedTuple):
+    """An own line with prices but another name, and the listing chosen otherwise (names and currencies as Yahoo
+    reports them).
+    """
+
+    own_line: str
+    own_line_name: str
+    own_line_currency: str | None
+    alternative: Listing
+    alternative_name: str | None
+    alternative_currency: str | None
+
+
+# asks the user whether to use a doubtful own line instead of the alternative listing
+ConfirmOwnLine = Callable[[OwnLineDoubt], bool]
+
+
 def find_listing(
     search: str | None = None,
     ticker: str | None = None,
@@ -212,7 +230,7 @@ def find_listing(
     exchange: str | None = None,
     currency: str | None = None,
     accepted: str | None = None,
-    rejected: str | None = None,
+    confirm: ConfirmOwnLine | None = None,
     searches: ListingSearches | None = None,
 ) -> Listing:
     """Find the Yahoo Finance listing of an instrument (nothing is stored). The candidates are the listings found by the
@@ -220,15 +238,16 @@ def find_listing(
     with a name similar to the given one.
 
     The choice: the ticker on its own exchange (the Yahoo suffix of the exchange of the instrument, e.g. EUNL.DE for
-    EUNL on Xetra) if the search finds it; probed directly otherwise, and used if its name is similar or the user
-    accepted it (an own line with prices and another name is proposed for confirmation, unless rejected). Otherwise the
-    listings on the preferred exchanges if any, among them those in the currency of the instrument if any, then the
-    closest name, then the listings of the ticker itself, then the preferred exchange order.
+    EUNL on Xetra) if the search finds it; probed directly otherwise, and used if its name is similar, if the user
+    accepted it before, or if confirm (asking the user) accepts it. Otherwise the listings on the preferred exchanges
+    if any, among them those in the currency of the instrument if any, then the closest name, then the listings of the
+    ticker itself, then the preferred exchange order. A doubtful own line not accepted is returned as the proposal of
+    the listing chosen instead.
     """
     search, ticker, name = (None if is_missing(v) else v for v in (search, ticker, name))
     searches = searches or ListingSearches()
     names, by_symbol, failed = {}, set(), False
-    proposal = proposal_name = None
+    doubt = None
 
     def add(quotes: list[dict] | None, guard: bool) -> list[str]:
         # the listings with prices among the quotes (with a similar name if guarded); remembers their names
@@ -247,20 +266,37 @@ def find_listing(
                 found.append(symbol)
         return found
 
+    def decide(listing: Listing) -> Listing:
+        # a doubtful own line: used if accepted before or now, otherwise proposed with the listing chosen instead
+        if doubt is None:
+            return listing
+        own_line, label = doubt
+        if own_line == accepted:
+            return Listing(own_line, 'found', 'own line (confirmed)', own_line, label)
+        if confirm is not None:
+            question = OwnLineDoubt(
+                own_line=own_line,
+                own_line_name=label,
+                own_line_currency=searches.currencies.get(own_line),
+                alternative=listing,
+                alternative_name=names.get(listing.ticker),
+                alternative_currency=searches.currencies.get(listing.ticker),
+            )
+            if confirm(question):
+                return Listing(own_line, 'found', 'own line (confirmed)', own_line, label)
+        return listing._replace(proposal=own_line, proposal_name=label)
+
     candidates = add(searches.search(search), guard=False) if search is not None else []
     own_line = f'{ticker}.{exchange}' if ticker is not None and exchange is not None else None
     if own_line in candidates:
         return Listing(own_line, 'found', 'own line')
     # the ISIN search often returns only some listings: the own line is probed directly; a ticker may belong to
-    # another instrument, so an own line with another name is used only once the user accepts it
+    # another instrument, so an own line with another name is a doubt for the user
     if own_line is not None and searches.last_price(own_line) is not None:
         label = searches.name(own_line)
         if name is None or name_similarity(name, label) > MIN_NAME_SIMILARITY:
             return Listing(own_line, 'found', 'own line')
-        if own_line == accepted:
-            return Listing(own_line, 'found', 'own line (confirmed)')
-        if own_line != rejected:
-            proposal, proposal_name = own_line, label
+        doubt = (own_line, label)
     if ticker is not None and not any(on_preferred_exchange(c) for c in candidates):
         # a ticker may belong to another instrument on another exchange: only listings with a similar name
         symbols = [ticker] + [f'{ticker}.{x.code}' for x in Exchanges]
@@ -271,7 +307,7 @@ def find_listing(
         if own_line in candidates:
             return Listing(own_line, 'found', 'own line')
     if not candidates:
-        return Listing(None, 'failed' if failed else 'not found', None, proposal, proposal_name)
+        return decide(Listing(None, 'failed' if failed else 'not found'))
     preferred = [c for c in candidates if on_preferred_exchange(c)]
     pool = preferred or candidates
     rule = 'preferred exchange' if preferred else 'other exchange'
@@ -289,8 +325,7 @@ def find_listing(
             -exchange_rank(c),
         ),
     )
-    rule = 'symbol search' if chosen in by_symbol else rule
-    return Listing(chosen, 'found', rule, proposal, proposal_name)
+    return decide(Listing(chosen, 'found', 'symbol search' if chosen in by_symbol else rule))
 
 
 def store_listing(ticker: str, isin: str | None = None) -> str:

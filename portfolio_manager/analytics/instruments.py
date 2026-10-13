@@ -5,6 +5,7 @@ account.
 import logging
 import time
 from collections import Counter
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -22,7 +23,6 @@ from portfolio_manager.market_data.history import (
     listing_currencies,
     load_adjusted_closes,
     major_currency,
-    name_similarity,
     refresh_history,
     refresh_info,
     search_listing,
@@ -33,16 +33,15 @@ from portfolio_manager.market_data.yahoo import YFinInfoCols
 from portfolio_manager.storage.files import PD_DATA_TYPES, save_df_dict_to_excel, save_df_to_excel
 from portfolio_manager.storage.models import Product
 from portfolio_manager.storage.queries import (
-    decide_own_line,
     query_account_product_ids,
     query_degiro_yahoo_map,
     query_etf_catalog,
     query_listing_searches,
     query_products,
     query_yahoo_instruments,
+    save_accepted_own_line,
     save_etf_catalog,
     save_listing_search,
-    save_own_line_proposal,
 )
 
 logger = logging.getLogger(__name__)
@@ -222,17 +221,22 @@ def traded_product_ids() -> set[int]:
 
 
 def search_product_listing(
-    product, searches: ListingSearches | None = None, decided: pd.DataFrame | None = None
+    product,
+    searches: ListingSearches | None = None,
+    decided: pd.DataFrame | None = None,
+    confirm: Callable | None = None,
 ) -> Listing:
     """Find the Yahoo Finance listing of a Degiro product (a row of the products table): its own line first (see
-    find_listing), using the decisions of the user on proposed own lines (rows of query_listing_searches by product);
-    a failed search is a result too.
+    find_listing), with the own lines accepted before (rows of query_listing_searches by product); confirm(product,
+    doubt) asks the user about a doubtful own line (see OwnLineDoubt). A failed search is a result too.
     """
-    accepted = rejected = None
-    if decided is not None and product.id in decided.index:
-        own_line, decision = decided.loc[product.id, ['own_line', 'own_line_decision']]
-        accepted = own_line if decision == 'accepted' else None
-        rejected = own_line if decision == 'rejected' else None
+    accepted = None
+    if (
+        decided is not None
+        and product.id in decided.index
+        and decided.loc[product.id, 'own_line_decision'] == 'accepted'
+    ):
+        accepted = decided.loc[product.id, 'own_line']
     try:
         return find_listing(
             search=product.isin,
@@ -241,7 +245,7 @@ def search_product_listing(
             exchange=yahoo_suffix(product.exchange_id),
             currency=product.currency,
             accepted=accepted,
-            rejected=rejected,
+            confirm=(lambda doubt: confirm(product, doubt)) if confirm is not None else None,
             searches=searches,
         )
     except Exception as e:  # any download problem: searched again at the next run
@@ -286,9 +290,11 @@ def map_listings(
     retry: bool = False,
     remap_before: datetime | None = None,
     remap_not_own_line: bool = False,
+    confirm: Callable | None = None,
 ) -> Counter:
     """Search and save the Yahoo Finance listing of the products to search (see products_to_search); a failed search
-    keeps the listing found before. Returns the count of each status.
+    keeps the listing found before; confirm(product, doubt) asks the user about doubtful own lines (without it, they
+    are only reported). Returns the count of each status.
     """
     todo = products_to_search(
         products, remap=remap, retry=retry, remap_before=remap_before, remap_not_own_line=remap_not_own_line
@@ -297,13 +303,13 @@ def map_listings(
     decided = query_listing_searches(todo['id'].to_list()).set_index('product_id')
     searches, results = ListingSearches(), Counter()
     for n, product in enumerate(todo.itertuples()):
-        listing = search_product_listing(product, searches, decided)
+        listing = search_product_listing(product, searches, decided, confirm)
         if listing.status != 'failed' or product.id not in found_before:
             save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
-        if listing.proposal is not None:
-            save_own_line_proposal(product.id, listing.proposal, listing.proposal_name)
-            results['own line to confirm'] += 1
+        save_own_line_decision(product.id, listing, asked=confirm is not None)
         results[listing.status] += 1
+        if listing.proposal is not None and listing.rule != 'own line (confirmed)':
+            results['own line not used'] += 1
         logger.info(
             '%5.1f%% (%d/%d) %s %s %s %s %s: %s',
             100 * (n + 1) / len(todo),
@@ -314,23 +320,37 @@ def map_listings(
             product.isin,
             product.symbol,
             listing.ticker or '',
-            (listing.rule or listing.status)
-            + (f' (own line {listing.proposal} to confirm)' if listing.proposal else ''),
+            listing.rule or listing.status,
         )
     logger.info('Listings searched: %s', ', '.join(f'{k} {v}' for k, v in results.items()) or 'none due')
-    pending = own_lines_to_confirm()
-    if not pending.empty:
-        logger.warning(
-            '%d own lines with another name wait for confirmation: see the sheet "To confirm" of %s.xlsx and '
-            'tasks.py confirm-listings',
-            len(pending),
-            LISTING_REVIEW_FILE,
-        )
     return results
 
 
+def save_own_line_decision(product_id: int, listing: Listing, asked: bool):
+    """Remember an own line accepted by the user; report a doubtful own line not used (rejected, or not asked: it is
+    asked again at the next search run from a terminal).
+    """
+    if listing.proposal is None:
+        return
+    if listing.rule == 'own line (confirmed)':
+        save_accepted_own_line(product_id, listing.ticker, listing.proposal_name)
+    elif asked:
+        logger.info('Own line %s rejected: %s is used', listing.proposal, listing.ticker or 'no listing')
+    else:
+        logger.warning(
+            'Own line %s (%s) of product %s has another name: not used, to confirm in a search run from a terminal',
+            listing.proposal,
+            listing.proposal_name,
+            product_id,
+        )
+
+
 def map_etf_catalog(
-    remap: bool = False, retry: bool = False, remap_before: datetime | None = None, remap_not_own_line: bool = False
+    remap: bool = False,
+    retry: bool = False,
+    remap_before: datetime | None = None,
+    remap_not_own_line: bool = False,
+    confirm: Callable | None = None,
 ) -> Counter:
     """Search the Yahoo Finance listing of the ETFs of the catalog (see map_listings), then save the Excel copy of the
     mapping for review. The products traded in an account keep their listing: see remap_portfolio_listings.
@@ -338,24 +358,28 @@ def map_etf_catalog(
     products = catalog_products()
     products = products[~products['id'].isin(traded_product_ids())]
     results = map_listings(
-        products, remap=remap, retry=retry, remap_before=remap_before, remap_not_own_line=remap_not_own_line
+        products,
+        remap=remap,
+        retry=retry,
+        remap_before=remap_before,
+        remap_not_own_line=remap_not_own_line,
+        confirm=confirm,
     )
     export_listing_review()
     return results
 
 
-def remap_portfolio_listings(apply: bool = False) -> pd.DataFrame:
+def remap_portfolio_listings(apply: bool = False, confirm: Callable | None = None) -> pd.DataFrame:
     """Search again the listing of the products traded in the accounts: the products whose listing would change
-    (product_id, symbol, name, stored, found, rule); with apply, the new listings are saved and downloaded.
+    (product_id, symbol, name, stored, found, rule); with apply, the new listings are saved and downloaded (and the
+    own lines accepted through confirm remembered).
     """
     products = query_products(product_id=sorted(traded_product_ids()))
     stored = query_degiro_yahoo_map(products['id'].to_list())
     decided = query_listing_searches(products['id'].to_list()).set_index('product_id')
     searches, changes = ListingSearches(), []
     for product in products.itertuples():
-        listing = search_product_listing(product, searches, decided)
-        if apply and listing.proposal is not None:
-            save_own_line_proposal(product.id, listing.proposal, listing.proposal_name)
+        listing = search_product_listing(product, searches, decided, confirm)
         if listing.status != 'failed' and listing.ticker != stored.get(product.id):
             changes.append(
                 (product.id, product.symbol, product.name, stored.get(product.id), listing.ticker, listing.rule)
@@ -364,6 +388,8 @@ def remap_portfolio_listings(apply: bool = False) -> pd.DataFrame:
                 save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
                 if listing.ticker is not None:
                     store_listing(listing.ticker, isin=product.isin)
+        if apply:
+            save_own_line_decision(product.id, listing, asked=confirm is not None)
     return pd.DataFrame(changes, columns=['product_id', 'symbol', 'name', 'stored', 'found', 'rule'])
 
 
@@ -380,37 +406,7 @@ def export_listing_review():
     review['yahoo_currency'] = review['ticker'].map(instruments['currency'])
     columns = ['product_id', 'exchange', 'symbol', 'isin', 'name', 'ticker', 'yahoo_name', 'yahoo_currency']
     review = review[columns + ['status', 'rule', 'searched_at']].sort_values(['status', 'isin'])
-    sheets = {'Mapping': review.set_index('product_id'), 'To confirm': own_lines_to_confirm().set_index('product_id')}
-    save_df_dict_to_excel(df_dict=sheets, file_name=LISTING_REVIEW_FILE, folder_name=RESULTS_DIR)
-
-
-def own_lines_to_confirm() -> pd.DataFrame:
-    """Own lines with another name waiting for the decision of the user: product, exchange, symbol, Degiro name, the
-    proposed own line with its Yahoo name and name similarity, and the listing used meanwhile.
-    """
-    searches = query_listing_searches()
-    pending = searches[searches['own_line_decision'] == 'pending']
-    products = query_products(product_id=pending['product_id'].to_list()).reset_index(drop=True)
-    table = pending.merge(products[['id', 'exchange_id', 'symbol', 'name']], left_on='product_id', right_on='id')
-    table['exchange'] = table['exchange_id'].map(exchange_name)
-    table['similarity'] = [
-        round(name_similarity(n or '', o or ''), 2) for n, o in zip(table['name'], table['own_line_name'], strict=True)
-    ]
-    columns = ['product_id', 'exchange', 'symbol', 'name', 'own_line', 'own_line_name', 'similarity', 'ticker']
-    return table[columns].rename(columns={'ticker': 'listing_used'}).sort_values('product_id')
-
-
-def confirm_own_lines(accept: list[int], reject: list[int]):
-    """Save the decisions of the user on proposed own lines; an accepted own line becomes the listing of the product
-    (its history is downloaded).
-    """
-    searches = query_listing_searches(list(accept) + list(reject)).set_index('product_id')
-    isins = query_products(product_id=list(accept)).set_index('id')['isin'] if accept else pd.Series(dtype=object)
-    for product_id in accept:
-        decide_own_line(product_id, accepted=True)
-        store_listing(searches.loc[product_id, 'own_line'], isin=isins.get(product_id))
-    for product_id in reject:
-        decide_own_line(product_id, accepted=False)
+    save_df_to_excel(df=review.set_index('product_id'), file_name=LISTING_REVIEW_FILE, folder_name=RESULTS_DIR)
 
 
 def fetch_etf_catalog_data(full: bool = False):

@@ -24,7 +24,6 @@ from portfolio_manager.storage.queries import (
     query_listing_searches,
     save_benchmark_tickers,
     save_listing_search,
-    save_own_line_proposal,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,9 +69,9 @@ def get_portfolio_adj_prices(account: Account) -> AdjPrices:
             if listing.status != 'failed' or product.id not in ticker_by_product:
                 save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
             if listing.proposal is not None:
-                save_own_line_proposal(product.id, listing.proposal, listing.proposal_name)
                 logger.warning(
-                    '%s: own line %s (%s) waits for confirmation (tasks.py confirm-listings)',
+                    '%s: own line %s (%s) has another name: not used, to confirm with tasks.py '
+                    'remap-portfolio-listings --apply from a terminal',
                     product.name,
                     listing.proposal,
                     listing.proposal_name,

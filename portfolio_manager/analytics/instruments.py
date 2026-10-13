@@ -466,11 +466,17 @@ def build_etf_catalog_data(account: Account) -> pd.DataFrame:
     highest average traded value and their performance metrics in the account currency (table etf_catalog, with an
     Excel copy in the results folder).
     """
-    tickers = sorted(set(query_degiro_yahoo_map(catalog_products()['id'].to_list()).values()))
+    products = catalog_products()
+    tickers = sorted(set(query_degiro_yahoo_map(products['id'].to_list()).values()))
+    logger.info('%s: %d catalog products, %d distinct listings', account.name, len(products), len(tickers))
     averages = average_traded_values(tickers)
+    logger.info('%s: traded value of %d listings with recent prices', account.name, len(averages))
     most_traded = rank_by_traded_value(account, averages)[:MAX_ETF_CATALOG_SIZE]
-    perf_df = compute_product_performance(stored_adjusted_prices(account, most_traded))
+    prices = stored_adjusted_prices(account, most_traded)
+    logger.info('%s: adjusted prices of the %d most traded in %s', account.name, prices.shape[1], account.currency)
+    perf_df = compute_product_performance(prices)
     perf_df = perf_df.set_index(InstrPerfTableCols.ticker)
+    logger.info('%s: metrics of %d listings', account.name, len(perf_df))
     catalog = pd.DataFrame({'ticker': [t for t in most_traded if t in perf_df.index]})
     catalog['rank'] = range(1, len(catalog) + 1)
     catalog['traded_value'] = averages.loc[catalog['ticker'], 'traded_value'].to_numpy()

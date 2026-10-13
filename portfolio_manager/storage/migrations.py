@@ -106,12 +106,21 @@ def _listing_searches(connection: Connection):
     connection.execute(text('ALTER TABLE degiro_yahoo_map_v5 RENAME TO degiro_yahoo_map'))
 
 
+def _own_line_proposals(connection: Connection):
+    # version 6: the own line of a product with another name is proposed to the user, who accepts or rejects it
+    columns = [c['name'] for c in inspect(connection).get_columns('degiro_yahoo_map')]
+    for column in ['own_line', 'own_line_name', 'own_line_decision']:
+        if column not in columns:
+            connection.execute(text(f'ALTER TABLE degiro_yahoo_map ADD COLUMN {column} VARCHAR'))
+
+
 # version -> step upgrading the database from the previous version
 UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     2: _accounts_from_code,
     3: _currency_pairs_from_catalog,
     4: _yahoo_history_tables,
     5: _listing_searches,
+    6: _own_line_proposals,
 }
 # steps that free much space: the database file is compacted after them
 COMPACT_AFTER = {4}

@@ -50,6 +50,10 @@ def yahoo(temp_db, monkeypatch):
         def __init__(self, ticker):
             self.ticker = ticker
 
+        @property
+        def history_metadata(self):
+            return {'currency': source.info.get(self.ticker, {}).get('currency')}
+
         def history(self, interval, auto_adjust, actions=False, start=None, period=None):
             source.downloads.append((self.ticker, start))
             df = source.histories.get(self.ticker, yahoo_frame([]))
@@ -280,8 +284,8 @@ def test_search_without_answer_is_failed(yahoo):
 
 
 def products(rows):
-    # products of the Degiro catalog: id, isin, symbol, name, exchange (Xetra 194, SIX 947)
-    return pd.DataFrame(rows, columns=['id', 'isin', 'symbol', 'name', 'exchange_id'])
+    # products of the Degiro catalog: id, isin, symbol, name, exchange (Xetra 194, SIX 947), in EUR
+    return pd.DataFrame(rows, columns=['id', 'isin', 'symbol', 'name', 'exchange_id']).assign(currency='EUR')
 
 
 def test_which_products_are_searched(yahoo):
@@ -386,3 +390,121 @@ def test_database_of_version_4_keeps_its_listings(tmp_path, monkeypatch):
     searches = sql.query_listing_searches().set_index('product_id')
     assert searches['ticker'].to_dict() == {1: 'EUNL.DE', 2: 'HYLD.L'} and set(searches['status']) == {'found'}
     sql.save_listing_search([3], None, 'not found')  # the listing may be missing now
+
+
+def spdr_quotes(yahoo):
+    # SPYI on Xetra: Yahoo names its own line differently; the ISIN search returns only a London line in USD
+    isin = 'IE00B3YLTY66'
+    yahoo.quotes[isin] = [{'symbol': 'IMID.L', 'longname': 'SPDR MSCI ACWI IMI UCITS ETF'}]
+    yahoo.quotes['SPYI.DE'] = [{'symbol': 'SPYI.DE', 'longname': 'State Street SPDR MSCI All Country World Investable'}]
+    yahoo.histories['IMID.L'] = yahoo_frame([200.0])
+    yahoo.histories['SPYI.DE'] = yahoo_frame([180.0])
+    return isin
+
+
+def test_own_line_with_another_name_is_proposed(yahoo):
+    isin = spdr_quotes(yahoo)
+    found = history.find_listing(isin, 'SPYI', 'SPDR MSCI ACWI IMI', exchange='DE', currency='EUR')
+    assert (found.ticker, found.proposal) == ('IMID.L', 'SPYI.DE')  # the other listing meanwhile
+    assert found.proposal_name.startswith('State Street')
+    accepted = history.find_listing(isin, 'SPYI', 'SPDR MSCI ACWI IMI', exchange='DE', accepted='SPYI.DE')
+    assert accepted == history.Listing('SPYI.DE', 'found', 'own line (confirmed)')
+    rejected = history.find_listing(isin, 'SPYI', 'SPDR MSCI ACWI IMI', exchange='DE', rejected='SPYI.DE')
+    assert (rejected.ticker, rejected.proposal) == ('IMID.L', None)
+
+
+def test_listings_in_the_currency_of_the_product_first(yahoo):
+    isin = 'DE000A28M8D0'
+    yahoo.quotes[isin] = [
+        {'symbol': 'VBTC.SW', 'longname': 'VanEck Bitcoin ETN'},  # exact name, but in CHF
+        {'symbol': 'VBTC.DE', 'longname': 'VanEck Bitcoin ETN A'},
+    ]
+    yahoo.histories['VBTC.SW'] = yahoo_frame([30.0])
+    yahoo.histories['VBTC.DE'] = yahoo_frame([32.0])
+    yahoo.info['VBTC.SW'] = {'currency': 'CHF'}
+    yahoo.info['VBTC.DE'] = {'currency': 'EUR'}
+    found = history.find_listing(isin, isin, 'VanEck Bitcoin ETN', exchange='AS', currency='EUR')
+    assert found == history.Listing('VBTC.DE', 'found', 'currency')
+    # without a listing in the currency of the product: the closest name
+    assert history.find_listing(isin, isin, 'VanEck Bitcoin ETN', exchange='AS', currency='USD').ticker == 'VBTC.SW'
+
+
+def test_equal_names_follow_the_preferred_exchange_order(yahoo):
+    isin = 'CH0593331561'
+    yahoo.quotes[isin] = [{'symbol': f'{isin}.SG', 'longname': '21Shares Polkadot ETP'}]
+    yahoo.quotes[isin].insert(0, {'symbol': 'ADOT.MI', 'longname': '21Shares Polkadot ETP'})
+    yahoo.histories['ADOT.MI'] = yahoo_frame([10.0])
+    yahoo.histories[f'{isin}.SG'] = yahoo_frame([10.0])
+    assert history.find_listing(isin, 'PDOT', '21Shares Polkadot ETP', exchange='DE').ticker == 'ADOT.MI'  # Milan first
+
+
+def test_confirmation_of_the_proposed_own_lines(yahoo, tmp_path, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    isin = spdr_quotes(yahoo)
+    catalog = products([(1, isin, 'SPYI', 'SPDR MSCI ACWI IMI', 194)])
+    sql.upsert_products(catalog)
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    assert instruments.map_etf_catalog()['own line to confirm'] == 1
+    pending = instruments.own_lines_to_confirm()
+    assert pending[['product_id', 'own_line', 'listing_used']].values.tolist() == [[1, 'SPYI.DE', 'IMID.L']]
+    sheets = pd.read_excel(tmp_path / 'yahoo_mapping.xlsx', sheet_name=None)
+    assert list(sheets) == ['Mapping', 'To confirm'] and len(sheets['To confirm']) == 1
+    # a new search keeps the proposal pending; accepted, it becomes the listing (with its history)
+    instruments.map_etf_catalog(remap=True)
+    assert len(instruments.own_lines_to_confirm()) == 1
+    instruments.confirm_own_lines(accept=[1], reject=[])
+    assert sql.query_degiro_yahoo_map() == {1: 'SPYI.DE'} and instruments.own_lines_to_confirm().empty
+    assert history.stored_history('SPYI.DE')['close'].tolist() == [180.0]
+    instruments.map_etf_catalog(remap=True)  # searched again: stays on the accepted own line
+    searches = sql.query_listing_searches().set_index('product_id')
+    assert (searches.loc[1, 'ticker'], searches.loc[1, 'rule']) == ('SPYI.DE', 'own line (confirmed)')
+
+
+def test_rejected_own_line_is_not_proposed_again(yahoo, tmp_path, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    isin = spdr_quotes(yahoo)
+    catalog = products([(1, isin, 'SPYI', 'SPDR MSCI ACWI IMI', 194)])
+    sql.upsert_products(catalog)
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    instruments.map_etf_catalog()
+    instruments.confirm_own_lines(accept=[], reject=[1])
+    assert instruments.map_etf_catalog(remap=True)['own line to confirm'] == 0
+    assert sql.query_degiro_yahoo_map() == {1: 'IMID.L'} and instruments.own_lines_to_confirm().empty
+
+
+def test_remap_of_the_products_not_on_their_own_line(yahoo):
+    import portfolio_manager.analytics.instruments as instruments
+
+    sql.save_listing_search([1], 'AAA.DE', 'found', 'own line')
+    sql.save_listing_search([2], 'BBB.L', 'found', 'preferred exchange')
+    sql.save_listing_search([3], 'CCC.DE', 'found', 'own line (confirmed)')
+    df = products([(n, f'XX{n}', f'S{n}', f'ETF {n}', 194) for n in range(1, 4)])
+    assert instruments.products_to_search(df, remap_not_own_line=True)['id'].tolist() == [2]
+
+
+def test_database_of_version_5_gets_the_proposal_columns(tmp_path, monkeypatch):
+    folder = tmp_path / 'db'
+    folder.mkdir()
+    engine = create_engine(f'sqlite:///{folder / "old.db"}')
+    with engine.begin() as connection:
+        for statement in [
+            'CREATE TABLE schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)',
+            'INSERT INTO schema_version VALUES (1, 5)',
+            'CREATE TABLE degiro_yahoo_map (product_id INTEGER NOT NULL PRIMARY KEY, ticker VARCHAR, '
+            'status VARCHAR NOT NULL, rule VARCHAR, searched_at DATETIME)',
+            "INSERT INTO degiro_yahoo_map VALUES (1, 'EUNL.DE', 'found', 'own line', NULL)",
+        ]:
+            connection.execute(text(statement))
+    monkeypatch.setattr(tables, 'engine', engine)
+    monkeypatch.setattr(sql, 'engine', engine)
+    monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
+    tables.init_db()
+    columns = [c['name'] for c in inspect(engine).get_columns('degiro_yahoo_map')]
+    assert {'own_line', 'own_line_name', 'own_line_decision'} <= set(columns)
+    assert sql.query_degiro_yahoo_map() == {1: 'EUNL.DE'}

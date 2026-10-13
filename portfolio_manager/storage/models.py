@@ -192,7 +192,8 @@ class EtfCatalogEntry(Base):
 # Yahoo Finance listing of each Degiro product (several products may share a listing)
 class DegiroYahooMap(Base):
     """Search of the Yahoo Finance listing of each Degiro product: the listing (none if not found), the status of the
-    last search (found, not found, failed), the rule that chose the listing and when the search was made.
+    last search (found, not found, failed), the rule that chose the listing, when the search was made, and the own line
+    proposed for confirmation (with its Yahoo name and the decision of the user).
     """
 
     __tablename__ = 'degiro_yahoo_map'
@@ -201,6 +202,10 @@ class DegiroYahooMap(Base):
     status = Column(String, nullable=False)
     rule = Column(String)
     searched_at = Column(DateTime)
+    # own line with prices but another name: proposed to the user, used only once accepted
+    own_line = Column(String)
+    own_line_name = Column(String)
+    own_line_decision = Column(String)  # pending, accepted, rejected
 
 
 # Version of the database schema (one row), see storage/migrations.py

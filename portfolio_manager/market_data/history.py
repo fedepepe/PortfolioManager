@@ -140,29 +140,22 @@ def on_preferred_exchange(ticker: str) -> bool:
     return any(ticker.endswith(f'.{x.code}') for x in Exchanges)
 
 
-def choose_ticker(tickers: list[str], ticker: str | None = None) -> str:
-    """Follow the priority order of exchanges: first {ticker}.{exchange}, then any ticker listed on an exchange."""
-    for prefix in ([ticker] if ticker is not None else []) + [None]:
-        for x in Exchanges:
-            for t in tickers:
-                if t.endswith(f'.{x.code}') and (prefix is None or t == f'{prefix}.{x.code}'):
-                    return t
-    return tickers[0]
-
-
 def name_similarity(name: str, other: str) -> float:
     """Similarity of two instrument names, from 0 to 1 (case ignored)."""
     return SequenceMatcher(None, name.lower(), other.lower()).ratio()
 
 
 class Listing(NamedTuple):
-    """Result of the search of a listing: ticker (None if none), status (found, not found, failed) and the rule that
-    chose it (own line, preferred exchange, name, symbol search, other exchange).
+    """Result of the search of a listing: ticker (None if none), status (found, not found, failed), the rule that chose
+    it (own line, own line (confirmed), preferred exchange, currency, name, symbol search, other exchange) and, when
+    the own line has prices but another name, that own line and its name, proposed to the user for confirmation.
     """
 
     ticker: str | None
     status: str
     rule: str | None = None
+    proposal: str | None = None
+    proposal_name: str | None = None
 
 
 class ListingSearches:
@@ -171,6 +164,7 @@ class ListingSearches:
     def __init__(self):
         self.quotes: dict[str, list[dict] | None] = {}
         self.last_prices: dict[str, pd.Timestamp | None] = {}
+        self.currencies: dict[str, str | None] = {}
 
     def search(self, text: str) -> list[dict] | None:
         """Listings found by a search text (an ISIN, a ticker, ...); None if Yahoo did not answer."""
@@ -184,9 +178,17 @@ class ListingSearches:
         has none.
         """
         if ticker not in self.last_prices:
-            closes = yf.Ticker(ticker).history(period=HISTORY_PERIOD, interval='1mo', auto_adjust=False)['Close']
+            listing = yf.Ticker(ticker)
+            closes = listing.history(period=HISTORY_PERIOD, interval='1mo', auto_adjust=False)['Close']
             self.last_prices[ticker] = closes.last_valid_index() if not closes.dropna().empty else None
+            self.currencies[ticker] = (listing.history_metadata or {}).get('currency')
         return self.last_prices[ticker]
+
+    def currency(self, ticker: str) -> str | None:
+        """Currency of the prices of a listing (pence counted as pounds, see major_currency), from its probe."""
+        self.last_price(ticker)
+        currency = self.currencies.get(ticker)
+        return major_currency(currency)[0] if currency else None
 
     def name(self, ticker: str) -> str:
         """Yahoo name of a listing, from the search of its ticker (from its information if the search misses it)."""
@@ -198,23 +200,35 @@ class ListingSearches:
         return label or ''
 
 
+def exchange_rank(ticker: str) -> int:
+    """Position of the exchange of a listing in the preferred order (the other exchanges last)."""
+    return next((n for n, x in enumerate(Exchanges) if ticker.endswith(f'.{x.code}')), len(Exchanges))
+
+
 def find_listing(
     search: str | None = None,
     ticker: str | None = None,
     name: str | None = None,
     exchange: str | None = None,
+    currency: str | None = None,
+    accepted: str | None = None,
+    rejected: str | None = None,
     searches: ListingSearches | None = None,
 ) -> Listing:
     """Find the Yahoo Finance listing of an instrument (nothing is stored). The candidates are the listings found by the
     search text (usually the ISIN) that have prices; when none is on a preferred exchange, also those of the ticker
-    with a name similar to the given one. The choice: the ticker on its own exchange (the Yahoo suffix of the exchange
-    of the instrument, e.g. EUNL.DE for EUNL on Xetra; probed directly if the search misses it, then accepted with a
-    similar name), otherwise the listings on the preferred exchanges if any, then the closest name (without a name,
-    the first preferred exchange).
+    with a name similar to the given one.
+
+    The choice: the ticker on its own exchange (the Yahoo suffix of the exchange of the instrument, e.g. EUNL.DE for
+    EUNL on Xetra) if the search finds it; probed directly otherwise, and used if its name is similar or the user
+    accepted it (an own line with prices and another name is proposed for confirmation, unless rejected). Otherwise the
+    listings on the preferred exchanges if any, among them those in the currency of the instrument if any, then the
+    closest name, then the listings of the ticker itself, then the preferred exchange order.
     """
     search, ticker, name = (None if is_missing(v) else v for v in (search, ticker, name))
     searches = searches or ListingSearches()
     names, by_symbol, failed = {}, set(), False
+    proposal = proposal_name = None
 
     def add(quotes: list[dict] | None, guard: bool) -> list[str]:
         # the listings with prices among the quotes (with a similar name if guarded); remembers their names
@@ -237,12 +251,16 @@ def find_listing(
     own_line = f'{ticker}.{exchange}' if ticker is not None and exchange is not None else None
     if own_line in candidates:
         return Listing(own_line, 'found', 'own line')
-    # the ISIN search often returns only some listings: the own line is probed directly, and accepted with a similar
-    # name (a ticker may belong to another instrument)
+    # the ISIN search often returns only some listings: the own line is probed directly; a ticker may belong to
+    # another instrument, so an own line with another name is used only once the user accepts it
     if own_line is not None and searches.last_price(own_line) is not None:
         label = searches.name(own_line)
         if name is None or name_similarity(name, label) > MIN_NAME_SIMILARITY:
             return Listing(own_line, 'found', 'own line')
+        if own_line == accepted:
+            return Listing(own_line, 'found', 'own line (confirmed)')
+        if own_line != rejected:
+            proposal, proposal_name = own_line, label
     if ticker is not None and not any(on_preferred_exchange(c) for c in candidates):
         # a ticker may belong to another instrument on another exchange: only listings with a similar name
         symbols = [ticker] + [f'{ticker}.{x.code}' for x in Exchanges]
@@ -253,16 +271,26 @@ def find_listing(
         if own_line in candidates:
             return Listing(own_line, 'found', 'own line')
     if not candidates:
-        return Listing(None, 'failed' if failed else 'not found')
+        return Listing(None, 'failed' if failed else 'not found', None, proposal, proposal_name)
     preferred = [c for c in candidates if on_preferred_exchange(c)]
     pool = preferred or candidates
+    rule = 'preferred exchange' if preferred else 'other exchange'
+    in_currency = [c for c in pool if currency is not None and searches.currency(c) == currency]
+    if in_currency and len(in_currency) < len(pool):
+        pool, rule = in_currency, 'currency'
     if len(pool) > 1 and name is not None:
-        chosen = max(pool, key=lambda c: name_similarity(name, names[c]))
         rule = 'name'
-    else:
-        chosen = choose_ticker(pool, ticker)
-        rule = 'preferred exchange' if preferred else 'other exchange'
-    return Listing(chosen, 'found', 'symbol search' if chosen in by_symbol else rule)
+    # the closest name, then the listings of the ticker itself, then the preferred exchange order
+    chosen = max(
+        pool,
+        key=lambda c: (
+            name_similarity(name, names[c]) if name is not None else 0.0,
+            c.split('.')[0] == ticker,
+            -exchange_rank(c),
+        ),
+    )
+    rule = 'symbol search' if chosen in by_symbol else rule
+    return Listing(chosen, 'found', rule, proposal, proposal_name)
 
 
 def store_listing(ticker: str, isin: str | None = None) -> str:

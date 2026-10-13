@@ -468,9 +468,29 @@ def save_listing_search(product_ids: list[int], ticker: str | None, status: str,
         session.commit()
 
 
+def save_own_line_proposal(product_id: int, own_line: str, name: str):
+    """Propose the own line of a product to the user (pending), unless the user already decided on this own line."""
+    with SessionLocal() as session:
+        search = session.get(DegiroYahooMap, int(product_id))
+        if search is None or (search.own_line == own_line and search.own_line_decision in ('accepted', 'rejected')):
+            return
+        search.own_line, search.own_line_name, search.own_line_decision = own_line, name, 'pending'
+        session.commit()
+
+
+def decide_own_line(product_id: int, accepted: bool):
+    """Save the decision of the user on the own line proposed for a product (accepted: it becomes its listing)."""
+    with SessionLocal() as session:
+        search = session.get(DegiroYahooMap, int(product_id))
+        search.own_line_decision = 'accepted' if accepted else 'rejected'
+        if accepted:
+            search.ticker, search.status, search.rule = search.own_line, 'found', 'own line (confirmed)'
+        session.commit()
+
+
 def query_listing_searches(product_ids: list[int] | None = None) -> pd.DataFrame:
     """Searches of the Yahoo Finance listing of products (of every searched product if none is given): product_id,
-    ticker, status, rule, searched_at.
+    ticker, status, rule, searched_at, own_line, own_line_name, own_line_decision.
     """
     stmt = select(DegiroYahooMap)
     if product_ids is not None:

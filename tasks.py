@@ -145,7 +145,33 @@ def map_etf_catalog(args: argparse.Namespace):
     from portfolio_manager.analytics.instruments import map_etf_catalog as map_catalog
 
     remap_before = datetime.fromisoformat(args.remap_before) if args.remap_before else None
-    map_catalog(remap=args.remap, retry=args.retry, remap_before=remap_before)
+    map_catalog(
+        remap=args.remap, retry=args.retry, remap_before=remap_before, remap_not_own_line=args.remap_not_own_line
+    )
+
+
+def confirm_listings(args: argparse.Namespace):
+    """Own lines with another name waiting for confirmation: list them, or accept / reject them by product id."""
+    from portfolio_manager.analytics.instruments import confirm_own_lines, export_listing_review, own_lines_to_confirm
+
+    if args.accept or args.reject:
+        confirm_own_lines(accept=args.accept or [], reject=args.reject or [])
+        export_listing_review()
+        logger.info('%d accepted, %d rejected', len(args.accept or []), len(args.reject or []))
+    pending = own_lines_to_confirm()
+    for row in pending.itertuples():
+        logger.info(
+            '%s %s %s (%s): own line %s (%s), similarity %.2f; used meanwhile: %s',
+            row.product_id,
+            row.exchange,
+            row.symbol,
+            row.name,
+            row.own_line,
+            row.own_line_name,
+            row.similarity,
+            row.listing_used,
+        )
+    logger.info('%d own lines wait for confirmation', len(pending))
 
 
 def remap_portfolio_listings(args: argparse.Namespace):
@@ -331,6 +357,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'refresh-yahoo-history': (refresh_yahoo_history, ('full',)),
     'map-etf-catalog': (map_etf_catalog, ('remap',)),
     'remap-portfolio-listings': (remap_portfolio_listings, ('apply',)),
+    'confirm-listings': (confirm_listings, ('decisions',)),
     'build-etf-catalog': (build_etf_catalog, ('account',)),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
@@ -357,6 +384,12 @@ def build_parser() -> argparse.ArgumentParser:
             subparser.add_argument(
                 '--remap-before', help='search again the products searched before this time (resumes a remap)'
             )
+            subparser.add_argument(
+                '--remap-not-own-line', action='store_true', help='search again the products not on their own line'
+            )
+        if 'decisions' in options:
+            subparser.add_argument('--accept', type=int, nargs='+', help='product ids whose own line is accepted')
+            subparser.add_argument('--reject', type=int, nargs='+', help='product ids whose own line is rejected')
         if 'apply' in options:
             subparser.add_argument('--apply', action='store_true', help='apply the changes (default: only show them)')
         if 'full' in options:

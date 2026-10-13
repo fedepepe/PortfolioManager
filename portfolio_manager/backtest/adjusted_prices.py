@@ -19,7 +19,13 @@ from portfolio_manager.config.accounts import Account
 from portfolio_manager.degiro.products import load_portfolio_products
 from portfolio_manager.market_data.history import ListingSearches, refresh_history, search_listing, store_listing
 from portfolio_manager.market_data.yahoo import is_yahoo_reachable
-from portfolio_manager.storage.queries import query_degiro_yahoo_map, save_benchmark_tickers, save_listing_search
+from portfolio_manager.storage.queries import (
+    query_degiro_yahoo_map,
+    query_listing_searches,
+    save_benchmark_tickers,
+    save_listing_search,
+    save_own_line_proposal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +61,22 @@ def get_portfolio_adj_prices(account: Account) -> AdjPrices:
     results = []
     if online:
         to_search = set(products_to_search(products_df)['id'])
+        decided = query_listing_searches(list(to_search)).set_index('product_id')
         searches, stored = ListingSearches(), set()
         for product in products_df.itertuples():
             if product.id not in to_search:
                 continue
-            listing = search_product_listing(product, searches)
+            listing = search_product_listing(product, searches, decided)
             if listing.status != 'failed' or product.id not in ticker_by_product:
                 save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
+            if listing.proposal is not None:
+                save_own_line_proposal(product.id, listing.proposal, listing.proposal_name)
+                logger.warning(
+                    '%s: own line %s (%s) waits for confirmation (tasks.py confirm-listings)',
+                    product.name,
+                    listing.proposal,
+                    listing.proposal_name,
+                )
             results.append(listing.status)
             if listing.ticker is not None:
                 ticker = _listing(listing.ticker, store=True, isin=product.isin)[0]

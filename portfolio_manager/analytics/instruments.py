@@ -13,7 +13,7 @@ from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs, compute_p
 from portfolio_manager.config.accounts import Account, list_accounts
 from portfolio_manager.config.settings import RESULTS_DIR
 from portfolio_manager.degiro.charts import load_fx_rates
-from portfolio_manager.degiro.definitions import Exchanges, ProductTypes, yahoo_suffix
+from portfolio_manager.degiro.definitions import Exchanges, ProductTypes, exchange_name, yahoo_suffix
 from portfolio_manager.degiro.products import load_portfolio_products
 from portfolio_manager.market_data.history import (
     Listing,
@@ -235,9 +235,11 @@ def search_product_listing(product, searches: ListingSearches | None = None) -> 
         return Listing(None, 'failed')
 
 
-def products_to_search(products: pd.DataFrame, remap: bool = False, retry: bool = False) -> pd.DataFrame:
+def products_to_search(
+    products: pd.DataFrame, remap: bool = False, retry: bool = False, remap_before: datetime | None = None
+) -> pd.DataFrame:
     """The products whose listing must be searched: never searched, failed, not found PRODUCT_SEARCH_RETRY ago (or
-    with retry), found only with remap.
+    with retry), found only with remap, or with remap_before if searched before then (to resume a remap).
     """
     searches = query_listing_searches(products['id'].to_list()).set_index('product_id')
     now = pd.Timestamp(datetime.now())
@@ -250,16 +252,20 @@ def products_to_search(products: pd.DataFrame, remap: bool = False, retry: bool 
             return True
         if search['status'] == 'not found':
             return retry or pd.isna(search['searched_at']) or now - search['searched_at'] >= PRODUCT_SEARCH_RETRY
+        if remap_before is not None:
+            return pd.isna(search['searched_at']) or search['searched_at'] < pd.Timestamp(remap_before)
         return remap
 
     return products[products['id'].map(due)]
 
 
-def map_listings(products: pd.DataFrame, remap: bool = False, retry: bool = False) -> Counter:
+def map_listings(
+    products: pd.DataFrame, remap: bool = False, retry: bool = False, remap_before: datetime | None = None
+) -> Counter:
     """Search and save the Yahoo Finance listing of the products to search (see products_to_search); a failed search
     keeps the listing found before. Returns the count of each status.
     """
-    todo = products_to_search(products, remap=remap, retry=retry)
+    todo = products_to_search(products, remap=remap, retry=retry, remap_before=remap_before)
     found_before = query_degiro_yahoo_map(todo['id'].to_list())
     searches, results = ListingSearches(), Counter()
     for n, product in enumerate(todo.itertuples()):
@@ -268,10 +274,12 @@ def map_listings(products: pd.DataFrame, remap: bool = False, retry: bool = Fals
             save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
         results[listing.status] += 1
         logger.info(
-            '%5.1f%% (%d/%d) %s %s %s: %s',
+            '%5.1f%% (%d/%d) %s %s %s %s %s: %s',
             100 * (n + 1) / len(todo),
             n + 1,
             len(todo),
+            product.id,
+            exchange_name(product.exchange_id),
             product.isin,
             product.symbol,
             listing.ticker or '',
@@ -281,12 +289,13 @@ def map_listings(products: pd.DataFrame, remap: bool = False, retry: bool = Fals
     return results
 
 
-def map_etf_catalog(remap: bool = False, retry: bool = False) -> Counter:
+def map_etf_catalog(remap: bool = False, retry: bool = False, remap_before: datetime | None = None) -> Counter:
     """Search the Yahoo Finance listing of the ETFs of the catalog (see map_listings), then save the Excel copy of the
     mapping for review. The products traded in an account keep their listing: see remap_portfolio_listings.
     """
     products = catalog_products()
-    results = map_listings(products[~products['id'].isin(traded_product_ids())], remap=remap, retry=retry)
+    products = products[~products['id'].isin(traded_product_ids())]
+    results = map_listings(products, remap=remap, retry=retry, remap_before=remap_before)
     export_listing_review()
     return results
 
@@ -319,9 +328,10 @@ def export_listing_review():
     review = searches.merge(
         products[['id', 'exchange_id', 'symbol', 'isin', 'name']], left_on='product_id', right_on='id', how='left'
     )
+    review['exchange'] = review['exchange_id'].map(exchange_name)
     review['yahoo_name'] = review['ticker'].map(instruments['name_long'].fillna(instruments['name_short']))
     review['yahoo_currency'] = review['ticker'].map(instruments['currency'])
-    columns = ['product_id', 'exchange_id', 'symbol', 'isin', 'name', 'ticker', 'yahoo_name', 'yahoo_currency']
+    columns = ['product_id', 'exchange', 'symbol', 'isin', 'name', 'ticker', 'yahoo_name', 'yahoo_currency']
     review = review[columns + ['status', 'rule', 'searched_at']].sort_values(['status', 'isin'])
     save_df_to_excel(df=review.set_index('product_id'), file_name=LISTING_REVIEW_FILE, folder_name=RESULTS_DIR)
 

@@ -137,11 +137,15 @@ def fetch_etf_catalog(args: argparse.Namespace):
 
 def map_etf_catalog(args: argparse.Namespace):
     """Search the Yahoo Finance listing of the ETFs of the catalog (never searched, failed, not found a month ago;
-    --retry: every not found one; --remap: also the found ones) and save the Excel copy of the mapping for review.
+    --retry: every not found one; --remap: also the found ones; --remap-before DATE: the found ones searched before,
+    to resume a remap) and save the Excel copy of the mapping for review.
     """
+    from datetime import datetime
+
     from portfolio_manager.analytics.instruments import map_etf_catalog as map_catalog
 
-    map_catalog(remap=args.remap, retry=args.retry)
+    remap_before = datetime.fromisoformat(args.remap_before) if args.remap_before else None
+    map_catalog(remap=args.remap, retry=args.retry, remap_before=remap_before)
 
 
 def remap_portfolio_listings(args: argparse.Namespace):
@@ -350,6 +354,9 @@ def build_parser() -> argparse.ArgumentParser:
         if 'remap' in options:
             subparser.add_argument('--remap', action='store_true', help='search again the products with a listing')
             subparser.add_argument('--retry', action='store_true', help='search again every product not found')
+            subparser.add_argument(
+                '--remap-before', help='search again the products searched before this time (resumes a remap)'
+            )
         if 'apply' in options:
             subparser.add_argument('--apply', action='store_true', help='apply the changes (default: only show them)')
         if 'full' in options:

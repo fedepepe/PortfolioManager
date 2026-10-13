@@ -40,6 +40,11 @@ YAHOO_SUFFIXES = {
 }
 
 
+def exchange_name(exchange_id) -> str:
+    """Degiro abbreviation of an exchange id (e.g. XET for Xetra), the id itself if unknown."""
+    return next((exchange.name for exchange in Exchanges if exchange.value == exchange_id), str(exchange_id))
+
+
 def yahoo_suffix(exchange_id) -> str | None:
     """Yahoo Finance suffix of a Degiro exchange id, None if Yahoo does not list it."""
     return next((suffix for exchange, suffix in YAHOO_SUFFIXES.items() if exchange.value == exchange_id), None)

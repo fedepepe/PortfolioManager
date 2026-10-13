@@ -298,6 +298,10 @@ def test_which_products_are_searched(yahoo):
     assert instruments.products_to_search(df)['id'].tolist() == [1, 3, 5]  # never searched, failed, not found long ago
     assert instruments.products_to_search(df, retry=True)['id'].tolist() == [1, 3, 4, 5]
     assert instruments.products_to_search(df, remap=True)['id'].tolist() == [1, 2, 3, 5]
+    # resuming a remap: the found products searched before the given time only
+    before = pd.Timestamp.now() + pd.Timedelta(minutes=1)
+    assert instruments.products_to_search(df, remap_before=before)['id'].tolist() == [1, 2, 3, 5]
+    assert instruments.products_to_search(df, remap_before=before - pd.Timedelta(days=1))['id'].tolist() == [1, 3, 5]
 
 
 def test_mapping_of_the_catalog(yahoo, tmp_path, monkeypatch):

@@ -188,6 +188,16 @@ def build_etf_catalog(args: argparse.Namespace):
         logger.info('ETF catalog of %s built', account.name)
 
 
+def classify_etfs(args: argparse.Namespace):
+    """Classify the ETFs of the catalog by asset class (Equity, Fixed Income, ...) from Degiro's ETF list and rules on
+    their names; saves the classes and results/etf_classes.xlsx for review (needs the Degiro login).
+    """
+    from portfolio_manager.analytics.classification import classify_etfs as classify
+    from portfolio_manager.degiro.connection import get_degiro_connection
+
+    classify(get_degiro_connection())
+
+
 def convert_results(args: argparse.Namespace):
     """Convert the backtests and results saved as Excel files into Parquet tables (archives the Excel copies no
     longer needed).
@@ -339,6 +349,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'map-etf-catalog': (map_etf_catalog, ('remap',)),
     'remap-portfolio-listings': (remap_portfolio_listings, ('apply',)),
     'build-etf-catalog': (build_etf_catalog, ('account',)),
+    'classify-etfs': (classify_etfs, ()),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
 }

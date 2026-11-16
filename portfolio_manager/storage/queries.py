@@ -25,6 +25,7 @@ from portfolio_manager.storage.models import (
     DegiroTransaction,
     DegiroYahooMap,
     EtfCatalogEntry,
+    EtfClass,
     Product,
     YahooCurrencyFix,
     YahooInstrument,
@@ -515,6 +516,24 @@ def delete_currency_fix(ticker: str):
     with SessionLocal() as session:
         session.execute(delete(YahooCurrencyFix).where(YahooCurrencyFix.ticker == ticker))
         session.commit()
+
+
+def save_etf_classes(df: pd.DataFrame):
+    """Replace the asset classes of the ETFs (one row per ISIN, with the columns of the etf_classes table)."""
+    rows = _rows(EtfClass, df)
+    with SessionLocal() as session:
+        session.execute(delete(EtfClass))
+        if rows:
+            session.execute(insert(EtfClass), rows)
+        session.commit()
+
+
+def query_etf_classes(isins: list[str] | None = None) -> pd.DataFrame:
+    """Asset classes of the ETFs (all if no ISIN is given): by ISIN, the columns of etf_classes."""
+    stmt = select(*EtfClass.__table__.columns)
+    if isins is not None:
+        stmt = stmt.where(EtfClass.isin.in_(isins))
+    return pd.read_sql(stmt, engine).set_index('isin')
 
 
 def delete_unused_currency_fixes() -> int:

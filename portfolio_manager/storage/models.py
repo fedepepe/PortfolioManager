@@ -189,6 +189,24 @@ class EtfCatalogEntry(Base):
     built_at = Column(DateTime, nullable=False)
 
 
+class EtfClass(Base):
+    """Asset class of each ETF of the catalog (one row per ISIN: every line of a fund shares it), with the Degiro data
+    it comes from: Degiro's asset allocation if usable, otherwise rules on the ETP type and the name (source).
+    """
+
+    __tablename__ = 'etf_classes'
+    isin = Column(String, primary_key=True)
+    name = Column(String)  # Degiro name of the fund
+    asset_class = Column(String, nullable=False)  # Equity, Fixed Income, Money Market, Commodities, ...
+    leveraged = Column(Boolean, nullable=False)  # leveraged or inverse (e.g. 3x, -1x, daily short)
+    source = Column(String, nullable=False)  # degiro, etp type, name rule
+    degiro_allocation = Column(String)  # Degiro's asset allocation (Shares, Bonds, ...), none if unknown
+    degiro_region = Column(String)
+    degiro_benchmark = Column(String)
+    degiro_etp_type = Column(Integer)  # 1 ETF, 2 note (currency, leveraged), 3 ETC (commodity), 4 crypto ETP
+    classified_at = Column(DateTime, nullable=False)
+
+
 class YahooCurrencyFix(Base):
     """A Yahoo Finance listing whose prices are in another currency than the one Yahoo reports (e.g. USD prices labelled
     CHF on SIX), found by the mapping: its prices match those of the Degiro product only in that currency. Our

@@ -27,7 +27,7 @@ from portfolio_manager.dashboard.data_service import (
     update_account,
 )
 from portfolio_manager.dashboard.portfolio_data import AllocationRiskLabels, PortfolioData
-from portfolio_manager.market_data.history import load_adjusted_closes, refresh_history
+from portfolio_manager.market_data.history import listing_currencies, load_adjusted_closes, refresh_history
 from portfolio_manager.market_data.yahoo import is_yahoo_reachable
 from portfolio_manager.storage.queries import query_yahoo_instruments, search_yahoo_finance_instruments
 from portfolio_manager.utils.logs import hide_secrets
@@ -542,7 +542,7 @@ def update_instr_adj_close_fig(ticker: str | None, account_name: str) -> go.Figu
         return get_fig_instr_adj_close(title=f'No instrument found for "{ticker}"')
     info = instruments.loc[ticker]
     name = next((n for n in (info['name_long'], info['name_short']) if isinstance(n, str) and n), ticker)
-    currency = info['currency']
+    currency = listing_currencies([ticker]).get(ticker, info['currency'])  # corrected if Yahoo reports a wrong one
     # bring the stored history of the selected listing up to date (the whole history the first time)
     if is_yahoo_reachable():
         try:

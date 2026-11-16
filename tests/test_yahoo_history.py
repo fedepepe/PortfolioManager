@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
+from yfinance.exceptions import YFPricesMissingError, YFTzMissingError
 
 import portfolio_manager.backtest.adjusted_prices as adjusted_prices
 import portfolio_manager.market_data.history as history
@@ -42,22 +43,38 @@ def yahoo_frame(closes, dividends=None, days=DAYS) -> pd.DataFrame:
 @pytest.fixture
 def yahoo(temp_db, monkeypatch):
     # a fake Yahoo Finance: histories, search results and information by ticker
-    source = SimpleNamespace(histories={}, quotes={}, info={}, downloads=[], failing=set())
+    # lost: tickers whose next answers get lost (count), as Yahoo answers "no timezone"
+    source = SimpleNamespace(histories={}, quotes={}, info={}, isins={}, downloads=[], failing=set(), lost=Counter())
 
     class Ticker:
-        isin = '-'
-
         def __init__(self, ticker):
             self.ticker = ticker
+
+        @property
+        def isin(self):
+            return source.isins.get(self.ticker, '-')
 
         @property
         def history_metadata(self):
             return {'currency': source.info.get(self.ticker, {}).get('currency')}
 
-        def history(self, interval, auto_adjust, actions=False, start=None, period=None):
+        def history(self, interval, auto_adjust, actions=False, start=None, end=None, period=None, raise_errors=False):
             source.downloads.append((self.ticker, start))
+            # a ticker Yahoo knows: with a history, or returned by a search
+            known = self.ticker in source.histories or any(
+                q.get('symbol') == self.ticker for quotes in source.quotes.values() for q in quotes
+            )
+            if raise_errors and (source.lost[self.ticker] > 0 or not known):
+                source.lost[self.ticker] -= 1
+                raise YFTzMissingError(self.ticker)
             df = source.histories.get(self.ticker, yahoo_frame([]))
-            return df if start is None else df[df.index.tz_localize(None) >= pd.Timestamp(start)]
+            days = df.index.tz_localize(None)
+            if start is not None:
+                df, days = df[days >= pd.Timestamp(start)], days[days >= pd.Timestamp(start)]
+            df = df if end is None else df[days < pd.Timestamp(end)]
+            if raise_errors and df.empty:
+                raise YFPricesMissingError(self.ticker, '')
+            return df
 
     monkeypatch.setattr(history.yf, 'Ticker', Ticker)
     monkeypatch.setattr(
@@ -66,6 +83,11 @@ def yahoo(temp_db, monkeypatch):
         lambda text: None if text in source.failing else SimpleNamespace(quotes=source.quotes.get(text, [])),
     )
     monkeypatch.setattr(history, 'get_ticker_info', lambda ticker: source.info.get(ticker, {}))
+    # the Degiro prices of the tests (on DAYS) count as recent
+    import portfolio_manager.analytics.instruments as instruments
+
+    monkeypatch.setattr(instruments, 'MAX_DEGIRO_PRICE_AGE', pd.Timestamp.now() - DAYS[0] + pd.Timedelta(days=1))
+    monkeypatch.setattr(history, 'MIN_COMMON_DAYS', 1)  # the prices of the tests cover a few days
     return source
 
 
@@ -140,6 +162,7 @@ def test_search_keeps_the_listing_with_prices_and_the_closest_name(yahoo):
     yahoo.histories['HYLD.L'] = yahoo_frame([85.0, 86.0])
     yahoo.histories['IHYG.MI'] = yahoo_frame([100.0, 101.0])
     yahoo.info['HYLD.L'] = {'currency': 'USD', 'longName': 'iShares Global High Yield', 'quoteType': 'ETF'}
+    yahoo.isins['HYLD.L'] = isin
     ticker = history.search_listing(search=isin, ticker='HYLD', name='iShares Global High Yield Corp Bond USD Dist')
     assert ticker == 'HYLD.L'
     stored = sql.query_yahoo_instruments(['HYLD.L']).loc['HYLD.L']
@@ -251,7 +274,7 @@ def test_ticker_searched_when_the_isin_finds_no_preferred_listing(yahoo):
     yahoo.histories['1675.T'] = yahoo_frame([3000.0])
     yahoo.histories['PHPD.L'] = yahoo_frame([150.0])
     assert history.search_listing(search=isin, ticker='PHPD', name='WisdomTree Physical Palladium') == 'PHPD.L'
-    assert sql.query_yahoo_instruments(['PHPD.L']).loc['PHPD.L', 'isin'] == isin
+    assert sql.query_yahoo_instruments(['PHPD.L']).loc['PHPD.L', 'isin'] is None  # Yahoo does not know it
 
 
 def test_listing_found_by_ticker_needs_a_similar_name(yahoo):
@@ -278,14 +301,28 @@ def test_own_line_probed_directly_when_the_isin_search_misses_it(yahoo):
 
 def test_search_without_answer_is_failed(yahoo):
     yahoo.failing.add('IE00B74DQ490')
-    assert history.find_listing('IE00B74DQ490', name='iShares Global HY') == history.Listing(None, 'failed')
+    found = history.find_listing('IE00B74DQ490', name='iShares Global HY')
+    assert found == history.Listing(None, 'failed', detail='Yahoo search did not answer')
     yahoo.failing.clear()
-    assert history.find_listing('IE00B74DQ490', name='iShares Global HY') == history.Listing(None, 'not found')
+    assert history.find_listing('IE00B74DQ490', name='iShares Global HY') == history.Listing(
+        None, 'not found', detail='no listing'
+    )
 
 
 def products(rows):
     # products of the Degiro catalog: id, isin, symbol, name, exchange (Xetra 194, SIX 947), in EUR
     return pd.DataFrame(rows, columns=['id', 'isin', 'symbol', 'name', 'exchange_id']).assign(currency='EUR')
+
+
+def degiro_prices(product_id: int, prices: list[float]):
+    # stored Degiro prices of a product, on the first days
+    sql.insert_degiro_hist(product_id, pd.DataFrame({'price': prices}, index=DAYS[: len(prices)]))
+
+
+def listing(yahoo, ticker: str, closes: list[float], currency: str = 'EUR'):
+    # a Yahoo listing with prices
+    yahoo.histories[ticker] = yahoo_frame(closes)
+    yahoo.info[ticker] = {'currency': currency}
 
 
 def test_catalog_has_every_line_of_a_fund(temp_db):
@@ -304,6 +341,110 @@ def test_catalog_has_every_line_of_a_fund(temp_db):
     assert sorted(instruments.catalog_products()['id']) == [4586985, 11854704, 11854705]
 
 
+def test_listing_with_a_wrong_currency_is_found_in_its_real_one(yahoo, monkeypatch):
+    # VDET on SIX: Yahoo labels the prices CHF, but they are in USD (one USD is 0.80 CHF)
+    isin = 'IE00BZ163L38'
+    yahoo.quotes[isin] = [{'symbol': 'VDET.SW'}]
+    listing(yahoo, 'VDET.SW', [42.0, 42.5], currency='CHF')
+    degiro = reference([33.6, 34.0], currency='CHF', rates={'USD': 0.8, 'EUR': 0.93})
+    found = history.find_listing(isin, 'VDET', exchange='SW', currency='CHF', reference=degiro)
+    assert found.ticker == 'VDET.SW' and found.rule == 'own line (currency fixed)'
+    assert found.currency_fix.yahoo_currency == 'CHF' and found.currency_fix.currency == 'USD'
+    assert found.currency_fix.gap == pytest.approx(0.0)
+    # Yahoo corrects its label: no fix
+    yahoo.info['VDET.SW'] = {'currency': 'USD'}
+    found = history.find_listing(isin, 'VDET', exchange='SW', currency='CHF', reference=degiro)
+    assert found == history.Listing('VDET.SW', 'found', 'own line')
+    # prices matching in no currency: another instrument
+    listing(yahoo, 'VDET.SW', [50.0, 51.0], currency='CHF')
+    assert history.find_listing(isin, 'VDET', exchange='SW', reference=degiro).status == 'not found'
+    # too few common days to try other currencies (e.g. a single stale quote): not fixed
+    monkeypatch.setattr(history, 'MIN_COMMON_DAYS', 3)
+    listing(yahoo, 'VDET.SW', [42.0, 42.5], currency='CHF')
+    assert history.find_listing(isin, 'VDET', exchange='SW', reference=degiro).status == 'not found'
+
+
+def test_currency_fix_saved_by_the_mapping_and_used_for_the_prices(yahoo, tmp_path, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    catalog = products([(1, 'IE00BZ163L38', 'VDET', 'Vanguard USD EM Gov Bond', 947)]).assign(currency='CHF')
+    sql.upsert_products(catalog)
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    sql.upsert_currency_pairs({'USD/CHF': 714321})
+    sql.insert_degiro_hist(714321, pd.DataFrame({'price': [0.8] * len(DAYS)}, index=DAYS))
+    degiro_prices(1, [33.6, 34.0])
+    yahoo.quotes['IE00BZ163L38'] = [{'symbol': 'VDET.SW'}]
+    listing(yahoo, 'VDET.SW', [42.0, 42.5], currency='CHF')
+    sql.upsert_yahoo_instrument('VDET.SW', {'currency': 'CHF'})  # as Yahoo reports it
+    assert instruments.map_etf_catalog(degiro_prices=instruments.DegiroPrices()) == Counter({'found': 1})
+    fixes = sql.query_currency_fixes()
+    assert fixes.loc['VDET.SW', ['yahoo_currency', 'currency', 'product_id']].tolist() == ['CHF', 'USD', 1]
+    assert history.listing_currencies(['VDET.SW']) == {'VDET.SW': 'USD'}  # the prices are converted from USD
+    assert sql.query_yahoo_instruments(['VDET.SW']).loc['VDET.SW', 'currency'] == 'CHF'  # Yahoo's data unchanged
+    review = pd.read_excel(tmp_path / 'yahoo_mapping.xlsx', sheet_name=None)
+    assert review['Mapping'].loc[0, 'currency_fixed'] == 'USD' and list(review['Currency fixes']['ticker']) == [
+        'VDET.SW'
+    ]
+    # Yahoo corrects its label: the fix is removed at the next mapping
+    yahoo.info['VDET.SW'] = {'currency': 'USD'}
+    instruments.map_etf_catalog(remap=True, degiro_prices=instruments.DegiroPrices())
+    assert sql.query_currency_fixes().empty
+    # a fix whose listing is no longer mapped (the product not found any more) is removed at the end of a mapping
+    yahoo.info['VDET.SW'] = {'currency': 'CHF'}
+    instruments.map_etf_catalog(remap=True, degiro_prices=instruments.DegiroPrices())
+    assert list(sql.query_currency_fixes().index) == ['VDET.SW']
+    listing(yahoo, 'VDET.SW', [60.0, 61.0], currency='CHF')  # other prices: not found
+    instruments.map_etf_catalog(remap=True, degiro_prices=instruments.DegiroPrices())
+    assert sql.query_degiro_yahoo_map() == {} and sql.query_currency_fixes().empty
+
+
+def test_portfolio_remap_shows_and_saves_a_currency_fix(yahoo, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    sql.upsert_products(products([(3, 'IE00BZ163L38', 'VDET', 'Vanguard USD EM Gov Bond', 947)]).assign(currency='CHF'))
+    sql.save_listing_search([3], 'VDET.SW', 'found', 'own line')  # the listing stays, its currency is fixed
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: {3})
+    sql.upsert_currency_pairs({'USD/CHF': 714321})
+    sql.insert_degiro_hist(714321, pd.DataFrame({'price': [0.8] * len(DAYS)}, index=DAYS))
+    degiro_prices(3, [33.6, 34.0])
+    yahoo.quotes['IE00BZ163L38'] = [{'symbol': 'VDET.SW'}]
+    listing(yahoo, 'VDET.SW', [42.0, 42.5], currency='CHF')
+    changes = instruments.remap_portfolio_listings()
+    assert changes[['stored', 'found', 'rule', 'currency']].values.tolist() == [
+        ['VDET.SW', 'VDET.SW', 'own line (currency fixed)', 'USD']
+    ]
+    assert sql.query_currency_fixes().empty  # shown only
+    instruments.remap_portfolio_listings(apply=True)
+    assert sql.query_currency_fixes()['currency'].to_dict() == {'VDET.SW': 'USD'}
+    assert instruments.remap_portfolio_listings().empty  # nothing left to change
+
+
+def test_listing_with_too_few_common_days_is_rejected(yahoo, monkeypatch):
+    # a Hamburg line with a single quote in the period: the same price, but too little to compare (and to use)
+    yahoo.quotes['GB00BM9JYJ86'] = [{'symbol': 'LI0X.HM'}]
+    listing(yahoo, 'LI0X.HM', [10.0])
+    degiro = reference([10.0, 10.1, 10.2])
+    assert history.find_listing('GB00BM9JYJ86', 'LI0X', exchange='DE', reference=degiro).ticker == 'LI0X.HM'
+    monkeypatch.setattr(history, 'MIN_COMMON_DAYS', 3)
+    found = history.find_listing('GB00BM9JYJ86', 'LI0X', exchange='DE', reference=degiro)
+    assert found == history.Listing(None, 'not found', detail='LI0X.HM only 1 common days, LI0X.DE no prices')
+
+
+def test_found_listings_checked_again_after_a_quarter(yahoo):
+    import portfolio_manager.analytics.instruments as instruments
+
+    sql.save_listing_search([1], 'AAA.DE', 'found', 'own line')
+    sql.save_listing_search([2], 'BBB.DE', 'found', 'own line')
+    old = (pd.Timestamp.now() - pd.DateOffset(months=4)).to_pydatetime()
+    with sql.engine.begin() as connection:
+        connection.execute(text('UPDATE degiro_yahoo_map SET searched_at = :t WHERE product_id = 1'), {'t': old})
+    df = products([(n, f'XX{n}', f'S{n}', f'ETF {n}', 194) for n in (1, 2)])
+    assert instruments.products_to_search(df)['id'].tolist() == []
+    assert instruments.products_to_search(df, remap_after=instruments.REMAP_PERIOD)['id'].tolist() == [1]
+
+
 def test_which_products_are_searched(yahoo):
     import portfolio_manager.analytics.instruments as instruments
 
@@ -316,7 +457,7 @@ def test_which_products_are_searched(yahoo):
         connection.execute(text('UPDATE degiro_yahoo_map SET searched_at = :t WHERE product_id = 5'), {'t': old})
     df = products([(n, f'XX{n}', f'S{n}', f'ETF {n}', 194) for n in range(1, 6)])
     assert instruments.products_to_search(df)['id'].tolist() == [1, 3, 5]  # never searched, failed, not found long ago
-    assert instruments.products_to_search(df, retry=True)['id'].tolist() == [1, 3, 4, 5]
+    assert instruments.products_to_search(df, retry_not_found=True)['id'].tolist() == [1, 3, 4, 5]
     assert instruments.products_to_search(df, remap=True)['id'].tolist() == [1, 2, 3, 5]
     # resuming a remap: the found products searched before the given time only
     before = pd.Timestamp.now() + pd.Timedelta(minutes=1)
@@ -342,10 +483,13 @@ def test_mapping_of_the_catalog(yahoo, tmp_path, monkeypatch):
     monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
     yahoo.quotes['IE00B4L5Y983'] = [{'symbol': 'EUNL.DE'}, {'symbol': 'SWDA.SW'}, {'symbol': 'IWDA.L'}]
     for ticker in ['EUNL.DE', 'SWDA.SW', 'IWDA.L']:
-        yahoo.histories[ticker] = yahoo_frame([90.0])
+        listing(yahoo, ticker, [90.0])
+    for product_id in [1, 2, 4, 5]:
+        degiro_prices(product_id, [90.0])
     yahoo.failing.update({'IE00BZ56RN96', 'FAIL', 'FAIL.DE'})
     sql.save_listing_search([5], 'OLD.DE', 'found', 'name')
-    assert instruments.map_etf_catalog(remap=True) == Counter({'found': 2, 'not found': 1, 'failed': 1})
+    found = instruments.map_etf_catalog(remap=True, degiro_prices=instruments.DegiroPrices())
+    assert found == Counter({'found': 2, 'not found': 1, 'failed': 1})
     # a failed search keeps the listing found before
     assert sql.query_degiro_yahoo_map() == {1: 'EUNL.DE', 2: 'SWDA.SW', 5: 'OLD.DE'}
     review = pd.read_excel(tmp_path / 'yahoo_mapping.xlsx')
@@ -359,8 +503,9 @@ def test_remap_of_the_portfolio_products(yahoo, monkeypatch):
     sql.save_listing_search([3], 'HYLD.L', 'found', 'preferred exchange')
     monkeypatch.setattr(instruments, 'traded_product_ids', lambda: {3})
     yahoo.quotes['IE00B74DQ490'] = [{'symbol': 'HYLD.L'}, {'symbol': 'HYLD.SW'}]
-    yahoo.histories['HYLD.L'] = yahoo_frame([85.0])
-    yahoo.histories['HYLD.SW'] = yahoo_frame([80.0, 81.0])
+    listing(yahoo, 'HYLD.L', [85.0, 86.0])  # 6% off the Degiro prices
+    listing(yahoo, 'HYLD.SW', [80.0, 81.0])
+    degiro_prices(3, [80.0, 81.0])
     changes = instruments.remap_portfolio_listings()
     assert changes[['product_id', 'stored', 'found', 'rule']].values.tolist() == [[3, 'HYLD.L', 'HYLD.SW', 'own line']]
     assert sql.query_degiro_yahoo_map() == {3: 'HYLD.L'}  # shown only
@@ -380,6 +525,7 @@ def test_catalog_history_of_the_mapped_listings(yahoo, monkeypatch):
     sql.save_listing_search([2], None, 'not found')
     yahoo.histories['EUNL.DE'] = yahoo_frame([90.0, 91.0])
     yahoo.info['EUNL.DE'] = {'currency': 'EUR', 'longName': 'iShares Core MSCI World UCITS ETF'}
+    yahoo.isins['EUNL.DE'] = 'IE00B4L5Y983'
     instruments.fetch_etf_catalog_data()
     assert history.stored_history('EUNL.DE')['close'].tolist() == [90.0, 91.0]
     stored = sql.query_yahoo_instruments(['EUNL.DE']).loc['EUNL.DE']
@@ -408,36 +554,175 @@ def test_database_of_version_4_keeps_its_listings(tmp_path, monkeypatch):
     sql.save_listing_search([3], None, 'not found')  # the listing may be missing now
 
 
-def spdr_quotes(yahoo):
+def reference(prices: list[float], currency: str = 'EUR', rates: dict | None = None) -> history.PriceReference:
+    # Degiro prices on the first days, with constant exchange rates of other currencies to theirs
+    rates = rates or {}
+    return history.PriceReference(
+        prices=pd.Series(prices, index=DAYS[: len(prices)]),
+        currency=currency,
+        rate=lambda other: pd.Series(rates[other], index=DAYS) if other in rates else None,
+    )
+
+
+def test_own_line_with_another_name_is_checked_on_its_prices(yahoo):
     # SPYI on Xetra: Yahoo names its own line differently; the ISIN search returns only a London line in USD
     isin = 'IE00B3YLTY66'
     yahoo.quotes[isin] = [{'symbol': 'IMID.L', 'longname': 'SPDR MSCI ACWI IMI UCITS ETF'}]
     yahoo.quotes['SPYI.DE'] = [{'symbol': 'SPYI.DE', 'longname': 'State Street SPDR MSCI All Country World Investable'}]
-    yahoo.histories['IMID.L'] = yahoo_frame([200.0])
-    yahoo.histories['SPYI.DE'] = yahoo_frame([180.0])
-    return isin
-
-
-def test_own_line_with_another_name_is_asked(yahoo):
-    isin = spdr_quotes(yahoo)
+    listing(yahoo, 'IMID.L', [216.0, 218.0], currency='USD')
+    listing(yahoo, 'SPYI.DE', [180.0, 181.0])
     args = (isin, 'SPYI', 'SPDR MSCI ACWI IMI')
-    # not asked (no terminal): the other listing, with the own line reported
-    found = history.find_listing(*args, exchange='DE', currency='EUR')
-    assert (found.ticker, found.rule, found.proposal) == ('IMID.L', 'preferred exchange', 'SPYI.DE')
-    assert found.proposal_name.startswith('State Street')
-    # asked: the question shows both listings
-    questions = []
-    accepted = history.find_listing(*args, exchange='DE', confirm=lambda q: questions.append(q) or True)
-    assert (accepted.ticker, accepted.status, accepted.rule) == ('SPYI.DE', 'found', 'own line (confirmed)')
-    question = questions[0]
-    assert (question.own_line, question.alternative.ticker) == ('SPYI.DE', 'IMID.L')
-    assert question.own_line_name.startswith('State Street')
-    assert question.alternative_name == 'SPDR MSCI ACWI IMI UCITS ETF'
-    rejected = history.find_listing(*args, exchange='DE', confirm=lambda q: False)
-    assert (rejected.ticker, rejected.proposal) == ('IMID.L', 'SPYI.DE')
-    # accepted before: not asked again
-    remembered = history.find_listing(*args, exchange='DE', accepted='SPYI.DE', confirm=lambda q: 1 / 0)
-    assert (remembered.ticker, remembered.rule) == ('SPYI.DE', 'own line (confirmed)')
+    usd = {'USD': 0.8333}
+    found = history.find_listing(*args, exchange='DE', currency='EUR', reference=reference([180.0, 181.5], rates=usd))
+    assert found == history.Listing('SPYI.DE', 'found', 'own line')
+    # the own line with other prices is another instrument: the London line, converted to EUR, matches
+    yahoo.histories['SPYI.DE'] = yahoo_frame([9.0, 9.1])
+    found = history.find_listing(*args, exchange='DE', currency='EUR', reference=reference([180.0, 181.5], rates=usd))
+    assert found == history.Listing('IMID.L', 'found', 'preferred exchange')
+    # without an exchange rate for its currency, the London line cannot be compared
+    assert history.find_listing(*args, exchange='DE', reference=reference([180.0, 181.5])).status == 'not found'
+
+
+def test_price_check_uses_the_median_daily_gap(yahoo):
+    listing(yahoo, 'AAA.DE', [100.0, 150.0, 100.5])  # one wrong day
+    searches = history.ListingSearches()
+    assert searches.price_gap('AAA.DE', reference([100.0, 100.0, 100.0])) == pytest.approx(0.005)
+    assert (
+        history.find_listing('XX', 'AAA', exchange='DE', reference=reference([100.0, 100.0, 100.0])).ticker == 'AAA.DE'
+    )
+    # 3% off on every day: another instrument, logged with its gap
+    found = history.find_listing('XX', 'AAA', exchange='DE', reference=reference([103.0, 154.5, 103.5]))
+    assert found == history.Listing(None, 'not found', detail='AAA.DE gap 2.9%')
+
+
+def test_ticker_search_listings_with_another_symbol(yahoo):
+    # the ISIN search finds only a Stuttgart line without prices; the ticker search finds the SIX line under another
+    # symbol, and a coin pair and a US fund with other prices
+    isin = 'CH1146882316'
+    yahoo.quotes[isin] = [{'symbol': f'{isin}.SG'}]
+    yahoo.quotes['WMEG'] = [{'symbol': 'WMEG-USD'}, {'symbol': 'WMEGA.SW'}, {'symbol': 'WMEGX'}]
+    listing(yahoo, 'WMEGA.SW', [12.0, 12.1])
+    listing(yahoo, 'WMEG-USD', [0.5, 0.6])
+    listing(yahoo, 'WMEGX', [30.0, 30.5])
+    found = history.find_listing(isin, 'WMEG', exchange='DE', reference=reference([12.0, 12.1]))
+    assert found == history.Listing('WMEGA.SW', 'found', 'symbol search')
+
+
+def test_listing_whose_prices_get_lost(yahoo):
+    # GOLD.AS returned by the ISIN search: a lost answer is downloaded again, two make the search fail
+    yahoo.quotes['FR0013416716'] = [{'symbol': 'GOLD.AS'}]
+    listing(yahoo, 'GOLD.AS', [150.0, 151.0], currency='USD')
+    args = ('FR0013416716', 'GOLD', 'Amundi Physical Gold ETC')
+    yahoo.lost['GOLD.AS'] = 1
+    found = history.find_listing(*args, exchange='AS', reference=reference([150.0, 151.0], currency='USD'))
+    assert found == history.Listing('GOLD.AS', 'found', 'own line')
+    yahoo.lost['GOLD.AS'] = 2
+    with pytest.raises(history.ListingDownloadError):
+        history.find_listing(*args, exchange='AS', reference=reference([150.0, 151.5], currency='USD'))
+    # a guessed ticker Yahoo does not know (the own line on Xetra) has no prices, nothing failed
+    found = history.find_listing(*args, exchange='DE', reference=reference([150.0, 151.5], currency='USD'))
+    assert found == history.Listing('GOLD.AS', 'found', 'preferred exchange')
+
+
+def test_prices_in_pence_are_compared_in_pounds(yahoo):
+    listing(yahoo, 'VUKE.L', [1000.0, 1010.0], currency='GBp')
+    searches = history.ListingSearches()
+    assert searches.price_gap('VUKE.L', reference([12.0, 12.12], rates={'GBP': 1.2})) == pytest.approx(0.0)
+
+
+def test_listing_is_chosen_on_prices_not_on_the_isin_of_yfinance(yahoo):
+    isin = 'IE00B3VVMM84'  # Vanguard FTSE Emerging Markets on Amsterdam
+    yahoo.quotes[isin] = [{'symbol': 'VFEM.AS'}]
+    listing(yahoo, 'VFEM.AS', [60.0, 60.5])
+    yahoo.isins['VFEM.AS'] = 'US63969G2599'  # yfinance's ISIN (a Business Insider name search) of another security
+    found = history.find_listing(isin, 'VFEM', exchange='AS', reference=reference([60.0, 60.5]))
+    assert found == history.Listing('VFEM.AS', 'found', 'own line')
+    # the US Fidelity bitcoin fund FBTC for the Fidelity bitcoin ETP on Xetra: other prices, rejected on them
+    yahoo.quotes['FBTC'] = [{'symbol': 'FBTC', 'longname': 'Fidelity Wise Origin Bitcoin Fund'}]
+    listing(yahoo, 'FBTC', [80.0, 81.0], currency='USD')
+    found = history.find_listing(
+        'XS2434891219', 'FBTC', exchange='DE', reference=reference([10.0, 10.1], rates={'USD': 1.0})
+    )
+    assert found == history.Listing(None, 'not found', detail='FBTC.DE no prices, FBTC gap 701.0%')
+
+
+def test_product_without_degiro_prices_is_not_found(yahoo, tmp_path, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    catalog = products([(1, 'IE00B4L5Y983', 'EUNL', 'iShares Core MSCI World', 194)])
+    sql.upsert_products(catalog)
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    yahoo.quotes['IE00B4L5Y983'] = [{'symbol': 'EUNL.DE'}]
+    listing(yahoo, 'EUNL.DE', [90.0])
+    assert instruments.map_etf_catalog(degiro_prices=instruments.DegiroPrices()) == Counter({'no Degiro prices': 1})
+    searches = sql.query_listing_searches().set_index('product_id')
+    assert searches.loc[1, ['ticker', 'status', 'rule']].tolist() == [None, 'not found', 'no Degiro prices']
+
+
+def test_product_with_old_degiro_prices_is_not_searched(yahoo, tmp_path, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    catalog = products([(1, 'IE00B4L5Y983', 'EUNL', 'iShares Core MSCI World', 194)])
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    yahoo.quotes['IE00B4L5Y983'] = [{'symbol': 'EUNL.DE'}]
+    listing(yahoo, 'EUNL.DE', [90.0, 91.0])
+    degiro_prices(1, [90.0, 91.0])
+    # the last Degiro price is older than MAX_DEGIRO_PRICE_AGE: no longer traded, Yahoo is not asked
+    monkeypatch.setattr(instruments, 'MAX_DEGIRO_PRICE_AGE', pd.Timestamp.now() - DAYS[1] - pd.Timedelta(days=1))
+    assert instruments.map_etf_catalog(degiro_prices=instruments.DegiroPrices()) == Counter(
+        {'no recent Degiro prices': 1}
+    )
+    assert yahoo.downloads == []
+    found = instruments.search_product_listing(next(catalog.itertuples()), degiro_prices=instruments.DegiroPrices())
+    assert found.detail == f'Degiro prices to {DAYS[1].date()}'
+
+
+def test_refused_degiro_chart_is_counted_apart(yahoo, tmp_path, monkeypatch):
+    import portfolio_manager.analytics.instruments as instruments
+
+    catalog = products([(1, 'NL0009272756', 'TMX', 'VanEck AMX UCITS ETF', 200)])
+    catalog = catalog.assign(vwd_id=327414, vwd_identifier_type='issueid')
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
+    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    degiro = instruments.DegiroPrices()
+    # Degiro answers with an error for each series
+    error = {'error': 'Access denied for issueid:327414', 'type': 'error'}
+    degiro.chart_fetcher = SimpleNamespace(
+        get_chart=lambda chart_request, raw: {'requestid': '1', 'resolution': 'P1D', 'series': [error] * 3}
+    )
+    assert instruments.map_etf_catalog(degiro_prices=degiro) == Counter({'Degiro chart refused': 1})
+    listing = instruments.search_product_listing(next(catalog.itertuples()), degiro_prices=degiro)
+    assert listing.detail == 'Degiro chart refused: Access denied for issueid:327414'
+
+
+def test_degiro_chart_without_the_series_in_error():
+    from portfolio_manager.degiro.charts import fetch_chart
+
+    price = {'expires': '2026-01-08T00:00:00', 'id': 'price:issueid:1', 'type': 'time', 'times': '2026-01-05/P1D'}
+    price['data'] = [[0, 10.0], [1, 10.5]]
+    response = {'requestid': '1', 'resolution': 'P1D', 'start': '2026-01-05', 'end': '2026-01-07'}
+    response['series'] = [price, {'error': 'Access denied for volume', 'type': 'error'}]
+    chart = fetch_chart(SimpleNamespace(get_chart=lambda chart_request, raw: response), 1)
+    assert chart['price'].tolist() == [10.0, 10.5] and chart.index[0] == pd.Timestamp('2026-01-05')
+
+
+def test_degiro_prices_of_the_last_3_months(temp_db):
+    import portfolio_manager.analytics.instruments as instruments
+
+    days = pd.bdate_range('2025-10-01', '2026-03-31')
+    sql.insert_degiro_hist(1, pd.DataFrame({'price': range(len(days))}, index=days))
+    sql.upsert_currency_pairs({'EUR/USD': 705366})
+    sql.insert_degiro_hist(705366, pd.DataFrame({'price': [1.25] * len(days)}, index=days))
+    product = SimpleNamespace(id=1, currency='USD', vwd_id=None, vwd_identifier_type=None)
+    found = instruments.DegiroPrices().reference(product)
+    assert found.prices.index[0] > days[-1] - pd.DateOffset(months=3) > days[0] and found.prices.index[-1] == days[-1]
+    assert found.currency == 'USD' and found.rate('EUR').iloc[-1] == pytest.approx(1.25)  # one EUR in USD
+    assert instruments.DegiroPrices().reference(SimpleNamespace(id=2, currency='EUR', vwd_id=None)) is None
 
 
 def test_listings_in_the_currency_of_the_product_first(yahoo):
@@ -465,47 +750,6 @@ def test_equal_names_follow_the_preferred_exchange_order(yahoo):
     assert history.find_listing(isin, 'PDOT', '21Shares Polkadot ETP', exchange='DE').ticker == 'ADOT.MI'  # Milan first
 
 
-def map_spdr(yahoo, tmp_path, monkeypatch):
-    import portfolio_manager.analytics.instruments as instruments
-
-    isin = spdr_quotes(yahoo)
-    catalog = products([(1, isin, 'SPYI', 'SPDR MSCI ACWI IMI', 194)])
-    sql.upsert_products(catalog)
-    monkeypatch.setattr(instruments, 'catalog_products', lambda: catalog)
-    monkeypatch.setattr(instruments, 'traded_product_ids', lambda: set())
-    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
-    return instruments
-
-
-def test_accepted_own_line_is_remembered(yahoo, tmp_path, monkeypatch):
-    instruments = map_spdr(yahoo, tmp_path, monkeypatch)
-    asked = []
-    results = instruments.map_etf_catalog(confirm=lambda product, doubt: asked.append(product.id) or True)
-    assert asked == [1] and results['found'] == 1 and not results['own line not used']
-    assert sql.query_degiro_yahoo_map() == {1: 'SPYI.DE'}
-    instruments.map_etf_catalog(remap=True, confirm=lambda product, doubt: 1 / 0)  # not asked again
-    searches = sql.query_listing_searches().set_index('product_id')
-    assert searches.loc[1, ['ticker', 'rule', 'own_line', 'own_line_decision']].tolist() == [
-        'SPYI.DE',
-        'own line (confirmed)',
-        'SPYI.DE',
-        'accepted',
-    ]
-    assert len(pd.read_excel(tmp_path / 'yahoo_mapping.xlsx', sheet_name=None)) == 1  # no sheet of proposals
-
-
-def test_rejected_or_unasked_own_line_is_not_stored(yahoo, tmp_path, monkeypatch):
-    instruments = map_spdr(yahoo, tmp_path, monkeypatch)
-    results = instruments.map_etf_catalog()  # not asked (no terminal)
-    assert results['own line not used'] == 1 and sql.query_degiro_yahoo_map() == {1: 'IMID.L'}
-    asked = []
-    instruments.map_etf_catalog(remap=True, confirm=lambda product, doubt: asked.append(product.id) or False)
-    instruments.map_etf_catalog(remap=True, confirm=lambda product, doubt: asked.append(product.id) or False)
-    assert asked == [1, 1]  # a rejection is asked again at the next search
-    searches = sql.query_listing_searches().set_index('product_id')
-    assert searches.loc[1, 'ticker'] == 'IMID.L' and pd.isna(searches.loc[1, 'own_line'])
-
-
 def test_remap_of_the_products_not_on_their_own_line(yahoo):
     import portfolio_manager.analytics.instruments as instruments
 
@@ -513,10 +757,10 @@ def test_remap_of_the_products_not_on_their_own_line(yahoo):
     sql.save_listing_search([2], 'BBB.L', 'found', 'preferred exchange')
     sql.save_listing_search([3], 'CCC.DE', 'found', 'own line (confirmed)')
     df = products([(n, f'XX{n}', f'S{n}', f'ETF {n}', 194) for n in range(1, 4)])
-    assert instruments.products_to_search(df, remap_not_own_line=True)['id'].tolist() == [2]
+    assert instruments.products_to_search(df, remap_found_not_own_line=True)['id'].tolist() == [2]
 
 
-def test_database_of_version_5_gets_the_proposal_columns(tmp_path, monkeypatch):
+def test_database_of_version_5_gets_the_isin_of_its_products(tmp_path, monkeypatch):
     folder = tmp_path / 'db'
     folder.mkdir()
     engine = create_engine(f'sqlite:///{folder / "old.db"}')
@@ -527,6 +771,9 @@ def test_database_of_version_5_gets_the_proposal_columns(tmp_path, monkeypatch):
             'CREATE TABLE degiro_yahoo_map (product_id INTEGER NOT NULL PRIMARY KEY, ticker VARCHAR, '
             'status VARCHAR NOT NULL, rule VARCHAR, searched_at DATETIME)',
             "INSERT INTO degiro_yahoo_map VALUES (1, 'EUNL.DE', 'found', 'own line', NULL)",
+            "INSERT INTO degiro_yahoo_map VALUES (2, NULL, 'not found', NULL, NULL)",
+            'CREATE TABLE products (id INTEGER NOT NULL PRIMARY KEY, isin VARCHAR)',
+            "INSERT INTO products VALUES (1, 'IE00B4L5Y983')",
         ]:
             connection.execute(text(statement))
     monkeypatch.setattr(tables, 'engine', engine)
@@ -534,5 +781,7 @@ def test_database_of_version_5_gets_the_proposal_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
     tables.init_db()
     columns = [c['name'] for c in inspect(engine).get_columns('degiro_yahoo_map')]
-    assert {'own_line', 'own_line_name', 'own_line_decision'} <= set(columns)
+    assert columns == ['product_id', 'isin', 'ticker', 'status', 'rule', 'searched_at']  # no own line columns
+    searches = sql.query_listing_searches().set_index('product_id')
+    assert searches['isin'].to_dict() == {1: 'IE00B4L5Y983', 2: None}
     assert sql.query_degiro_yahoo_map() == {1: 'EUNL.DE'}

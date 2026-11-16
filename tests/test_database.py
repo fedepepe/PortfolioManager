@@ -20,6 +20,9 @@ def test_init_db_creates_folder_tables_and_indexes(temp_db, tmp_path):
 
 
 def test_degiro_yahoo_map_upsert(temp_db):
+    with sql.SessionLocal() as session:
+        session.add(Product(id=1, isin='IE00B4L5Y983'))
+        session.commit()
     sql.save_listing_search([1, 2], 'AAA.L', 'found', 'own line')
     sql.save_listing_search([2], 'BBB.L', 'found', 'name')
     sql.save_listing_search([3], None, 'not found')
@@ -27,6 +30,11 @@ def test_degiro_yahoo_map_upsert(temp_db):
     searches = sql.query_listing_searches().set_index('product_id')
     assert searches.loc[3, 'status'] == 'not found' and searches.loc[2, 'rule'] == 'name'
     assert searches['searched_at'].notna().all()
+    assert searches['isin'].to_dict() == {
+        1: 'IE00B4L5Y983',
+        2: None,
+        3: None,
+    }  # the Degiro ISIN, if the product is known
 
 
 def test_yahoo_instrument_keeps_the_fields_not_given(temp_db):

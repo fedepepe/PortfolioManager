@@ -5,21 +5,26 @@ account.
 import logging
 import time
 from collections import Counter
-from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
 import pandas as pd
+from degiro_connector.quotecast.models.chart import Interval
+from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher
+from degiro_connector.trading.api import API
 
 from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs, compute_portfolio_metrics
 from portfolio_manager.config.accounts import Account, list_accounts
 from portfolio_manager.config.settings import RESULTS_DIR
-from portfolio_manager.degiro.charts import load_fx_rates
+from portfolio_manager.degiro.charts import ChartType, DegiroChartError, exchange_rate, fetch_chart, load_fx_rates
+from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes, exchange_name, yahoo_suffix
 from portfolio_manager.degiro.products import load_portfolio_products
 from portfolio_manager.market_data.history import (
     Listing,
     ListingSearches,
+    PriceReference,
     find_listing,
+    is_missing,
     listing_currencies,
     load_adjusted_closes,
     major_currency,
@@ -33,13 +38,18 @@ from portfolio_manager.market_data.yahoo import YFinInfoCols
 from portfolio_manager.storage.files import PD_DATA_TYPES, save_df_dict_to_excel, save_df_to_excel
 from portfolio_manager.storage.models import Product
 from portfolio_manager.storage.queries import (
+    delete_currency_fix,
+    delete_unused_currency_fixes,
     query_account_product_ids,
+    query_currency_fixes,
+    query_currency_pairs,
+    query_degiro_hist,
     query_degiro_yahoo_map,
     query_etf_catalog,
     query_listing_searches,
     query_products,
     query_yahoo_instruments,
-    save_accepted_own_line,
+    save_currency_fix,
     save_etf_catalog,
     save_listing_search,
 )
@@ -52,6 +62,12 @@ CATALOG_EXCHANGES = [Exchanges.XET, Exchanges.SWX, Exchanges.MIL, Exchanges.EAM]
 TRADED_VALUE_PERIOD = pd.DateOffset(months=3)  # average daily traded value over the last 3 calendar months
 MAX_DAYS_WITHOUT_PRICE = 30  # listings without a price for longer are left out of the catalog
 PRODUCT_SEARCH_RETRY = timedelta(days=30)  # a product whose listing was not found is searched again after this
+REMAP_PERIOD = pd.DateOffset(months=3)  # a catalog product whose listing was found is checked again after this
+OWN_LINE_RULES = ('own line', 'own line (confirmed)', 'own line (currency fixed)')
+# a product whose last Degiro price is older no longer trades on its exchange: no listing searched
+MAX_DEGIRO_PRICE_AGE = timedelta(days=10)
+NO_REFERENCE_RULES = ('no Degiro prices', 'no recent Degiro prices')  # products not searched: nothing to compare
+PRICE_CHECK_PERIOD = pd.DateOffset(months=3)  # last 3 months of Degiro prices compared to those of the listings
 LISTING_REVIEW_FILE = 'yahoo_mapping'  # Excel copy of the mapping of the Degiro products, for review
 # Yahoo information fields (rows of the information tables of the catalogs) and their columns in the database
 INFO_COLUMNS = {
@@ -221,49 +237,109 @@ def traded_product_ids() -> set[int]:
     return {p for account in list_accounts() for p in query_account_product_ids(account.name)}
 
 
-def search_product_listing(
-    product,
-    searches: ListingSearches | None = None,
-    decided: pd.DataFrame | None = None,
-    confirm: Callable | None = None,
-) -> Listing:
-    """Find the Yahoo Finance listing of a Degiro product (a row of the products table): its own line first (see
-    find_listing), with the own lines accepted before (rows of query_listing_searches by product); confirm(product,
-    doubt) asks the user about a doubtful own line (see OwnLineDoubt). A failed search is a result too.
+class DegiroPrices:
+    """Degiro prices of products, to which the prices of their candidate listings are compared: the last 3 months
+    (PRICE_CHECK_PERIOD) of the stored Degiro history (the products traded in an account), or of a chart downloaded
+    from Degiro when a connection is given.
     """
-    accepted = None
-    if (
-        decided is not None
-        and product.id in decided.index
-        and decided.loc[product.id, 'own_line_decision'] == 'accepted'
-    ):
-        accepted = decided.loc[product.id, 'own_line']
+
+    def __init__(self, degiro_conn: API | None = None):
+        self.chart_fetcher = None
+        self.missing_reason: str | None = None  # why the last product had no reference prices
+        if degiro_conn is not None:
+            self.chart_fetcher = ChartFetcher(user_token=degiro_conn.get_client_details()['data']['id'])
+        pairs = query_currency_pairs()
+        pair_prices = query_degiro_hist(sorted(pairs.values()), columns=ChartType.PRICE.value) if pairs else None
+        self.pair_prices = pd.DataFrame() if pair_prices is None else pair_prices
+        self.pair_prices = self.pair_prices.rename(columns={product_id: pair for pair, product_id in pairs.items()})
+
+    def reference(self, product) -> PriceReference | None:
+        """Last 3 months of Degiro prices of a product (a row of the products table), None if Degiro has none (why in
+        missing_reason).
+        """
+        self.missing_reason = None
+        stored = query_degiro_hist(int(product.id), columns=ChartType.PRICE.value)
+        prices = stored[int(product.id)].dropna() if int(product.id) in stored else pd.Series(dtype=float)
+        if prices.empty and self.chart_fetcher is not None:
+            if not self._has_chart(product):
+                self.missing_reason = 'no Degiro chart id'
+                return None
+            try:
+                chart = fetch_chart(self.chart_fetcher, int(product.vwd_id), period=Interval.P3M)
+            except DegiroChartError as e:
+                self.missing_reason = f'Degiro chart refused: {e}'
+                return None
+            prices = chart[ChartType.PRICE.value].dropna() if ChartType.PRICE.value in chart else prices
+        if prices.empty:
+            self.missing_reason = 'Degiro chart empty' if self.chart_fetcher is not None else 'no stored Degiro prices'
+            return None
+        prices = prices[prices.index > prices.index[-1] - PRICE_CHECK_PERIOD]
+        currency, factor = major_currency(product.currency)
+        return PriceReference(
+            prices=prices * factor,
+            currency=currency,
+            rate=lambda other: exchange_rate(self.pair_prices, currency=other, base=currency),
+        )
+
+    @staticmethod
+    def _has_chart(product) -> bool:
+        # Degiro charts are requested by the vwd id of the product
+        return not is_missing(getattr(product, 'vwd_id', None)) and product.vwd_identifier_type == 'issueid'
+
+
+def search_product_listing(
+    product, searches: ListingSearches | None = None, degiro_prices: DegiroPrices | None = None
+) -> Listing:
+    """Find the Yahoo Finance listing of a Degiro product (a row of the products table): its own line first, checked on
+    the prices of the product (see find_listing); without Degiro prices, the product is not found. A failed search is a
+    result too.
+    """
     try:
-        return find_listing(
+        reference = degiro_prices.reference(product) if degiro_prices is not None else None
+        if degiro_prices is not None and reference is None:
+            return Listing(None, 'not found', 'no Degiro prices', degiro_prices.missing_reason)
+        if reference is not None and reference.prices.index[-1] < pd.Timestamp(date.today() - MAX_DEGIRO_PRICE_AGE):
+            end = reference.prices.index[-1].date()
+            return Listing(None, 'not found', 'no recent Degiro prices', f'Degiro prices to {end}')
+        listing = find_listing(
             search=product.isin,
             ticker=product.symbol,
             name=product.name,
             exchange=yahoo_suffix(product.exchange_id),
-            currency=product.currency,
-            accepted=accepted,
-            confirm=(lambda doubt: confirm(product, doubt)) if confirm is not None else None,
+            currency=major_currency(product.currency)[0],
+            reference=reference,
             searches=searches,
         )
+        return listing
     except Exception as e:  # any download problem: searched again at the next run
-        logger.warning('Yahoo Finance search failed for %s (%s): %s', product.symbol, product.isin, e)
-        return Listing(None, 'failed')
+        return Listing(None, 'failed', detail=f'{type(e).__name__}: {e}')
+
+
+def save_listing(product_id: int, listing: Listing):
+    """Save the result of the search of the listing of a product, and the currency fix of the listing found: saved if
+    its prices are in another currency than Yahoo reports, removed if they match in the reported one.
+    """
+    save_listing_search([product_id], listing.ticker, listing.status, listing.rule)
+    if listing.ticker is None or listing.rule in NO_REFERENCE_RULES:
+        return
+    if listing.currency_fix is not None:
+        fix = listing.currency_fix
+        save_currency_fix(listing.ticker, fix.yahoo_currency, fix.currency, fix.gap, product_id)
+    else:
+        delete_currency_fix(listing.ticker)
 
 
 def products_to_search(
     products: pd.DataFrame,
     remap: bool = False,
-    retry: bool = False,
+    retry_not_found: bool = False,
     remap_before: datetime | None = None,
-    remap_not_own_line: bool = False,
+    remap_found_not_own_line: bool = False,
+    remap_after: pd.DateOffset | None = None,
 ) -> pd.DataFrame:
     """The products whose listing must be searched: never searched, failed, not found PRODUCT_SEARCH_RETRY ago (or
-    with retry), found only with remap, with remap_before if searched before then (to resume a remap), or with
-    remap_not_own_line if not on their own line.
+    with retry_not_found), found only with remap, with remap_before if searched before then (to resume a remap), with
+    remap_found_not_own_line if not on their own line, or with remap_after if searched longer ago than that.
     """
     searches = query_listing_searches(products['id'].to_list()).set_index('product_id')
     now = pd.Timestamp(datetime.now())
@@ -275,11 +351,15 @@ def products_to_search(
         if search['status'] == 'failed':
             return True
         if search['status'] == 'not found':
-            return retry or pd.isna(search['searched_at']) or now - search['searched_at'] >= PRODUCT_SEARCH_RETRY
+            return (
+                retry_not_found or pd.isna(search['searched_at']) or now - search['searched_at'] >= PRODUCT_SEARCH_RETRY
+            )
+        if remap_after is not None and (pd.isna(search['searched_at']) or search['searched_at'] < now - remap_after):
+            return True
         if remap_before is not None:
             return pd.isna(search['searched_at']) or search['searched_at'] < pd.Timestamp(remap_before)
-        if remap_not_own_line:
-            return search['rule'] not in ('own line', 'own line (confirmed)')
+        if remap_found_not_own_line:
+            return search['rule'] not in OWN_LINE_RULES
         return remap
 
     return products[products['id'].map(due)]
@@ -287,32 +367,35 @@ def products_to_search(
 
 def map_listings(
     products: pd.DataFrame,
+    degiro_prices: DegiroPrices,
     remap: bool = False,
-    retry: bool = False,
+    retry_not_found: bool = False,
     remap_before: datetime | None = None,
-    remap_not_own_line: bool = False,
-    confirm: Callable | None = None,
+    remap_found_not_own_line: bool = False,
 ) -> Counter:
-    """Search and save the Yahoo Finance listing of the products to search (see products_to_search); a failed search
-    keeps the listing found before; confirm(product, doubt) asks the user about doubtful own lines (without it, they
-    are only reported). Returns the count of each status.
+    """Search and save the Yahoo Finance listing of the products to search (see products_to_search), checked on their
+    Degiro prices; a failed search keeps the listing found before. Returns the count of each status.
     """
     todo = products_to_search(
-        products, remap=remap, retry=retry, remap_before=remap_before, remap_not_own_line=remap_not_own_line
+        products,
+        remap=remap,
+        retry_not_found=retry_not_found,
+        remap_before=remap_before,
+        remap_found_not_own_line=remap_found_not_own_line,
+        remap_after=REMAP_PERIOD,
     )
     found_before = query_degiro_yahoo_map(todo['id'].to_list())
-    decided = query_listing_searches(todo['id'].to_list()).set_index('product_id')
     searches, results = ListingSearches(), Counter()
     for n, product in enumerate(todo.itertuples()):
-        listing = search_product_listing(product, searches, decided, confirm)
+        listing = search_product_listing(product, searches, degiro_prices)
         if listing.status != 'failed' or product.id not in found_before:
-            save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
-        save_own_line_decision(product.id, listing, asked=confirm is not None)
-        results[listing.status] += 1
-        if listing.proposal is not None and listing.rule != 'own line (confirmed)':
-            results['own line not used'] += 1
+            save_listing(product.id, listing)
+        if listing.rule == 'no Degiro prices' and (listing.detail or '').startswith('Degiro chart refused'):
+            results['Degiro chart refused'] += 1
+        else:
+            results[listing.rule if listing.rule in NO_REFERENCE_RULES else listing.status] += 1
         logger.info(
-            '%5.1f%% (%d/%d) %s %s %s %s %s: %s',
+            '%5.1f%% (%d/%d) %s %s %s %s %s: %s%s',
             100 * (n + 1) / len(todo),
             n + 1,
             len(todo),
@@ -322,76 +405,70 @@ def map_listings(
             product.symbol,
             listing.ticker or '',
             listing.rule or listing.status,
+            f' ({listing.detail})' if listing.detail else '',
         )
     logger.info('Listings searched: %s', ', '.join(f'{k} {v}' for k, v in results.items()) or 'none due')
+    removed = delete_unused_currency_fixes()
+    if removed:
+        logger.info('Currency fixes of listings no longer mapped removed: %d', removed)
     return results
-
-
-def save_own_line_decision(product_id: int, listing: Listing, asked: bool):
-    """Remember an own line accepted by the user; report a doubtful own line not used (rejected, or not asked: it is
-    asked again at the next search run from a terminal).
-    """
-    if listing.proposal is None:
-        return
-    if listing.rule == 'own line (confirmed)':
-        save_accepted_own_line(product_id, listing.ticker, listing.proposal_name)
-    elif asked:
-        logger.info('Own line %s rejected: %s is used', listing.proposal, listing.ticker or 'no listing')
-    else:
-        logger.warning(
-            'Own line %s (%s) of product %s has another name: not used, to confirm in a search run from a terminal',
-            listing.proposal,
-            listing.proposal_name,
-            product_id,
-        )
 
 
 def map_etf_catalog(
     remap: bool = False,
-    retry: bool = False,
+    retry_not_found: bool = False,
     remap_before: datetime | None = None,
-    remap_not_own_line: bool = False,
-    confirm: Callable | None = None,
+    remap_found_not_own_line: bool = False,
+    degiro_prices: DegiroPrices | None = None,
 ) -> Counter:
-    """Search the Yahoo Finance listing of the ETFs of the catalog (see map_listings), then save the Excel copy of the
-    mapping for review. The products traded in an account keep their listing: see remap_portfolio_listings.
+    """Search the Yahoo Finance listing of the ETFs of the catalog (see map_listings; the Degiro prices are downloaded,
+    which needs a Degiro connection), then save the Excel copy of the mapping for review. The products traded in an
+    account keep their listing: see remap_portfolio_listings.
     """
     products = catalog_products()
     products = products[~products['id'].isin(traded_product_ids())]
+    if degiro_prices is None:
+        degiro_prices = DegiroPrices(get_degiro_connection())
     results = map_listings(
         products,
+        degiro_prices,
         remap=remap,
-        retry=retry,
+        retry_not_found=retry_not_found,
         remap_before=remap_before,
-        remap_not_own_line=remap_not_own_line,
-        confirm=confirm,
+        remap_found_not_own_line=remap_found_not_own_line,
     )
     export_listing_review()
     return results
 
 
-def remap_portfolio_listings(apply: bool = False, confirm: Callable | None = None) -> pd.DataFrame:
-    """Search again the listing of the products traded in the accounts: the products whose listing would change
-    (product_id, symbol, name, stored, found, rule); with apply, the new listings are saved and downloaded (and the
-    own lines accepted through confirm remembered).
+def remap_portfolio_listings(apply: bool = False, degiro_prices: DegiroPrices | None = None) -> pd.DataFrame:
+    """Search again the listing of the products traded in the accounts, checked on their stored Degiro prices: the
+    products whose listing or currency fix would change (product_id, symbol, name, stored, found, rule, currency: the
+    currency of the prices if Yahoo reports another one); with apply, they are saved and the new listings downloaded.
+    A product without Degiro prices keeps its listing.
     """
     products = query_products(product_id=sorted(traded_product_ids()))
     stored = query_degiro_yahoo_map(products['id'].to_list())
-    decided = query_listing_searches(products['id'].to_list()).set_index('product_id')
+    fixed = query_currency_fixes()['currency'].to_dict()
+    degiro_prices = degiro_prices or DegiroPrices()
     searches, changes = ListingSearches(), []
     for product in products.itertuples():
-        listing = search_product_listing(product, searches, decided, confirm)
-        if listing.status != 'failed' and listing.ticker != stored.get(product.id):
-            changes.append(
-                (product.id, product.symbol, product.name, stored.get(product.id), listing.ticker, listing.rule)
-            )
-            if apply:
-                save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
-                if listing.ticker is not None:
-                    store_listing(listing.ticker, isin=product.isin)
+        listing = search_product_listing(product, searches, degiro_prices)
+        if listing.status == 'failed' or listing.rule in NO_REFERENCE_RULES:
+            continue
+        currency = listing.currency_fix.currency if listing.currency_fix is not None else None
+        before = stored.get(product.id)
+        if listing.ticker == before and currency == fixed.get(before):
+            continue
+        changes.append((product.id, product.symbol, product.name, before, listing.ticker, listing.rule, currency))
         if apply:
-            save_own_line_decision(product.id, listing, asked=confirm is not None)
-    return pd.DataFrame(changes, columns=['product_id', 'symbol', 'name', 'stored', 'found', 'rule'])
+            save_listing(product.id, listing)
+            if listing.ticker is not None and listing.ticker != before:
+                store_listing(listing.ticker)
+    if apply:
+        delete_unused_currency_fixes()
+    columns = ['product_id', 'symbol', 'name', 'stored', 'found', 'rule', 'currency']
+    return pd.DataFrame(changes, columns=columns)
 
 
 def export_listing_review():
@@ -400,14 +477,17 @@ def export_listing_review():
     products = query_products(product_id=searches['product_id'].to_list()).reset_index(drop=True)
     instruments = query_yahoo_instruments(sorted(searches['ticker'].dropna().unique()))
     review = searches.merge(
-        products[['id', 'exchange_id', 'symbol', 'isin', 'name']], left_on='product_id', right_on='id', how='left'
+        products[['id', 'exchange_id', 'symbol', 'name']], left_on='product_id', right_on='id', how='left'
     )
     review['exchange'] = review['exchange_id'].map(exchange_name)
     review['yahoo_name'] = review['ticker'].map(instruments['name_long'].fillna(instruments['name_short']))
     review['yahoo_currency'] = review['ticker'].map(instruments['currency'])
+    fixes = query_currency_fixes()
+    review['currency_fixed'] = review['ticker'].map(fixes['currency'])  # the currency of the prices, if not Yahoo's
     columns = ['product_id', 'exchange', 'symbol', 'isin', 'name', 'ticker', 'yahoo_name', 'yahoo_currency']
-    review = review[columns + ['status', 'rule', 'searched_at']].sort_values(['status', 'isin'])
-    save_df_to_excel(df=review.set_index('product_id'), file_name=LISTING_REVIEW_FILE, folder_name=RESULTS_DIR)
+    review = review[columns + ['currency_fixed', 'status', 'rule', 'searched_at']].sort_values(['status', 'isin'])
+    sheets = {'Mapping': review.set_index('product_id'), 'Currency fixes': fixes}
+    save_df_dict_to_excel(df_dict=sheets, file_name=LISTING_REVIEW_FILE, folder_name=RESULTS_DIR)
 
 
 def fetch_etf_catalog_data(full: bool = False):
@@ -425,7 +505,7 @@ def fetch_etf_catalog_data(full: bool = False):
         try:
             result = refresh_history(ticker, full=full)
             if ticker not in currencies:
-                refresh_info(ticker, isin=isin_by_ticker[ticker])
+                refresh_info(ticker)
         except Exception as e:  # any download problem: retried at the next run
             logger.warning('Yahoo Finance download failed for %s: %s', ticker, e)
             result = 'failed'

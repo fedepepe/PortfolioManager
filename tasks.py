@@ -9,7 +9,6 @@ Examples:
 
 import argparse
 import logging
-import sys
 from collections.abc import Callable
 
 from portfolio_manager.config.accounts import Account, Brokers, add_account, get_account, list_accounts
@@ -137,9 +136,10 @@ def fetch_etf_catalog(args: argparse.Namespace):
 
 
 def map_etf_catalog(args: argparse.Namespace):
-    """Search the Yahoo Finance listing of the ETFs of the catalog (never searched, failed, not found a month ago;
-    --retry: every not found one; --remap: also the found ones; --remap-before DATE: the found ones searched before,
-    to resume a remap) and save the Excel copy of the mapping for review.
+    """Search the Yahoo Finance listing of the ETFs of the catalog (never searched, failed, not found a month ago,
+    found 3 months ago; --retry-not-found: every not found one; --remap-found-not-own-line: the found ones not on their
+    own line; --remap: every found one; --remap-before DATE: the found ones searched before, to resume a remap) and
+    save the Excel copy of the mapping for review.
     """
     from datetime import datetime
 
@@ -148,40 +148,10 @@ def map_etf_catalog(args: argparse.Namespace):
     remap_before = datetime.fromisoformat(args.remap_before) if args.remap_before else None
     map_catalog(
         remap=args.remap,
-        retry=args.retry,
+        retry_not_found=args.retry_not_found,
         remap_before=remap_before,
-        remap_not_own_line=args.remap_not_own_line,
-        confirm=terminal_confirm(),
+        remap_found_not_own_line=args.remap_found_not_own_line,
     )
-
-
-def ask_own_line(product, doubt) -> bool:
-    """Ask in the terminal whether to use the own line of a product whose Yahoo name differs (see OwnLineDoubt)."""
-    alternative = doubt.alternative
-    otherwise = (
-        f'{alternative.ticker} ({doubt.alternative_currency}): "{doubt.alternative_name}", chosen by {alternative.rule}'
-        if alternative.ticker is not None
-        else 'no listing'
-    )
-    prompt = f'Accept the own line {doubt.own_line}? [y/n] '
-    question = (
-        f'\nProduct {product.id} {product.symbol} ({product.currency}): {product.name}\n'
-        f'  own line  {doubt.own_line} ({doubt.own_line_currency}): "{doubt.own_line_name}"\n'
-        f'  otherwise {otherwise}\n{prompt}'
-    )
-    while True:
-        try:
-            answer = input(question).strip().lower()
-            question = prompt  # asked again after an invalid answer: only the prompt
-        except EOFError:
-            return False
-        if answer in ('y', 'n'):
-            return answer == 'y'
-
-
-def terminal_confirm():
-    """The question about doubtful own lines when run from a terminal; None otherwise (they are only reported)."""
-    return ask_own_line if sys.stdin.isatty() else None
 
 
 def remap_portfolio_listings(args: argparse.Namespace):
@@ -190,10 +160,11 @@ def remap_portfolio_listings(args: argparse.Namespace):
     """
     from portfolio_manager.analytics.instruments import remap_portfolio_listings as remap
 
-    changes = remap(apply=args.apply, confirm=terminal_confirm() if args.apply else None)
+    changes = remap(apply=args.apply)
     for change in changes.itertuples():
+        fix = f', prices in {change.currency}' if change.currency else ''
         logger.info(
-            '%s (%s): %s -> %s (%s)', change.symbol, change.product_id, change.stored, change.found, change.rule
+            '%s (%s): %s -> %s (%s%s)', change.symbol, change.product_id, change.stored, change.found, change.rule, fix
         )
     logger.info('%d listings %s', len(changes), 'changed' if args.apply else 'would change (--apply to save them)')
 
@@ -389,12 +360,16 @@ def build_parser() -> argparse.ArgumentParser:
             subparser.add_argument('--currency', help='base currency, e.g. EUR')
         if 'remap' in options:
             subparser.add_argument('--remap', action='store_true', help='search again the products with a listing')
-            subparser.add_argument('--retry', action='store_true', help='search again every product not found')
+            subparser.add_argument(
+                '--retry-not-found', action='store_true', help='search again every product not found'
+            )
             subparser.add_argument(
                 '--remap-before', help='search again the products searched before this time (resumes a remap)'
             )
             subparser.add_argument(
-                '--remap-not-own-line', action='store_true', help='search again the products not on their own line'
+                '--remap-found-not-own-line',
+                action='store_true',
+                help='search again the products found, but not on their own line',
             )
         if 'apply' in options:
             subparser.add_argument('--apply', action='store_true', help='apply the changes (default: only show them)')

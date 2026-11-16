@@ -114,6 +114,28 @@ def _own_line_proposals(connection: Connection):
             connection.execute(text(f'ALTER TABLE degiro_yahoo_map ADD COLUMN {column} VARCHAR'))
 
 
+def _mapping_isin(connection: Connection):
+    # version 7: the mapping keeps the Degiro ISIN of each product (taken from the products table for the stored
+    # searches); the own line proposals are gone. The table is rebuilt: SQLite cannot drop columns before 3.35
+    columns = [c['name'] for c in inspect(connection).get_columns('degiro_yahoo_map')]
+    if 'isin' in columns:
+        return
+    connection.execute(
+        text(
+            'CREATE TABLE degiro_yahoo_map_v7 (product_id INTEGER NOT NULL PRIMARY KEY, isin VARCHAR, ticker VARCHAR, '
+            'status VARCHAR NOT NULL, rule VARCHAR, searched_at DATETIME)'
+        )
+    )
+    connection.execute(
+        text(
+            'INSERT INTO degiro_yahoo_map_v7 SELECT m.product_id, p.isin, m.ticker, m.status, m.rule, m.searched_at '
+            'FROM degiro_yahoo_map m LEFT JOIN products p ON p.id = m.product_id'
+        )
+    )
+    connection.execute(text('DROP TABLE degiro_yahoo_map'))
+    connection.execute(text('ALTER TABLE degiro_yahoo_map_v7 RENAME TO degiro_yahoo_map'))
+
+
 # version -> step upgrading the database from the previous version
 UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     2: _accounts_from_code,
@@ -121,6 +143,7 @@ UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     4: _yahoo_history_tables,
     5: _listing_searches,
     6: _own_line_proposals,
+    7: _mapping_isin,
 }
 # steps that free much space: the database file is compacted after them
 COMPACT_AFTER = {4}

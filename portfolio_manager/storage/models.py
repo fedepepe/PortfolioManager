@@ -189,23 +189,35 @@ class EtfCatalogEntry(Base):
     built_at = Column(DateTime, nullable=False)
 
 
+class YahooCurrencyFix(Base):
+    """A Yahoo Finance listing whose prices are in another currency than the one Yahoo reports (e.g. USD prices labelled
+    CHF on SIX), found by the mapping: its prices match those of the Degiro product only in that currency. Our
+    correction, kept apart from the Yahoo data of yahoo_instruments; checked again at each mapping of the product.
+    """
+
+    __tablename__ = 'yahoo_currency_fixes'
+    ticker = Column(String, primary_key=True)  # Yahoo Finance listing
+    yahoo_currency = Column(String)  # as Yahoo reports it (none if Yahoo reports none)
+    currency = Column(String, nullable=False)  # of the prices
+    gap = Column(Float)  # median daily gap to the Degiro prices in that currency
+    product_id = Column(Integer)  # Degiro product whose prices showed it
+    detected_at = Column(DateTime, nullable=False)
+
+
 # Yahoo Finance listing of each Degiro product (several products may share a listing)
 class DegiroYahooMap(Base):
-    """Search of the Yahoo Finance listing of each Degiro product: the listing (none if not found), the status of the
-    last search (found, not found, failed), the rule that chose the listing, when the search was made, and the own line
-    with another name accepted by the user (with its Yahoo name).
+    """Search of the Yahoo Finance listing of each Degiro product: the ISIN of the product (from Degiro) when it was
+    searched, the listing (none if not found), the status of the last search (found, not found, failed), the rule that
+    chose the listing and when the search was made.
     """
 
     __tablename__ = 'degiro_yahoo_map'
     product_id = Column(Integer, primary_key=True)
+    isin = Column(String)
     ticker = Column(String)
     status = Column(String, nullable=False)
     rule = Column(String)
     searched_at = Column(DateTime)
-    # own line with prices but another name, accepted by the user (not asked again)
-    own_line = Column(String)
-    own_line_name = Column(String)
-    own_line_decision = Column(String)  # accepted
 
 
 # Version of the database schema (one row), see storage/migrations.py

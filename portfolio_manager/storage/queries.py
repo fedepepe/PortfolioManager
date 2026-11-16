@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 from degiro_connector.trading.models.product import ProductItem
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, or_, select, update
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -26,6 +26,7 @@ from portfolio_manager.storage.models import (
     DegiroYahooMap,
     EtfCatalogEntry,
     Product,
+    YahooCurrencyFix,
     YahooInstrument,
     YahooPrice,
 )
@@ -453,47 +454,87 @@ def query_etf_catalog_built_at(account_name: str) -> datetime | None:
 
 
 def save_listing_search(product_ids: list[int], ticker: str | None, status: str, rule: str | None = None):
-    """Save the result of the search of the Yahoo Finance listing of products (dated now)."""
-    rows = [
-        {'product_id': int(p), 'ticker': ticker, 'status': status, 'rule': rule, 'searched_at': datetime.now()}
-        for p in product_ids
-    ]
-    stmt = sqlite_insert(DegiroYahooMap)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=[DegiroYahooMap.product_id],
-        set_={c: stmt.excluded[c] for c in ['ticker', 'status', 'rule', 'searched_at']},
-    )
+    """Save the result of the search of the Yahoo Finance listing of products (dated now), with the Degiro ISIN of each
+    product (from the products table).
+    """
     with SessionLocal() as session:
-        session.execute(stmt, rows)
-        # only an accepted own line is remembered
-        session.execute(
-            update(DegiroYahooMap)
-            .where(DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
-            .where(or_(DegiroYahooMap.own_line_decision.is_(None), DegiroYahooMap.own_line_decision != 'accepted'))
-            .values(own_line=None, own_line_name=None, own_line_decision=None)
+        ids = [int(p) for p in product_ids]
+        isins = dict(session.execute(select(Product.id, Product.isin).where(Product.id.in_(ids))).all())
+        rows = [
+            {
+                'product_id': p,
+                'isin': isins.get(p),
+                'ticker': ticker,
+                'status': status,
+                'rule': rule,
+                'searched_at': datetime.now(),
+            }
+            for p in ids
+        ]
+        stmt = sqlite_insert(DegiroYahooMap)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[DegiroYahooMap.product_id],
+            set_={c: stmt.excluded[c] for c in ['isin', 'ticker', 'status', 'rule', 'searched_at']},
         )
-        session.commit()
-
-
-def save_accepted_own_line(product_id: int, own_line: str, name: str):
-    """Remember the own line of a product accepted by the user (with its Yahoo name): not asked again."""
-    with SessionLocal() as session:
-        search = session.get(DegiroYahooMap, int(product_id))
-        search.own_line, search.own_line_name, search.own_line_decision = own_line, name, 'accepted'
+        session.execute(stmt, rows)
         session.commit()
 
 
 def query_listing_searches(product_ids: list[int] | None = None) -> pd.DataFrame:
     """Searches of the Yahoo Finance listing of products (of every searched product if none is given): product_id,
-    ticker, status, rule, searched_at, and the own line accepted by the user (own_line, own_line_name,
-    own_line_decision).
+    isin, ticker, status, rule, searched_at.
     """
-    stmt = select(DegiroYahooMap)
+    m = DegiroYahooMap
+    stmt = select(m.product_id, m.isin, m.ticker, m.status, m.rule, m.searched_at)
     if product_ids is not None:
         stmt = stmt.where(DegiroYahooMap.product_id.in_([int(p) for p in product_ids]))
     df = pd.read_sql(stmt, engine)
     df['searched_at'] = pd.to_datetime(df['searched_at'])
     return df
+
+
+def save_currency_fix(ticker: str, yahoo_currency: str | None, currency: str, gap: float, product_id: int):
+    """Save (or replace) the currency of the prices of a Yahoo listing whose reported currency is wrong (dated now)."""
+    row = {
+        'ticker': ticker,
+        'yahoo_currency': yahoo_currency,
+        'currency': currency,
+        'gap': float(gap),
+        'product_id': int(product_id),
+        'detected_at': datetime.now(),
+    }
+    stmt = sqlite_insert(YahooCurrencyFix).values(**row)
+    stmt = stmt.on_conflict_do_update(index_elements=[YahooCurrencyFix.ticker], set_=row)
+    with SessionLocal() as session:
+        session.execute(stmt)
+        session.commit()
+
+
+def delete_currency_fix(ticker: str):
+    """Remove the currency fix of a Yahoo listing (none: nothing happens)."""
+    with SessionLocal() as session:
+        session.execute(delete(YahooCurrencyFix).where(YahooCurrencyFix.ticker == ticker))
+        session.commit()
+
+
+def delete_unused_currency_fixes() -> int:
+    """Remove the currency fixes of the listings no product is mapped to any more; returns how many."""
+    mapped = select(DegiroYahooMap.ticker).where(DegiroYahooMap.ticker.is_not(None))
+    with SessionLocal() as session:
+        result = session.execute(delete(YahooCurrencyFix).where(YahooCurrencyFix.ticker.not_in(mapped)))
+        session.commit()
+    return result.rowcount
+
+
+def query_currency_fixes(tickers: list[str] | None = None) -> pd.DataFrame:
+    """Currency fixes of Yahoo listings (all if no ticker is given): by ticker, the columns of yahoo_currency_fixes."""
+    stmt = select(YahooCurrencyFix)
+    if tickers is not None:
+        stmt = stmt.where(YahooCurrencyFix.ticker.in_(tickers))
+    columns = [c.name for c in YahooCurrencyFix.__table__.columns]
+    with engine.connect() as connection:
+        rows = connection.execute(stmt).all()
+    return pd.DataFrame([tuple(r) for r in rows], columns=columns).set_index('ticker')
 
 
 def query_degiro_yahoo_map(product_ids: list[int] | None = None) -> dict[int, str]:

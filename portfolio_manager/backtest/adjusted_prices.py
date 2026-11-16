@@ -10,7 +10,9 @@ from typing import NamedTuple
 import pandas as pd
 
 from portfolio_manager.analytics.instruments import (
+    DegiroPrices,
     products_to_search,
+    save_listing,
     search_product_listing,
     stored_adjusted_prices,
 )
@@ -21,9 +23,7 @@ from portfolio_manager.market_data.history import ListingSearches, refresh_histo
 from portfolio_manager.market_data.yahoo import is_yahoo_reachable
 from portfolio_manager.storage.queries import (
     query_degiro_yahoo_map,
-    query_listing_searches,
     save_benchmark_tickers,
-    save_listing_search,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,12 +36,12 @@ class AdjPrices(NamedTuple):
     summary: str  # where the prices come from, for logs and the dashboard
 
 
-def _listing(ticker: str, store: bool = False, isin: str | None = None) -> tuple[str, str]:
+def _listing(ticker: str, store: bool = False) -> tuple[str, str]:
     # online: the history of a listing brought up to date (stored with its information if new); (ticker, what was
     # done: new, updated, replaced, not found, failed): the stored history is used when a download fails
     try:
         if store:
-            store_listing(ticker, isin=isin)
+            store_listing(ticker)
             return ticker, 'new'
         return ticker, refresh_history(ticker)
     except Exception as e:  # any download problem: the stored history is used
@@ -51,8 +51,9 @@ def _listing(ticker: str, store: bool = False, isin: str | None = None) -> tuple
 
 def get_portfolio_adj_prices(account: Account) -> AdjPrices:
     """Adjusted prices of the products of an account, in the account currency. Each product has its own Yahoo Finance
-    listing (its line on its exchange first, see search_product_listing): searched when due (never searched, failed,
-    not found a while ago), otherwise brought up to date; products without a listing are left out.
+    listing (its line on its exchange first, checked on the stored Degiro prices, see search_product_listing):
+    searched when due (never searched, failed, not found a while ago), otherwise brought up to date; products without
+    a listing are left out.
     """
     products_df = load_portfolio_products(account=account)
     online = is_yahoo_reachable()
@@ -60,25 +61,16 @@ def get_portfolio_adj_prices(account: Account) -> AdjPrices:
     results = []
     if online:
         to_search = set(products_to_search(products_df)['id'])
-        decided = query_listing_searches(list(to_search)).set_index('product_id')
-        searches, stored = ListingSearches(), set()
+        searches, stored, degiro_prices = ListingSearches(), set(), DegiroPrices()
         for product in products_df.itertuples():
             if product.id not in to_search:
                 continue
-            listing = search_product_listing(product, searches, decided)
+            listing = search_product_listing(product, searches, degiro_prices)
             if listing.status != 'failed' or product.id not in ticker_by_product:
-                save_listing_search([product.id], listing.ticker, listing.status, listing.rule)
-            if listing.proposal is not None:
-                logger.warning(
-                    '%s: own line %s (%s) has another name: not used, to confirm with tasks.py '
-                    'remap-portfolio-listings --apply from a terminal',
-                    product.name,
-                    listing.proposal,
-                    listing.proposal_name,
-                )
+                save_listing(product.id, listing)
             results.append(listing.status)
             if listing.ticker is not None:
-                ticker = _listing(listing.ticker, store=True, isin=product.isin)[0]
+                ticker = _listing(listing.ticker, store=True)[0]
                 ticker_by_product[product.id] = ticker
                 stored.add(ticker)
         for ticker in sorted(set(ticker_by_product.values()) - stored):

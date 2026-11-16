@@ -16,10 +16,12 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from yfinance.exceptions import YFPricesMissingError, YFTzMissingError
 
 from portfolio_manager.market_data.yahoo import Exchanges, get_ticker_info, search_ticker
 from portfolio_manager.storage.queries import (
     YAHOO_PRICE_COLUMNS,
+    query_currency_fixes,
     query_yahoo_instruments,
     query_yahoo_last_date,
     query_yahoo_prices,
@@ -51,7 +53,15 @@ INFO_FIELDS = {
     'market': 'market',
     'region': 'region',
 }
-MIN_NAME_SIMILARITY = 0.6  # listings found by ticker must have a more similar name than this
+MIN_NAME_SIMILARITY = 0.6  # without prices to compare, listings found by ticker must have a more similar name
+MAX_PRICE_GAP = 0.02  # median daily gap between the prices of a listing and those of the instrument
+# currencies tried for the prices of a listing that does not match in the currency Yahoo reports (besides the currency
+# of the instrument): Yahoo reports a wrong one for some listings, e.g. USD prices labelled CHF on SIX
+FIX_CURRENCIES = ('EUR', 'USD', 'CHF', 'GBP')
+# days on which a listing and the instrument must both have prices to compare them (about a third of the period): a
+# listing with fewer (e.g. a single stale quote) gives no usable history, and in other currencies it could match by
+# chance
+MIN_COMMON_DAYS = 20
 ISIN_PATTERN = re.compile(r'[A-Z]{2}[A-Z0-9]{9}[0-9]')
 # currencies quoted by Yahoo in hundredths of the currency: pence, South African cents, Israeli agorot
 MINOR_UNITS = {'GBp': 'GBP', 'GBX': 'GBP', 'ZAc': 'ZAR', 'ILA': 'ILS'}
@@ -126,13 +136,17 @@ def refresh_history(ticker: str, full: bool = False) -> str:
     return 'new' if last is None else 'replaced'
 
 
-def refresh_info(ticker: str, isin: str | None = None):
-    """Download and save the information of a listing (name, currency, exchange, ...)."""
+def yahoo_isin(ticker: str) -> str | None:
+    """ISIN of a listing as Yahoo reports it, None if Yahoo does not know it."""
+    isin = yf.Ticker(ticker).isin
+    return None if is_missing(isin) or isin == '-' else isin
+
+
+def refresh_info(ticker: str):
+    """Download and save the information of a listing (name, currency, exchange, ISIN, ...), as Yahoo reports it."""
     info = get_ticker_info(ticker) or {}
     fields = {INFO_FIELDS[k]: v for k, v in info.items() if k in INFO_FIELDS}
-    if isin is None:
-        isin = yf.Ticker(ticker).isin
-    fields['isin'] = None if is_missing(isin) or isin == '-' else isin
+    fields['isin'] = yahoo_isin(ticker)
     upsert_yahoo_instrument(ticker, fields)
 
 
@@ -146,17 +160,43 @@ def name_similarity(name: str, other: str) -> float:
     return SequenceMatcher(None, name.lower(), other.lower()).ratio()
 
 
+class CurrencyFix(NamedTuple):
+    """The currency of the prices of a listing (currency) where Yahoo reports another one (yahoo_currency, None if
+    Yahoo reports none), with the median daily gap of the prices in that currency.
+    """
+
+    yahoo_currency: str | None
+    currency: str
+    gap: float
+
+
 class Listing(NamedTuple):
     """Result of the search of a listing: ticker (None if none), status (found, not found, failed), the rule that chose
-    it (own line, own line (confirmed), preferred exchange, currency, name, symbol search, other exchange) and, when
-    the own line has prices but another name, that own line and its Yahoo name.
+    it (own line, preferred exchange, currency, price, name, symbol search, other exchange; for a Degiro product
+    not searched: no Degiro prices, no recent Degiro prices; own line (currency fixed): the own line, in another
+    currency than Yahoo reports), when nothing is found or the search failed, why (for the log), and the currency
+    fix of the listing found if its prices match only in another currency than Yahoo reports.
     """
 
     ticker: str | None
     status: str
     rule: str | None = None
-    proposal: str | None = None
-    proposal_name: str | None = None
+    detail: str | None = None
+    currency_fix: CurrencyFix | None = None
+
+
+class ListingDownloadError(Exception):
+    """The prices of a listing returned by a Yahoo search could not be downloaded (Yahoo did not answer)."""
+
+
+class PriceReference(NamedTuple):
+    """Prices of an instrument to which the prices of its candidate listings are compared: daily closes (date x
+    close, in the currency below) and the exchange rate of another currency to it (None if unknown).
+    """
+
+    prices: pd.Series
+    currency: str
+    rate: Callable[[str], pd.Series | None]
 
 
 class ListingSearches:
@@ -166,6 +206,8 @@ class ListingSearches:
         self.quotes: dict[str, list[dict] | None] = {}
         self.last_prices: dict[str, pd.Timestamp | None] = {}
         self.currencies: dict[str, str | None] = {}
+        self.daily_closes: dict[tuple[str, date, date], pd.Series] = {}
+        self.fixes: dict[str, CurrencyFix] = {}  # listings found in another currency than Yahoo reports
 
     def search(self, text: str) -> list[dict] | None:
         """Listings found by a search text (an ISIN, a ticker, ...); None if Yahoo did not answer."""
@@ -185,9 +227,97 @@ class ListingSearches:
             self.currencies[ticker] = (listing.history_metadata or {}).get('currency')
         return self.last_prices[ticker]
 
+    def closes(self, ticker: str, start: date, end: date, listed: bool = False) -> pd.Series:
+        """Daily closes of a listing from a day to another (in the currency of its prices); empty if none. Yahoo
+        answers "no timezone" both for a ticker it does not know and when its answer gets lost: tried twice, then
+        empty for a guessed ticker, ListingDownloadError for one returned by a Yahoo search (listed). Other download
+        errors are raised.
+        """
+        key = (ticker, start, end)
+        if key not in self.daily_closes:
+            for attempt in range(2):
+                listing = yf.Ticker(ticker)
+                try:
+                    df = listing.history(
+                        start=start, end=end + timedelta(days=1), interval='1d', auto_adjust=False, raise_errors=True
+                    )
+                    break
+                except YFPricesMissingError:  # a known listing without prices on these days
+                    df = pd.DataFrame()
+                    break
+                except YFTzMissingError:
+                    df = pd.DataFrame()
+                    if attempt == 1 and listed:
+                        raise ListingDownloadError(f'no prices downloaded for {ticker}') from None
+            closes = df['Close'].dropna() if 'Close' in df else pd.Series(dtype=float)
+            index = pd.DatetimeIndex(closes.index)
+            closes.index = (index.tz_localize(None) if index.tz is not None else index).normalize()
+            self.daily_closes[key] = closes
+            self.currencies.setdefault(ticker, (listing.history_metadata or {}).get('currency'))
+        return self.daily_closes[key]
+
+    def price_gap(
+        self, ticker: str, reference: PriceReference, currency: str | None = None, as_reported: bool = False
+    ) -> float | None:
+        """Median daily gap between the closes of a listing (converted to the currency of the reference) and the
+        reference prices, over the days of both; None without common days or exchange rate. The closes are taken in
+        the given currency, otherwise (unless as_reported) in the currency found for them (see currency_fix),
+        otherwise in the currency Yahoo reports.
+        """
+        comparison = self.price_comparison(ticker, reference, currency=currency, as_reported=as_reported)
+        return comparison[0] if comparison is not None else None
+
+    def price_comparison(
+        self, ticker: str, reference: PriceReference, currency: str | None = None, as_reported: bool = False
+    ) -> tuple[float, int] | None:
+        """Median daily gap (see price_gap) and number of days compared; None without common days or exchange rate."""
+        days = reference.prices.index
+        closes = self.closes(ticker, days[0].date(), days[-1].date())
+        if currency is None and not as_reported and ticker in self.fixes:
+            currency = self.fixes[ticker].currency
+        currency = currency or self.currencies.get(ticker)
+        if closes.empty or not currency:
+            return None
+        currency, factor = major_currency(currency)
+        closes = closes * factor
+        if currency != reference.currency:
+            rate = reference.rate(currency)
+            if rate is None:
+                return None
+            rate = rate.dropna()
+            closes = closes * rate.reindex(rate.index.union(closes.index)).ffill().reindex(closes.index)
+        both = pd.concat([closes, reference.prices], axis=1, join='inner').dropna()
+        if both.empty:
+            return None
+        return float((both.iloc[:, 0] / both.iloc[:, 1] - 1.0).abs().median()), len(both)
+
+    def currency_fix(self, ticker: str, reference: PriceReference) -> CurrencyFix | None:
+        """The currency in which the closes of a listing match the reference prices (within MAX_PRICE_GAP, the
+        closest, on at least MIN_COMMON_DAYS common days), when they do not in the currency Yahoo reports: the currency
+        of the reference or one of FIX_CURRENCIES; None if none matches. Found fixes are kept for the run.
+        """
+        yahoo_currency = self.currencies.get(ticker)
+        reported = major_currency(yahoo_currency)[0] if yahoo_currency else None
+        gaps = {}
+        for currency in dict.fromkeys((reference.currency, *FIX_CURRENCIES)):
+            if currency != reported:
+                comparison = self.price_comparison(ticker, reference, currency=currency)
+                if comparison is not None and comparison[0] <= MAX_PRICE_GAP and comparison[1] >= MIN_COMMON_DAYS:
+                    gaps[currency] = comparison[0]
+        if not gaps:
+            return None
+        currency = min(gaps, key=gaps.get)
+        self.fixes[ticker] = CurrencyFix(yahoo_currency, currency, gaps[currency])
+        return self.fixes[ticker]
+
     def currency(self, ticker: str) -> str | None:
-        """Currency of the prices of a listing (pence counted as pounds, see major_currency), from its probe."""
-        self.last_price(ticker)
+        """Currency of the prices of a listing (pence counted as pounds, see major_currency): the one found for them
+        in this run (see currency_fix), otherwise as Yahoo reports it with them.
+        """
+        if ticker in self.fixes:
+            return self.fixes[ticker].currency
+        if ticker not in self.currencies:
+            self.last_price(ticker)
         currency = self.currencies.get(ticker)
         return major_currency(currency)[0] if currency else None
 
@@ -206,51 +336,74 @@ def exchange_rank(ticker: str) -> int:
     return next((n for n, x in enumerate(Exchanges) if ticker.endswith(f'.{x.code}')), len(Exchanges))
 
 
-class OwnLineDoubt(NamedTuple):
-    """An own line with prices but another name, and the listing chosen otherwise (names and currencies as Yahoo
-    reports them).
-    """
-
-    own_line: str
-    own_line_name: str
-    own_line_currency: str | None
-    alternative: Listing
-    alternative_name: str | None
-    alternative_currency: str | None
-
-
-# asks the user whether to use a doubtful own line instead of the alternative listing
-ConfirmOwnLine = Callable[[OwnLineDoubt], bool]
-
-
 def find_listing(
     search: str | None = None,
     ticker: str | None = None,
     name: str | None = None,
     exchange: str | None = None,
     currency: str | None = None,
-    accepted: str | None = None,
-    confirm: ConfirmOwnLine | None = None,
+    reference: PriceReference | None = None,
     searches: ListingSearches | None = None,
 ) -> Listing:
     """Find the Yahoo Finance listing of an instrument (nothing is stored). The candidates are the listings found by the
-    search text (usually the ISIN) that have prices; when none is on a preferred exchange, also those of the ticker
-    with a name similar to the given one.
+    search text (usually the ISIN) and the ticker on its own exchange (the Yahoo suffix of the exchange of the
+    instrument, e.g. EUNL.DE for EUNL on Xetra, probed directly when the search misses it); when none is on a preferred
+    exchange, also all the listings found by searching the ticker.
 
-    The choice: the ticker on its own exchange (the Yahoo suffix of the exchange of the instrument, e.g. EUNL.DE for
-    EUNL on Xetra) if the search finds it; probed directly otherwise, and used if its name is similar, if the user
-    accepted it before, or if confirm (asking the user) accepts it. Otherwise the listings on the preferred exchanges
-    if any, among them those in the currency of the instrument if any, then the closest name, then the listings of the
-    ticker itself, then the preferred exchange order. A doubtful own line not accepted is returned as the proposal of
-    the listing chosen instead.
+    With the prices of the instrument (reference), a candidate must have prices on at least MIN_COMMON_DAYS of its days,
+    within MAX_PRICE_GAP of them (median daily gap, see ListingSearches.price_gap), in the currency Yahoo reports or
+    another one (see ListingSearches.currency_fix). Without them, a
+    candidate must have prices, and the own line and the listings of the ticker a name similar to the given one.
+
+    The choice: the own line; otherwise the listings on the preferred exchanges if any, among them those in the currency
+    of the instrument if any, then the closest prices (or name), then the listings whose symbol is the ticker, then
+    the preferred exchange order.
     """
     search, ticker, name = (None if is_missing(v) else v for v in (search, ticker, name))
     searches = searches or ListingSearches()
     names, by_symbol, failed = {}, set(), False
-    doubt = None
+    rejected: dict[str, str] = {}  # why each candidate was rejected (for the log when nothing is found)
+
+    def has_prices(symbol: str) -> bool:
+        if reference is None:
+            found = searches.last_price(symbol) is not None
+        else:
+            days = reference.prices.index
+            found = not searches.closes(symbol, days[0].date(), days[-1].date(), listed=symbol in names).empty
+        if not found:
+            rejected[symbol] = 'no prices'
+        return found
+
+    def matches(symbol: str) -> bool:
+        # the listing is the instrument: the same prices or (without prices to compare) a similar name; no ISIN check:
+        # yfinance's ISIN comes from a name search on Business Insider, often of another security
+        if reference is None:
+            similar = name is None or name_similarity(name, names.get(symbol, '')) > MIN_NAME_SIMILARITY
+            if not similar:
+                rejected[symbol] = 'other name'
+            return similar
+        comparison = searches.price_comparison(symbol, reference, as_reported=True)
+        if comparison is not None and comparison[1] < MIN_COMMON_DAYS:
+            rejected[symbol] = f'only {comparison[1]} common days'
+            return False
+        if comparison is not None and comparison[0] <= MAX_PRICE_GAP:
+            searches.fixes.pop(symbol, None)  # matching in the currency Yahoo reports: no fix
+            return True
+        # Yahoo may report a wrong currency for the prices: they match in another one
+        if searches.currency_fix(symbol, reference) is not None:
+            return True
+        rejected[symbol] = 'no common days' if comparison is None else f'gap {comparison[0]:.1%}'
+        return False
+
+    def found(symbol: str, rule: str) -> Listing:
+        # a listing found, with the currency of its prices if Yahoo reports another one
+        fix = searches.fixes.get(symbol) if reference is not None else None
+        if symbol == own_line and fix is not None:
+            rule = 'own line (currency fixed)'
+        return Listing(symbol, 'found', rule, currency_fix=fix)
 
     def add(quotes: list[dict] | None, guard: bool) -> list[str]:
-        # the listings with prices among the quotes (with a similar name if guarded); remembers their names
+        # the listings with prices among the quotes (checked if guarded, always with a reference)
         nonlocal failed
         if quotes is None:
             failed = True
@@ -258,80 +411,59 @@ def find_listing(
         found = []
         for quote in quotes:
             symbol = quote['symbol']
-            label = quote.get('longname') or quote.get('shortname') or ''
-            if guard and name is not None and name_similarity(name, label) <= MIN_NAME_SIMILARITY:
-                continue
-            names.setdefault(symbol, label)
-            if searches.last_price(symbol) is not None:
+            names.setdefault(symbol, quote.get('longname') or quote.get('shortname') or '')
+            if has_prices(symbol) and (not (guard or reference is not None) or matches(symbol)):
                 found.append(symbol)
         return found
 
-    def decide(listing: Listing) -> Listing:
-        # a doubtful own line: used if accepted before or now, otherwise proposed with the listing chosen instead
-        if doubt is None:
-            return listing
-        own_line, label = doubt
-        if own_line == accepted:
-            return Listing(own_line, 'found', 'own line (confirmed)', own_line, label)
-        if confirm is not None:
-            question = OwnLineDoubt(
-                own_line=own_line,
-                own_line_name=label,
-                own_line_currency=searches.currencies.get(own_line),
-                alternative=listing,
-                alternative_name=names.get(listing.ticker),
-                alternative_currency=searches.currencies.get(listing.ticker),
-            )
-            if confirm(question):
-                return Listing(own_line, 'found', 'own line (confirmed)', own_line, label)
-        return listing._replace(proposal=own_line, proposal_name=label)
-
-    candidates = add(searches.search(search), guard=False) if search is not None else []
     own_line = f'{ticker}.{exchange}' if ticker is not None and exchange is not None else None
+    candidates = add(searches.search(search), guard=False) if search is not None else []
     if own_line in candidates:
-        return Listing(own_line, 'found', 'own line')
-    # the ISIN search often returns only some listings: the own line is probed directly; a ticker may belong to
-    # another instrument, so an own line with another name is a doubt for the user
-    if own_line is not None and searches.last_price(own_line) is not None:
-        label = searches.name(own_line)
-        if name is None or name_similarity(name, label) > MIN_NAME_SIMILARITY:
-            return Listing(own_line, 'found', 'own line')
-        doubt = (own_line, label)
+        return found(own_line, 'own line')
+    # the search often returns only some listings: the own line is probed directly; a ticker may belong to another
+    # instrument, so it must pass the check
+    if own_line is not None and own_line not in names and has_prices(own_line):
+        if reference is None:
+            names[own_line] = searches.name(own_line)
+        if matches(own_line):
+            return found(own_line, 'own line')
     if ticker is not None and not any(on_preferred_exchange(c) for c in candidates):
-        # a ticker may belong to another instrument on another exchange: only listings with a similar name
-        symbols = [ticker] + [f'{ticker}.{x.code}' for x in Exchanges]
-        quotes = searches.search(ticker)
-        quotes = [q for q in quotes if q.get('symbol') in symbols] if quotes is not None else None
-        by_symbol = set(add(quotes, guard=True)) - set(candidates)
+        # every listing found by the ticker (Yahoo symbols may differ from it, e.g. WMEGA.SW for WMEG) is a
+        # candidate; it may belong to another instrument, so it must pass the check
+        by_symbol = set(add(searches.search(ticker), guard=True)) - set(candidates)
         candidates += sorted(by_symbol)
         if own_line in candidates:
-            return Listing(own_line, 'found', 'own line')
+            return found(own_line, 'own line')
     if not candidates:
-        return decide(Listing(None, 'failed' if failed else 'not found'))
+        if failed:
+            return Listing(None, 'failed', detail='Yahoo search did not answer')
+        detail = ', '.join(f'{s} {why}' for s, why in rejected.items()) or 'no listing'
+        return Listing(None, 'not found', detail=detail)
     preferred = [c for c in candidates if on_preferred_exchange(c)]
     pool = preferred or candidates
     rule = 'preferred exchange' if preferred else 'other exchange'
     in_currency = [c for c in pool if currency is not None and searches.currency(c) == currency]
     if in_currency and len(in_currency) < len(pool):
         pool, rule = in_currency, 'currency'
-    if len(pool) > 1 and name is not None:
+    if len(pool) > 1 and reference is not None:
+        rule = 'price'
+    elif len(pool) > 1 and name is not None:
         rule = 'name'
-    # the closest name, then the listings of the ticker itself, then the preferred exchange order
-    chosen = max(
-        pool,
-        key=lambda c: (
-            name_similarity(name, names[c]) if name is not None else 0.0,
-            c.split('.')[0] == ticker,
-            -exchange_rank(c),
-        ),
-    )
-    return decide(Listing(chosen, 'found', 'symbol search' if chosen in by_symbol else rule))
+
+    def closeness(c: str) -> float:
+        if reference is not None:
+            return -searches.price_gap(c, reference)
+        return name_similarity(name, names[c]) if name is not None else 0.0
+
+    # the closest prices (or name), then the listings whose symbol is the ticker, then the preferred exchange order
+    chosen = max(pool, key=lambda c: (closeness(c), c.split('.')[0] == ticker, -exchange_rank(c)))
+    return found(chosen, 'symbol search' if chosen in by_symbol else rule)
 
 
-def store_listing(ticker: str, isin: str | None = None) -> str:
+def store_listing(ticker: str) -> str:
     """Store the history and the information of a listing found by a search; returns its ticker."""
     refresh_history(ticker, full=True)
-    refresh_info(ticker, isin=isin)
+    refresh_info(ticker)
     return ticker
 
 
@@ -342,8 +474,7 @@ def search_listing(search: str | None = None, ticker: str | None = None, name: s
     listing = find_listing(search=search, ticker=ticker, name=name)
     if listing.ticker is None:
         return None
-    isin = search if search is not None and ISIN_PATTERN.fullmatch(search) else None
-    return store_listing(listing.ticker, isin=isin)
+    return store_listing(listing.ticker)
 
 
 def adjusted_close(history: pd.DataFrame) -> pd.Series:
@@ -381,6 +512,9 @@ def traded_value(tickers: list[str], start: date | None = None) -> tuple[pd.Data
 
 
 def listing_currencies(tickers: list[str]) -> dict[str, str]:
-    """Currency of each listing, as Yahoo reports it (listings without a known currency are left out)."""
-    currencies = query_yahoo_instruments(tickers)['currency'].dropna()
-    return currencies.to_dict()
+    """Currency of the prices of each listing: as Yahoo reports it, unless the mapping found that they are in another
+    one (yahoo_currency_fixes); listings without a known currency are left out.
+    """
+    currencies = query_yahoo_instruments(tickers)['currency'].dropna().to_dict()
+    currencies.update(query_currency_fixes(tickers)['currency'].to_dict())
+    return currencies

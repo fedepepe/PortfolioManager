@@ -4,7 +4,7 @@ import logging
 from enum import Enum
 
 import pandas as pd
-from degiro_connector.quotecast.models.chart import ChartRequest, Interval
+from degiro_connector.quotecast.models.chart import Chart, ChartRequest, Interval
 from degiro_connector.quotecast.tools.chart_fetcher import ChartFetcher, SeriesFormatter
 from degiro_connector.trading.api import API
 
@@ -31,13 +31,19 @@ class ChartType(str, Enum):
     VOLUME = 'volume'
 
 
-def fetch_hist_data_single(
+class DegiroChartError(Exception):
+    """Degiro answered a chart request with an error (e.g. access denied to the chart of a product)."""
+
+
+def fetch_chart(
     chart_fetcher: ChartFetcher,
     vwd_id: int,
     period: Interval = Interval.P10Y,
     resolution: Interval = Interval.P1D,
 ) -> pd.DataFrame:
-    """Fetch price, ohlc and volume series of one product in a single request."""
+    """Fetch price, ohlc and volume series of one product in a single request; empty if Degiro did not answer,
+    DegiroChartError if it answered with an error.
+    """
     chart_request = ChartRequest(
         culture='en-US',
         period=period,
@@ -46,10 +52,19 @@ def fetch_hist_data_single(
         series=[f'{chart_type.value}:issueid:{int(vwd_id)}' for chart_type in ChartType],
         tz='Europe/Paris',
     )
-    data = chart_fetcher.get_chart(chart_request=chart_request, raw=False)
+    # the raw answer: an error answer is not a chart, and the library would log its failed parsing as fatal
+    response = chart_fetcher.get_chart(chart_request=chart_request, raw=True)
     hist_df = pd.DataFrame()
-    if data is None:
+    if response is None:
         return hist_df
+    # an error answer for the whole request, or for each series (e.g. access denied to the chart of the product)
+    if 'error' in response:
+        raise DegiroChartError(response['error'])
+    series = response.get('series') or []
+    errors = [s.get('error') for s in series if s.get('type') == 'error']
+    if series and len(errors) == len(series):
+        raise DegiroChartError(errors[0])
+    data = Chart.model_validate(obj={**response, 'series': [s for s in series if s.get('type') != 'error']})
     for series in data.series:
         # some products return empty series, which the formatter cannot parse
         if series.times is None or not series.data or not SeriesFormatter.is_timeseries(series=series):
@@ -59,6 +74,22 @@ def fetch_hist_data_single(
     if not hist_df.empty:
         hist_df.index = pd.to_datetime(hist_df.index).normalize()
     return hist_df
+
+
+def fetch_hist_data_single(
+    chart_fetcher: ChartFetcher,
+    vwd_id: int,
+    period: Interval = Interval.P10Y,
+    resolution: Interval = Interval.P1D,
+) -> pd.DataFrame:
+    """Fetch price, ohlc and volume series of one product in a single request (see fetch_chart); empty, with a
+    warning, if Degiro answered with an error.
+    """
+    try:
+        return fetch_chart(chart_fetcher, vwd_id, period=period, resolution=resolution)
+    except DegiroChartError as e:
+        logger.warning('Degiro chart of vwd id %s unavailable: %s', vwd_id, e)
+        return pd.DataFrame()
 
 
 def fetch_charts(

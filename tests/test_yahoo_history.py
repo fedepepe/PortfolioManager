@@ -288,6 +288,22 @@ def products(rows):
     return pd.DataFrame(rows, columns=['id', 'isin', 'symbol', 'name', 'exchange_id']).assign(currency='EUR')
 
 
+def test_catalog_has_every_line_of_a_fund(temp_db):
+    import portfolio_manager.analytics.instruments as instruments
+
+    # VWRL on Amsterdam, on SIX and on SIX in another currency (same ISIN and symbol), a stock, a non-catalog exchange
+    rows = [
+        (4586985, 'IE00B3RBWM25', 'VWRL', 200, 'EUR', 'ETF', True),
+        (11854704, 'IE00B3RBWM25', 'VWRL', 947, 'CHF', 'ETF', True),
+        (11854705, 'IE00B3RBWM25', 'VWRL', 947, 'USD', 'ETF', True),
+        (13728386, 'IE00B3RBWM25', 'VWRL', 1000, 'CHF', 'STOCK', False),
+        (4626564, 'IE00B3RBWM25', 'VWRL', 570, 'GBP', 'ETF', True),
+    ]
+    columns = ['id', 'isin', 'symbol', 'exchange_id', 'currency', 'product_type', 'tradable']
+    sql.upsert_products(pd.DataFrame(rows, columns=columns))
+    assert sorted(instruments.catalog_products()['id']) == [4586985, 11854704, 11854705]
+
+
 def test_which_products_are_searched(yahoo):
     import portfolio_manager.analytics.instruments as instruments
 

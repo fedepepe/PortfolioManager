@@ -209,10 +209,11 @@ def compute_portfolio_instruments_performance():
 
 
 def catalog_products() -> pd.DataFrame:
-    """Tradable ETFs of the Degiro catalog on the exchanges of the catalog, one per ISIN and symbol."""
+    """Tradable ETFs of the Degiro catalog on the exchanges of the catalog: every Degiro product (a line of a fund on
+    one exchange, in one currency), also when the fund trades under the same symbol elsewhere.
+    """
     etf_info_df = query_products(product_type=ProductTypes.ETF, tradable=True)
-    etf_info_df = etf_info_df[etf_info_df[Product.exchange_id.name].isin([x.value for x in CATALOG_EXCHANGES])]
-    return etf_info_df.drop_duplicates(subset=['isin', 'symbol'], keep='first')
+    return etf_info_df[etf_info_df[Product.exchange_id.name].isin([x.value for x in CATALOG_EXCHANGES])]
 
 
 def traded_product_ids() -> set[int]:

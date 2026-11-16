@@ -54,6 +54,8 @@ class Metrics(Metric, Enum):
     BETA_DOWN_MONTH = Metric('Down Month Beta', format='{:.2f}')
     SKEWNESS = Metric('Skewness', format='{:.2f}')
     TURNOVER = Metric('Turnover\n(daily avg.)')
+    # amount in the account currency (the dividends received, net of their taxes)
+    DIVIDENDS_MONTHLY = Metric('Dividends (monthly avg.)', format='{:,.2f}')
     ALPHA = Metric('alpha')
     BETA = Metric('beta', format='{:.2f}')
     PVAL_ALPHA = Metric('pval alpha')
@@ -92,6 +94,7 @@ def compute_portfolio_metrics(
     turnover, turnover_mean_daily = _turnover(hist_portfolio_data, freq)
 
     risk_metrics = _risk_metrics(nav_resampled, freq, returns_monthly, strategy_benchmark, turnover_mean_daily)
+    risk_metrics[Metrics.DIVIDENDS_MONTHLY.name] = _dividends_monthly_mean(hist_portfolio_data)
     if print_results:
         logger.info('Risk metrics of %s:\n%s', nav.name, risk_metrics)
     results_dict = {
@@ -147,6 +150,19 @@ def _turnover(hist_portfolio_data: PortfolioBacktestData | None, freq: str) -> t
         .rename(PerfDataTabs.TURNOVER)
     )
     return turnover, turnover.resample(freq).sum().mean() / 365 * ANN_FACTOR_DICT[freq]
+
+
+DIVIDEND_MONTHS = 12  # months of the average monthly dividends
+
+
+def _dividends_monthly_mean(hist_portfolio_data: PortfolioBacktestData | None) -> float:
+    """Average of the total dividends of each of the 12 calendar months up to the end of the previous month (the month
+    before the last day of the backtest; each month of a shorter history); only for backtest data with dividends.
+    """
+    if hist_portfolio_data is None or hist_portfolio_data.dividends is None:
+        return np.nan
+    monthly = hist_portfolio_data.dividends.resample('M').sum().sum(axis=1).iloc[:-1]  # without the current month
+    return float(monthly.tail(DIVIDEND_MONTHS).mean()) if not monthly.empty else np.nan
 
 
 def _risk_metrics(

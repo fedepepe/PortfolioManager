@@ -88,6 +88,25 @@ def test_downside_deviation_counts_positive_returns_as_zero():
     assert downside_deviation(returns) == pytest.approx(np.sqrt((0.01**2 + 0.03**2) / 4))
 
 
+def test_monthly_dividends_averaged_over_the_last_12_months():
+    index = pd.bdate_range('2025-01-01', '2026-11-13')
+    nav = pd.Series(1000.0 + np.sin(np.arange(len(index))), index=index, name='NAV')
+    dividends = pd.DataFrame(0.0, index=index, columns=['A', 'B'])
+    dividends.loc['2025-10-31', 'A'] = 500.0  # more than 12 months before the end of October 2026: left out
+    dividends.loc['2025-11-03', 'A'] = 70.0  # first of the 12 months (Nov 2025 - Oct 2026)
+    dividends.loc['2026-06-01', ['A', 'B']] = [30.0, 10.0]
+    dividends.loc['2026-10-30', 'B'] = 10.0  # last of the 12 months
+    dividends.loc['2026-11-02', 'B'] = 20.0  # current month: left out
+    data = PortfolioBacktestData(
+        name='x', nav=nav, units=dividends, nav_eff=nav, transaction_value=dividends * 0.0, freq='B'
+    )
+    data.dividends = dividends.resample('M').sum()  # monthly, as saved by the backtest
+    risk = compute_portfolio_metrics(hist_portfolio_data=data, print_results=False)[PerfDataTabs.RISK_METRICS]
+    assert risk[Metrics.DIVIDENDS_MONTHLY.name] == pytest.approx(120.0 / 12)
+    # a NAV alone (e.g. a benchmark) has no dividends
+    assert np.isnan(metrics(nav)[Metrics.DIVIDENDS_MONTHLY.name])
+
+
 def test_turnover_counts_purchases_and_sales():
     index = pd.bdate_range('2021-01-01', periods=300)
     nav = pd.Series(np.linspace(1000.0, 1100.0, len(index)), index=index, name='NAV')

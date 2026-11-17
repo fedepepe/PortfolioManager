@@ -18,6 +18,7 @@ from degiro_connector.trading.api import API
 from degiro_connector.trading.models.product_search import ETFsRequest
 
 from portfolio_manager.analytics.instruments import catalog_products
+from portfolio_manager.analytics.subclasses import EXCLUSION, sub_classify
 from portfolio_manager.config.settings import RESULTS_DIR
 from portfolio_manager.storage.files import save_df_dict_to_excel
 from portfolio_manager.storage.queries import save_etf_classes
@@ -119,7 +120,7 @@ NAME_RULES = [  # the first matching rule gives the class
         ),
     ),
     (AssetClass.MONEY_MARKET, words('money market', 'overnight', '€str', 'estr', 'sonia', 'sofr', 'saron', 'eonia')),
-    (AssetClass.REAL_ESTATE, words('real estate', 'reits?', 'property', 'properties')),
+    (AssetClass.REAL_ESTATE, words('real estate', 'reits?', 'property', 'properties', 'epra', 'nareit')),
     (
         AssetClass.MULTI_ASSET,
         words('multi-asset', 'multi asset', 'allocation', 'balanced', 'defensive', 'conservative'),
@@ -151,14 +152,29 @@ NAME_RULES = [  # the first matching rule gives the class
             'debt',
             'fallen angels',
             'yield curve',
+            'bd',  # abbreviated names, e.g. "Glo Aggrt Bd", "USD Float T"
+            'aggrt',
+            'float t',
         ),
     ),
 ]
 # names of commodities count only for a product that is not a fund (an ETC, ETN, ETP or future), since funds named after
 # one usually hold companies (e.g. an "Oil & Gas" sector fund)
 COMMODITY_PRODUCT = words(
-    'etc', 'etcs', 'etn', 'etp', 'futures?', 'physical', 'commodit(?:y|ies)', 'commidx', 'cmci', 'bcom'
+    'etc',
+    'etcs',
+    'etn',
+    'etp',
+    'futures?',
+    'physical',
+    'commodit(?:y|ies)',
+    'commidx',
+    'cmci',
+    'bcom',
+    '(?:gold|silver|platinum|palladium) etfs?',  # funds holding the metal, e.g. "ZKB Gold ETF"
 )
+# names of funds mixing asset classes, also when they name their equity share (e.g. "LifeStrategy 20% Equity")
+MULTI_ASSET_FUNDS = words('lifestrategy', r'\d+% equity', 'multi-asset', 'multi asset')
 COMMODITY_NAMES = words(
     'gold',
     'silver',
@@ -196,17 +212,39 @@ COMMODITY_NAMES = words(
     'grains',
     'rhodium',
     'henry hub',
+    'ulsd',  # ultra-low sulphur diesel
+    'diesel',
+    'heating oil',
+    'energy',  # only for products, e.g. "RICI Enhanced Energy ETC" (not an energy sector fund)
     'commidx',  # commodity indices: Bloomberg (BCOM), UBS CMCI
     'cmci',
     'bcom',
 )
 
 
-def classify(name: str | None, etp_type: int | None, allocation: str | None) -> tuple[AssetClass, bool, str]:
+def classify_name(name: str, etp_type: int | None) -> AssetClass | None:
+    """Asset class named in a text (an ETF name or benchmark), None if none is."""
+    if MULTI_ASSET_FUNDS.search(name):
+        return AssetClass.MULTI_ASSET
+    holds_companies = bool(COMPANIES.search(name))  # e.g. gold miners, blockchain companies, equity strategies
+    for asset_class, pattern in NAME_RULES:
+        if pattern.search(name) and not (
+            asset_class in (AssetClass.CRYPTO, AssetClass.MULTI_ASSET) and holds_companies
+        ):
+            return asset_class
+    is_product = etp_type in (EtpType.NOTE, EtpType.ETC) or bool(COMMODITY_PRODUCT.search(name))
+    if COMMODITY_NAMES.search(name) and is_product and not holds_companies:
+        return AssetClass.COMMODITIES
+    return None
+
+
+def classify(
+    name: str | None, etp_type: int | None, allocation: str | None, benchmark: str | None = None
+) -> tuple[AssetClass, bool, str]:
     """Asset class of an ETF, whether it is leveraged or inverse, and the source of the class (degiro, etp type, name
-    rule), from its name, its Degiro ETP type and its Degiro asset allocation (None if unknown).
+    rule), from its name, its Degiro ETP type, its Degiro asset allocation and its benchmark (None if unknown).
     """
-    name = name or ''
+    name, benchmark = name or '', benchmark or ''
     leveraged = bool(
         LEVERAGED.search(name) or MINUS_ONE.search(name) or (SHORT.search(name) and SHORT_PRODUCT.search(name))
     )
@@ -216,18 +254,17 @@ def classify(name: str | None, etp_type: int | None, allocation: str | None) -> 
         return AssetClass.CRYPTO, leveraged, 'etp type'
     if etp_type == EtpType.ETC:
         return AssetClass.COMMODITIES, leveraged, 'etp type'
+    # without exclusions (e.g. a dividend index "ex REITs" holds no real estate)
+    name, benchmark = EXCLUSION.sub(' ', name), EXCLUSION.sub(' ', benchmark)
+    # funds of real estate companies and REITs, which Degiro counts as shares
+    real_estate = dict(NAME_RULES)[AssetClass.REAL_ESTATE]
+    if allocation in (None, 'Shares') and (real_estate.search(name) or real_estate.search(benchmark)):
+        return AssetClass.REAL_ESTATE, leveraged, 'name rule'
     if allocation in DEGIRO_CLASSES:
         return DEGIRO_CLASSES[allocation], leveraged, 'degiro'
-    holds_companies = bool(COMPANIES.search(name))  # e.g. gold miners, blockchain companies, equity strategies
-    for asset_class, pattern in NAME_RULES:
-        if pattern.search(name) and not (
-            asset_class in (AssetClass.CRYPTO, AssetClass.MULTI_ASSET) and holds_companies
-        ):
-            return asset_class, leveraged, 'name rule'
-    is_product = etp_type in (EtpType.NOTE, EtpType.ETC) or bool(COMMODITY_PRODUCT.search(name))
-    if COMMODITY_NAMES.search(name) and is_product and not holds_companies:
-        return AssetClass.COMMODITIES, leveraged, 'name rule'
-    return AssetClass.EQUITY, leveraged, 'name rule'
+    # the name, then the benchmark (some Degiro names are only the issuer, e.g. "DWS Investment S.A.")
+    asset_class = classify_name(name, etp_type) or classify_name(benchmark, etp_type)
+    return asset_class or AssetClass.EQUITY, leveraged, 'name rule'
 
 
 def fetch_degiro_etf_list(degiro_conn: API) -> pd.DataFrame:
@@ -284,7 +321,9 @@ def classify_catalog(etf_list: pd.DataFrame) -> pd.DataFrame:
     for product in products.itertuples():
         info = degiro.loc[product.isin].to_dict() if degiro is not None and product.isin in degiro.index else {}
         etp_type = int(info['degiro_etp_type']) if info.get('degiro_etp_type') is not None else None
-        asset_class, leveraged, source = classify(product.name, etp_type, info.get('degiro_allocation'))
+        benchmark = info.get('degiro_benchmark')
+        asset_class, leveraged, source = classify(product.name, etp_type, info.get('degiro_allocation'), benchmark)
+        sub = sub_classify(asset_class.value, product.name, benchmark, info.get('degiro_region'))
         rows.append(
             {
                 'isin': product.isin,
@@ -292,6 +331,11 @@ def classify_catalog(etf_list: pd.DataFrame) -> pd.DataFrame:
                 'asset_class': asset_class.value,
                 'leveraged': leveraged,
                 'source': source,
+                'sub_class': sub.sub_class,
+                'region': sub.region,
+                'region_source': sub.region_source,
+                'hedged': sub.hedged,
+                'hedge_currency': sub.hedge_currency,
                 'degiro_allocation': info.get('degiro_allocation'),
                 'degiro_region': info.get('degiro_region'),
                 'degiro_benchmark': info.get('degiro_benchmark'),
@@ -304,13 +348,26 @@ def classify_catalog(etf_list: pd.DataFrame) -> pd.DataFrame:
 
 def classify_etfs(degiro_conn: API) -> pd.DataFrame:
     """Classify the ETFs of the catalog from Degiro's ETF list (needs a Degiro connection), save the classes (table
-    etf_classes) and an Excel copy for review: the classes, and their count by class and source.
+    etf_classes) and an Excel copy for review: the classes, their count by class and source, by sub-class and region,
+    and the sources of the regions.
     """
-    classes = classify_catalog(fetch_degiro_etf_list(degiro_conn))
+    return save_classes(classify_catalog(fetch_degiro_etf_list(degiro_conn)))
+
+
+def save_classes(classes: pd.DataFrame) -> pd.DataFrame:
+    """Save the classes of the ETFs (table etf_classes) and their Excel copy for review (see classify_etfs)."""
     save_etf_classes(classes)
     summary = pd.crosstab(classes['asset_class'], classes['source'], margins=True, margins_name='Total')
     summary['leveraged'] = classes.groupby('asset_class')['leveraged'].sum().reindex(summary.index)
-    sheets = {'Classes': classes.drop(columns='classified_at').set_index('isin'), 'Summary': summary}
+    sub_classes = classes.fillna({'sub_class': '-', 'region': '(unknown)'})
+    by_sub_class = pd.crosstab([sub_classes['asset_class'], sub_classes['sub_class']], sub_classes['region'])
+    region_sources = pd.crosstab(classes['asset_class'], classes['region_source'].fillna('(none)'))
+    sheets = {
+        'Classes': classes.drop(columns='classified_at').set_index('isin'),
+        'Summary': summary,
+        'Sub-classes': by_sub_class,
+        'Region sources': region_sources,
+    }
     save_df_dict_to_excel(df_dict=sheets, file_name=CLASSES_FILE, folder_name=RESULTS_DIR)
     logger.info('ETF classes saved: %d funds (%s)', len(classes), classes['asset_class'].value_counts().to_dict())
     return classes

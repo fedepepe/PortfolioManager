@@ -201,6 +201,13 @@ class EtfClass(Base):
     asset_class = Column(String, nullable=False)  # Equity, Fixed Income, Money Market, Commodities, ...
     leveraged = Column(Boolean, nullable=False)  # leveraged or inverse (e.g. 3x, -1x, daily short)
     source = Column(String, nullable=False)  # degiro, etp type, name rule
+    # sub-class within the class (equity segment, bond type, commodity or crypto group), region (of the equities, or
+    # the market of the bonds held), where the region comes from (degiro, benchmark, name), currency hedging
+    sub_class = Column(String)
+    region = Column(String)
+    region_source = Column(String)
+    hedged = Column(Boolean)
+    hedge_currency = Column(String)
     degiro_allocation = Column(String)  # Degiro's asset allocation (Shares, Bonds, ...), none if unknown
     degiro_region = Column(String)
     degiro_benchmark = Column(String)

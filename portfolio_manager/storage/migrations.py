@@ -143,6 +143,20 @@ def _no_yahoo_isin(connection: Connection):
         connection.execute(text('ALTER TABLE yahoo_instruments DROP COLUMN isin'))
 
 
+def _etf_sub_classes(connection: Connection):
+    # version 9: the ETF classes have a sub-class, a region and the currency hedging (filled by classify-etfs)
+    columns = [c['name'] for c in inspect(connection).get_columns('etf_classes')]
+    for column, kind in [
+        ('sub_class', 'VARCHAR'),
+        ('region', 'VARCHAR'),
+        ('region_source', 'VARCHAR'),
+        ('hedged', 'BOOLEAN'),
+        ('hedge_currency', 'VARCHAR'),
+    ]:
+        if column not in columns:
+            connection.execute(text(f'ALTER TABLE etf_classes ADD COLUMN {column} {kind}'))
+
+
 # version -> step upgrading the database from the previous version
 UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     2: _accounts_from_code,
@@ -152,6 +166,7 @@ UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     6: _own_line_proposals,
     7: _mapping_isin,
     8: _no_yahoo_isin,
+    9: _etf_sub_classes,
 }
 # steps that free much space: the database file is compacted after them
 COMPACT_AFTER = {4}

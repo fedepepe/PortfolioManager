@@ -136,17 +136,12 @@ def refresh_history(ticker: str, full: bool = False) -> str:
     return 'new' if last is None else 'replaced'
 
 
-def yahoo_isin(ticker: str) -> str | None:
-    """ISIN of a listing as Yahoo reports it, None if Yahoo does not know it."""
-    isin = yf.Ticker(ticker).isin
-    return None if is_missing(isin) or isin == '-' else isin
-
-
 def refresh_info(ticker: str):
-    """Download and save the information of a listing (name, currency, exchange, ISIN, ...), as Yahoo reports it."""
+    """Download and save the information of a listing (name, currency, exchange, ...), as Yahoo reports it. No ISIN:
+    yfinance's comes from a name search on Business Insider, not from Yahoo, and is often another security's.
+    """
     info = get_ticker_info(ticker) or {}
     fields = {INFO_FIELDS[k]: v for k, v in info.items() if k in INFO_FIELDS}
-    fields['isin'] = yahoo_isin(ticker)
     upsert_yahoo_instrument(ticker, fields)
 
 

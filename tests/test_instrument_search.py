@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, insert
 
 import portfolio_manager.storage.queries as sql
 from portfolio_manager.storage.db import Base
-from portfolio_manager.storage.models import YahooInstrument
+from portfolio_manager.storage.models import DegiroYahooMap, YahooInstrument
 
 INSTRUMENTS = {
     'HYLD.L': {
@@ -23,13 +23,19 @@ INSTRUMENTS = {
 
 @pytest.fixture
 def instruments_db(monkeypatch):
-    # in-memory database with a few synthetic instruments, used instead of the project database
+    # in-memory database with a few synthetic instruments (the ISIN: of the Degiro products mapped to them), used
+    # instead of the project database
     engine = create_engine('sqlite://')
-    Base.metadata.create_all(engine, tables=[YahooInstrument.__table__])
-    columns = ['name_long', 'name_short', 'isin', 'currency']
+    Base.metadata.create_all(engine, tables=[YahooInstrument.__table__, DegiroYahooMap.__table__])
+    columns = ['name_long', 'name_short', 'currency']
     rows = [{'ticker': t, **{c: info.get(c) for c in columns}} for t, info in INSTRUMENTS.items()]
+    mapping = [
+        {'product_id': n, 'ticker': t, 'isin': info['isin'], 'status': 'found'}
+        for n, (t, info) in enumerate(INSTRUMENTS.items())
+    ]
     with engine.begin() as connection:
         connection.execute(insert(YahooInstrument), rows)
+        connection.execute(insert(DegiroYahooMap), mapping)
     monkeypatch.setattr(sql, 'engine', engine)
 
 

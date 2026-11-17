@@ -166,7 +166,10 @@ def test_search_keeps_the_listing_with_prices_and_the_closest_name(yahoo):
     ticker = history.search_listing(search=isin, ticker='HYLD', name='iShares Global High Yield Corp Bond USD Dist')
     assert ticker == 'HYLD.L'
     stored = sql.query_yahoo_instruments(['HYLD.L']).loc['HYLD.L']
-    assert (stored['isin'], stored['currency'], stored['quote_type']) == (isin, 'USD', 'ETF')
+    assert (stored['currency'], stored['quote_type']) == (
+        'USD',
+        'ETF',
+    ) and 'isin' not in stored  # no ISIN from yfinance
     assert history.stored_history('HYLD.L')['close'].tolist() == [85.0, 86.0]
     assert sql.query_yahoo_instruments(['IHYG.MI']).empty  # the other listings are not stored
 
@@ -178,7 +181,6 @@ def test_search_by_ticker_and_preferred_exchange(yahoo):
     yahoo.histories['STHC.DE'] = yahoo_frame([110.0])
     yahoo.histories['STHCX'] = yahoo_frame([1.0])
     assert history.search_listing(search='STHC.SW', ticker='STHC') == 'STHC.DE'  # Frankfurt first
-    assert sql.query_yahoo_instruments(['STHC.DE']).loc['STHC.DE', 'isin'] is None
     assert history.search_listing(search='XX', ticker='NONE') is None
 
 
@@ -274,7 +276,6 @@ def test_ticker_searched_when_the_isin_finds_no_preferred_listing(yahoo):
     yahoo.histories['1675.T'] = yahoo_frame([3000.0])
     yahoo.histories['PHPD.L'] = yahoo_frame([150.0])
     assert history.search_listing(search=isin, ticker='PHPD', name='WisdomTree Physical Palladium') == 'PHPD.L'
-    assert sql.query_yahoo_instruments(['PHPD.L']).loc['PHPD.L', 'isin'] is None  # Yahoo does not know it
 
 
 def test_listing_found_by_ticker_needs_a_similar_name(yahoo):
@@ -525,11 +526,33 @@ def test_catalog_history_of_the_mapped_listings(yahoo, monkeypatch):
     sql.save_listing_search([2], None, 'not found')
     yahoo.histories['EUNL.DE'] = yahoo_frame([90.0, 91.0])
     yahoo.info['EUNL.DE'] = {'currency': 'EUR', 'longName': 'iShares Core MSCI World UCITS ETF'}
-    yahoo.isins['EUNL.DE'] = 'IE00B4L5Y983'
     instruments.fetch_etf_catalog_data()
     assert history.stored_history('EUNL.DE')['close'].tolist() == [90.0, 91.0]
-    stored = sql.query_yahoo_instruments(['EUNL.DE']).loc['EUNL.DE']
-    assert (stored['currency'], stored['isin']) == ('EUR', 'IE00B4L5Y983')
+    assert sql.query_yahoo_instruments(['EUNL.DE']).loc['EUNL.DE', 'currency'] == 'EUR'
+    assert sql.query_listing_isins(['EUNL.DE']) == {'EUNL.DE': 'IE00B4L5Y983'}  # the Degiro ISIN, from the mapping
+
+
+def test_database_of_version_7_loses_the_yahoo_isin(tmp_path, monkeypatch):
+    folder = tmp_path / 'db'
+    folder.mkdir()
+    engine = create_engine(f'sqlite:///{folder / "old.db"}')
+    with engine.begin() as connection:
+        for statement in [
+            'CREATE TABLE schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)',
+            'INSERT INTO schema_version VALUES (1, 7)',
+            'CREATE TABLE yahoo_instruments (id INTEGER PRIMARY KEY, ticker VARCHAR NOT NULL UNIQUE, isin VARCHAR, '
+            'name_short VARCHAR, name_long VARCHAR, currency VARCHAR, quote_type VARCHAR, exchange VARCHAR, '
+            'market VARCHAR, region VARCHAR)',
+            "INSERT INTO yahoo_instruments (ticker, isin, currency) VALUES ('VFEM.AS', 'US63969G2599', 'EUR')",
+        ]:
+            connection.execute(text(statement))
+    monkeypatch.setattr(tables, 'engine', engine)
+    monkeypatch.setattr(sql, 'engine', engine)
+    monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
+    tables.init_db()
+    columns = [c['name'] for c in inspect(engine).get_columns('yahoo_instruments')]
+    assert 'isin' not in columns and 'currency' in columns
+    assert sql.query_yahoo_instruments(['VFEM.AS']).loc['VFEM.AS', 'currency'] == 'EUR'
 
 
 def test_database_of_version_4_keeps_its_listings(tmp_path, monkeypatch):

@@ -18,9 +18,7 @@ DAYS = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=170)
 def store(ticker: str, currency: str, close: float, volume: float, days=DAYS) -> int:
     rng = np.random.default_rng(len(ticker))
     closes = close * np.exp(np.cumsum(rng.normal(0, 0.01, len(days))))
-    instrument_id = sql.upsert_yahoo_instrument(
-        ticker, {'currency': currency, 'isin': f'XX{ticker[:3]}', 'name_long': ticker}
-    )
+    instrument_id = sql.upsert_yahoo_instrument(ticker, {'currency': currency, 'name_long': ticker})
     sql.save_yahoo_prices(instrument_id, pd.DataFrame({'close': closes, 'volume': volume}, index=days))
     return instrument_id
 

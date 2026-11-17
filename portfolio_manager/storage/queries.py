@@ -340,6 +340,19 @@ def query_yahoo_instruments(tickers: list[str] | None = None) -> pd.DataFrame:
     return pd.read_sql(stmt, engine).set_index('ticker')
 
 
+def query_listing_isins(tickers: list[str]) -> dict[str, str]:
+    """Degiro ISIN of the fund of each Yahoo listing, from the products mapped to it (the most frequent if they differ,
+    e.g. after a fund merger); listings no product with an ISIN is mapped to are left out.
+    """
+    stmt = select(DegiroYahooMap.ticker, DegiroYahooMap.isin).where(
+        DegiroYahooMap.ticker.in_(tickers), DegiroYahooMap.isin.is_not(None)
+    )
+    df = pd.read_sql(stmt, engine)
+    if df.empty:
+        return {}
+    return df.groupby('ticker')['isin'].agg(lambda s: s.mode().iloc[0]).to_dict()
+
+
 def query_yahoo_last_date(instrument_id: int) -> date | None:
     """Last day of the stored history of a listing, None without history."""
     stmt = select(func.max(YahooPrice.date)).where(YahooPrice.instrument_id == instrument_id)
@@ -402,8 +415,9 @@ def query_yahoo_tickers_with_history() -> list[str]:
 
 
 def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame:
-    """Instruments whose Yahoo ticker or ISIN starts with text or, from 3 characters, whose name contains it; one row
-    per ticker (ticker, name, isin, currency): ticker matches first, then ISIN, then name matches.
+    """Instruments whose Yahoo ticker or ISIN (the Degiro ISIN of the products mapped to the listing) starts with text
+    or, from 3 characters, whose name contains it; one row per ticker (ticker, name, isin, currency): ticker matches
+    first, then ISIN, then name matches.
     """
     columns = ['ticker', 'name', 'isin', 'currency']
     text = text.strip()
@@ -411,9 +425,10 @@ def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame
         return pd.DataFrame(columns=columns)
     pattern = text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')  # typed text taken literally
     instr = YahooInstrument
+    mapped = select(DegiroYahooMap.ticker).where(DegiroYahooMap.isin.ilike(f'{pattern}%', escape='\\'))
     conditions = [
         instr.ticker.ilike(f'{pattern}%', escape='\\'),
-        instr.isin.ilike(f'{pattern}%', escape='\\'),
+        instr.ticker.in_(mapped),
     ]
     if len(text) >= 3:
         conditions.append(
@@ -426,6 +441,7 @@ def search_yahoo_finance_instruments(text: str, limit: int = 20) -> pd.DataFrame
     tickers = tickers[:limit]
     df = query_yahoo_instruments(tickers).reindex(tickers)
     df['name'] = df['name_long'].where(df['name_long'].notna(), df['name_short'])
+    df['isin'] = df.index.map(query_listing_isins(tickers))
     return df.rename_axis('ticker').reset_index()[columns]
 
 

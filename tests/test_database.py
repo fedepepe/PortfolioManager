@@ -38,11 +38,11 @@ def test_degiro_yahoo_map_upsert(temp_db):
 
 
 def test_yahoo_instrument_keeps_the_fields_not_given(temp_db):
-    first = sql.upsert_yahoo_instrument('AAA.L', {'currency': 'USD', 'isin': 'XX0000000001', 'name_long': ''})
+    first = sql.upsert_yahoo_instrument('AAA.L', {'currency': 'USD', 'quote_type': 'ETF', 'name_long': ''})
     assert sql.upsert_yahoo_instrument('AAA.L', {'currency': 'GBp'}) == first
     assert sql.upsert_yahoo_instrument('AAA.L') == first
     stored = sql.query_yahoo_instruments(['AAA.L']).loc['AAA.L']
-    assert (stored['currency'], stored['isin']) == ('GBp', 'XX0000000001') and stored['name_long'] is None
+    assert (stored['currency'], stored['quote_type']) == ('GBp', 'ETF') and stored['name_long'] is None
 
 
 def test_yahoo_prices_update_or_replace_the_history(temp_db):

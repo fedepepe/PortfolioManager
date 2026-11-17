@@ -129,12 +129,13 @@ class DegiroCashMovement(Base):
 
 # Yahoo Finance instruments (listings): information refreshed at their first download
 class YahooInstrument(Base):
-    """A Yahoo Finance listing and its information."""
+    """A Yahoo Finance listing and its information, as Yahoo reports it (the ISIN of a fund comes from Degiro: see
+    degiro_yahoo_map).
+    """
 
     __tablename__ = 'yahoo_instruments'
     id = Column(Integer, primary_key=True)
     ticker = Column(String, nullable=False, unique=True)
-    isin = Column(String)
     name_short = Column(String)
     name_long = Column(String)
     currency = Column(String)  # as Yahoo reports it: GBp, ZAc and ILA are hundredths of GBP, ZAR and ILS

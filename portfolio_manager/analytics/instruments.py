@@ -46,6 +46,7 @@ from portfolio_manager.storage.queries import (
     query_degiro_hist,
     query_degiro_yahoo_map,
     query_etf_catalog,
+    query_listing_isins,
     query_listing_searches,
     query_products,
     query_yahoo_instruments,
@@ -72,7 +73,6 @@ LISTING_REVIEW_FILE = 'yahoo_mapping'  # Excel copy of the mapping of the Degiro
 # Yahoo information fields (rows of the information tables of the catalogs) and their columns in the database
 INFO_COLUMNS = {
     YFinInfoCols.currency.value: 'currency',
-    YFinInfoCols.isin.value: 'isin',
     YFinInfoCols.name_short.value: 'name_short',
     YFinInfoCols.name_long.value: 'name_long',
     YFinInfoCols.quote_type.value: 'quote_type',
@@ -152,10 +152,14 @@ def stored_adjusted_prices(account: Account, tickers: list[str]) -> pd.DataFrame
 
 
 def instruments_info(tickers: list[str]) -> pd.DataFrame:
-    """Information of Yahoo Finance listings: Yahoo field x ticker (the layout of the catalog tables)."""
+    """Information of Yahoo Finance listings: Yahoo field x ticker (the layout of the catalog tables), with the Degiro
+    ISIN of the products mapped to each listing.
+    """
     df = query_yahoo_instruments(tickers).reindex(tickers)
     info = pd.DataFrame({field: df[column] for field, column in INFO_COLUMNS.items()}).T
     info.loc[YFinInfoCols.symbol.value] = tickers
+    isins = query_listing_isins(tickers)
+    info.loc[YFinInfoCols.isin.value] = [isins.get(t) for t in tickers]
     return info
 
 
@@ -202,9 +206,9 @@ def compute_single_etf_performance(isin: str) -> pd.DataFrame:
     listing = search_listing(search=isin, ticker=ticker, name=name)
     if listing is None:
         return pd.DataFrame()
-    df = compute_product_performance(
-        adj_close_df=load_adjusted_closes([listing]), prod_info_df=instruments_info([listing])
-    )
+    info = instruments_info([listing])
+    info.loc[YFinInfoCols.isin.value] = isin  # the ISIN searched (the listing may not be mapped to a Degiro product)
+    df = compute_product_performance(adj_close_df=load_adjusted_closes([listing]), prod_info_df=info)
     logger.debug('Performance of %s:\n%s', isin, df)
     return df
 
@@ -579,10 +583,11 @@ def catalog_table(account: Account) -> pd.DataFrame:
     """ETF catalog of an account as shown: ticker, ISIN, name, traded value, currency and metrics (labels), by rank."""
     catalog = query_etf_catalog(account.name)
     info = query_yahoo_instruments(catalog['ticker'].to_list()).reindex(catalog['ticker'])
+    isins = query_listing_isins(catalog['ticker'].to_list())  # Degiro ISIN of the fund
     table = pd.DataFrame(
         {
             InstrPerfTableCols.ticker: catalog['ticker'],
-            InstrPerfTableCols.isin: info['isin'].to_numpy(),
+            InstrPerfTableCols.isin: catalog['ticker'].map(isins).to_numpy(),
             InstrPerfTableCols.name: info['name_long'].fillna(info['name_short']).to_numpy(),
             InstrPerfTableCols.volume: catalog['traded_value'],
             InstrPerfTableCols.currency: catalog['currency'],

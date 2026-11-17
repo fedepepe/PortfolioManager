@@ -53,7 +53,6 @@ def _currency_pairs_from_catalog(connection: Connection):
 
 # fields of the Yahoo Finance information up to version 3 (one row per ticker and field) and their columns since
 YAHOO_INFO_FIELDS = {
-    'isin': 'isin',
     'shortName': 'name_short',
     'longName': 'name_long',
     'currency': 'currency',
@@ -136,6 +135,14 @@ def _mapping_isin(connection: Connection):
     connection.execute(text('ALTER TABLE degiro_yahoo_map_v7 RENAME TO degiro_yahoo_map'))
 
 
+def _no_yahoo_isin(connection: Connection):
+    # version 8: yahoo_instruments no longer has an ISIN: yfinance's comes from a name search on Business Insider (often
+    # another security's) and older rows had the Degiro ISIN; a fund's ISIN is the Degiro one of degiro_yahoo_map
+    columns = [c['name'] for c in inspect(connection).get_columns('yahoo_instruments')]
+    if 'isin' in columns:
+        connection.execute(text('ALTER TABLE yahoo_instruments DROP COLUMN isin'))
+
+
 # version -> step upgrading the database from the previous version
 UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     2: _accounts_from_code,
@@ -144,6 +151,7 @@ UPGRADE_STEPS: dict[int, Callable[[Connection], None]] = {
     5: _listing_searches,
     6: _own_line_proposals,
     7: _mapping_isin,
+    8: _no_yahoo_isin,
 }
 # steps that free much space: the database file is compacted after them
 COMPACT_AFTER = {4}

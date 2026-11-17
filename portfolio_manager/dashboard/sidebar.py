@@ -6,7 +6,7 @@ from dash import Input, Output, State, callback, ctx, html
 from portfolio_manager.config.accounts import default_account, get_account
 from portfolio_manager.dashboard.accounts_page import build_content_accounts
 from portfolio_manager.dashboard.common import SIDEBAR_STYLE
-from portfolio_manager.dashboard.instruments_page import build_content_instruments
+from portfolio_manager.dashboard.markets_page import build_content_markets
 from portfolio_manager.dashboard.portfolio_page import build_content_portfolio
 from portfolio_manager.dashboard.strategies_page import build_content_strategies
 
@@ -20,7 +20,7 @@ sidebar = html.Div(
                         [
                             dbc.Button('Portfolio', id='button-portfolio'),
                             html.Br(),
-                            dbc.Button('Instruments', id='button-instruments'),
+                            dbc.Button('Markets', id='button-markets'),
                             html.Br(),
                             dbc.Button('Strategies', id='button-strategies'),
                             html.Br(),
@@ -41,7 +41,7 @@ sidebar = html.Div(
 @callback(
     Output('page-content', 'children'),
     Input('button-portfolio', 'n_clicks'),
-    Input('button-instruments', 'n_clicks'),
+    Input('button-markets', 'n_clicks'),
     Input('button-strategies', 'n_clicks'),
     Input('button-accounts', 'n_clicks'),
     State('store-account', 'data'),
@@ -54,8 +54,8 @@ def switch_content(n1, n2, n3, n4, account_name):
     starting = ctx.triggered_id is None
     if account is None or ctx.triggered_id == 'button-accounts' or (starting and account.currency is None):
         return build_content_accounts()
-    if ctx.triggered_id == 'button-instruments':
-        return build_content_instruments(account=account)
+    if ctx.triggered_id == 'button-markets':
+        return build_content_markets()
     elif ctx.triggered_id == 'button-strategies':
         return build_content_strategies(account=account)
     else:

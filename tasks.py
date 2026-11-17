@@ -188,6 +188,13 @@ def build_etf_catalog(args: argparse.Namespace):
         logger.info('ETF catalog of %s built', account.name)
 
 
+def refresh_markets(args: argparse.Namespace):
+    """Download the new days of the instruments of the Markets page (sectors, indices, commodities, currencies)."""
+    from portfolio_manager.analytics.markets import refresh_market_data
+
+    refresh_market_data()
+
+
 def classify_etfs(args: argparse.Namespace):
     """Classify the ETFs of the catalog by asset class (Equity, Fixed Income, ...) from Degiro's ETF list and rules on
     their names; saves the classes and results/etf_classes.xlsx for review (needs the Degiro login).
@@ -350,6 +357,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'remap-portfolio-listings': (remap_portfolio_listings, ('apply',)),
     'build-etf-catalog': (build_etf_catalog, ('account',)),
     'classify-etfs': (classify_etfs, ()),
+    'refresh-markets': (refresh_markets, ()),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
 }

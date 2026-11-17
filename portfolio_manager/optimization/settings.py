@@ -30,6 +30,11 @@ OPTIMIZATION_FREQ_LABELS = {'M': 'Monthly', 'Q': 'Quarterly', 'Y': 'Yearly'}
 OPTIONAL_SETTINGS = ('max_vol', 'target_vol', 'max_asset_num')
 
 
+def class_bounds(targets: dict[str, float], tolerance: float) -> dict[str, tuple[float, float]]:
+    """The (min, max) weight of each asset class: its target plus or minus the tolerance, within 0 and 1."""
+    return {c: (max(0.0, t - tolerance), min(1.0, t + tolerance)) for c, t in targets.items()}
+
+
 # settings of a portfolio optimization; the defaults are used when an account has no saved optimization
 @dataclass
 class OptimizationSettings:
@@ -45,10 +50,15 @@ class OptimizationSettings:
     max_vol: float | None = 0.15  # max annual volatility (max Sharpe)
     target_vol: float | None = None  # target annual volatility (max return)
     max_asset_num: int | None = None  # keep only the largest weights
+    class_tolerance: float = 0.05  # each asset class may deviate this much from its target (asset allocation)
 
     def extra_args(self) -> dict[str, Any]:
         """Settings as optimizer arguments (unset and inapplicable ones left out)."""
-        args = {f.name: getattr(self, f.name) for f in fields(self) if f.name not in ('method', 'optimization_freq')}
+        args = {
+            f.name: getattr(self, f.name)
+            for f in fields(self)
+            if f.name not in ('method', 'optimization_freq', 'class_tolerance')
+        }
         if self.method == AllocationStrats.EQUAL_WEIGHT:
             args = {k: v for k, v in args.items() if k not in EQUAL_WEIGHT_UNUSED_SETTINGS}
         return {k: v for k, v in args.items() if v is not None}
@@ -93,6 +103,8 @@ class OptimizationSettings:
                 return f'{name} must be positive'
         if self.max_asset_num is not None and self.max_asset_num < 1:
             return 'Max assets must be at least 1'
+        if not 0.0 <= self.class_tolerance <= 1.0:
+            return 'Asset class tolerance must be between 0% and 100%'
         if n_assets is not None:
             if self.min_asset_exposure * n_assets > self.max_pf_exposure + 1e-9:
                 return (

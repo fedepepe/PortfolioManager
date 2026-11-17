@@ -535,15 +535,22 @@ def average_traded_values(tickers: list[str]) -> pd.DataFrame:
     return pd.DataFrame.from_dict(rows, orient='index', columns=['traded_value', 'currency'])
 
 
-def rank_by_traded_value(account: Account, averages: pd.DataFrame) -> list[str]:
-    """Tickers by decreasing average traded value; the values, in different currencies, are compared at the latest
-    exchange rates, so the order is the same whatever the currency of the account.
+def traded_values_in_account_currency(account: Account, averages: pd.DataFrame) -> pd.Series:
+    """Average traded values (see average_traded_values) in the account currency, at the latest exchange rates
+    (listings in a currency without exchange rate are left out).
     """
     foreign = sorted(set(averages['currency']) - {account.currency})
     fx_rates_df = load_fx_rates(account=account, curr_foreign_lst=foreign, index=pd.DatetimeIndex([]))
     latest = fx_rates_df.ffill().iloc[-1] if not fx_rates_df.empty else pd.Series(dtype=float)
     rates = averages['currency'].map(lambda c: 1.0 if c == account.currency else latest.get(f'{c}/{account.currency}'))
-    return averages['traded_value'].mul(rates.astype(float)).dropna().sort_values(ascending=False).index.to_list()
+    return averages['traded_value'].mul(rates.astype(float)).dropna()
+
+
+def rank_by_traded_value(account: Account, averages: pd.DataFrame) -> list[str]:
+    """Tickers by decreasing average traded value; the values, in different currencies, are compared at the latest
+    exchange rates, so the order is the same whatever the currency of the account.
+    """
+    return traded_values_in_account_currency(account, averages).sort_values(ascending=False).index.to_list()
 
 
 def one_listing_per_fund(account: Account, ranked: list[str], currencies: dict[str, str]) -> list[str]:

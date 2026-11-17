@@ -360,6 +360,16 @@ def query_listing_isins(tickers: list[str]) -> dict[str, str]:
     return df.groupby('ticker')['isin'].agg(lambda s: s.mode().iloc[0]).to_dict()
 
 
+def query_isin_listings(isins: list[str]) -> pd.DataFrame:
+    """The Yahoo listings of funds (Degiro ISINs), from the products mapped to them: one row per listing (ticker,
+    isin).
+    """
+    stmt = select(DegiroYahooMap.ticker, DegiroYahooMap.isin).where(
+        DegiroYahooMap.isin.in_(isins), DegiroYahooMap.ticker.is_not(None)
+    )
+    return pd.read_sql(stmt.distinct(), engine).drop_duplicates('ticker').reset_index(drop=True)
+
+
 def query_yahoo_last_date(instrument_id: int) -> date | None:
     """Last day of the stored history of a listing, None without history."""
     stmt = select(func.max(YahooPrice.date)).where(YahooPrice.instrument_id == instrument_id)

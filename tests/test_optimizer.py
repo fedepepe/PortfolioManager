@@ -65,12 +65,12 @@ def test_optimized_weights_respect_the_settings(prices, method):
     assert ((invested >= 0.9 - 1e-6) & (invested <= 1.0 + 1e-6)).all()
 
 
-def test_min_invested_capped_at_99_percent(prices):
+def test_fully_invested(prices):
     settings = OptimizationSettings(method=AllocationStrats.MIN_VAR, min_pf_exposure=1.0, max_pf_exposure=1.0)
     result = optimize(prices, settings, start=LATE_START)
     assert result.failed_dates == []
-    # min variance invests as little as allowed: the capped minimum
-    np.testing.assert_allclose(result.weights.sum(axis=1), po.MAX_MIN_PF_EXPOSURE, atol=1e-3)  # solver tolerance
+    # min variance invests as little as allowed: all of it (the solver handles min = max = 100%)
+    np.testing.assert_allclose(result.weights.sum(axis=1), 1.0, atol=1e-6)
 
 
 def test_min_invested_capped_by_available_assets(prices_late_asset):

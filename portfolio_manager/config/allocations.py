@@ -15,6 +15,13 @@ SPLITS = ('region', 'sub_class')
 TOLERANCE = 1e-6  # of the sums of weights
 
 
+def default_settings() -> OptimizationSettings:
+    """Optimization settings of a new allocation: fully invested, no limit per instrument or on the volatility (the
+    asset class ranges keep the allocation).
+    """
+    return OptimizationSettings(min_pf_exposure=1.0, max_pf_exposure=1.0, max_asset_exposure=1.0, max_vol=None)
+
+
 @dataclass(frozen=True)
 class Bucket:
     """A part of an asset class (a region or a sub-class, by the split of the class) and its weight in the class; the
@@ -49,7 +56,7 @@ class Allocation:
     buckets: list[Bucket] = field(default_factory=list)
     instruments: list[AllocationInstrument] = field(default_factory=list)
     weight_mode: str = 'manual'
-    settings: OptimizationSettings = field(default_factory=OptimizationSettings)
+    settings: OptimizationSettings = field(default_factory=default_settings)
     rebalancing_freq: str = 'Q'
 
     def active_classes(self) -> list[str]:

@@ -17,9 +17,6 @@ logger = logging.getLogger(__name__)
 
 # minimum history of returns of an instrument to be included in an optimization (3 months)
 MIN_HISTORY_YEARS = 0.25
-# cap of the minimum total exposure: a minimum close to the maximum (e.g. fully invested: min = max = 100%) is
-# hard for the solver, which then often fails
-MAX_MIN_PF_EXPOSURE = 0.99
 
 
 class PortfolioOptimizer:
@@ -262,18 +259,22 @@ def compute_weights_optim_portfolio(
     optimization_freq: str,
     extra_args: dict[str, Any] | None = None,
     start_date: pd.Timestamp | None = None,
+    optimize_at_start: bool = False,
 ) -> OptimizedWeights:
-    """Optimizes on each date of optimization_freq from start_date on (all dates if None), estimating returns and risk
-    from the full price history up to that date.
+    """Optimizes on each date of optimization_freq from start_date on (all dates if None), and on start_date itself if
+    asked (so that a portfolio starting then has weights from its first day), estimating returns and risk from the full
+    price history up to that date.
     """
     extra_args = extra_args or {}
     weights_df = pd.DataFrame().reindex_like(prices.resample(optimization_freq).last())
     if start_date is not None:
         weights_df = weights_df[weights_df.index >= start_date]
+        if optimize_at_start and start_date not in weights_df.index:
+            weights_df = weights_df.reindex(weights_df.index.union([pd.Timestamp(start_date)]))
     args = dict(
         optimization_type=allocation_method,
         periods_per_year=ANN_FACTOR_DICT[sampling_freq],  # annual objectives and volatility constraints
-        min_pf_exposure=min(extra_args.get('min_pf_exposure', 0.0), MAX_MIN_PF_EXPOSURE),
+        min_pf_exposure=extra_args.get('min_pf_exposure', 0.0),
         max_pf_exposure=extra_args.get('max_pf_exposure', 1.0),
         bounds_weights=(extra_args.get('min_asset_exposure', 0.0), extra_args.get('max_asset_exposure', 1.0)),
     )

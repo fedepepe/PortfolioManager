@@ -1,5 +1,6 @@
 """Reads and writes of the database; every write opens its own session."""
 
+import json
 import logging
 from datetime import date, datetime
 from typing import Any
@@ -13,7 +14,9 @@ from sqlalchemy.orm import Session
 
 from portfolio_manager.config.account_settings import Benchmark
 from portfolio_manager.config.account_settings import BenchmarkComponent as Component
+from portfolio_manager.config.allocations import Allocation, AllocationInstrument, Bucket
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
+from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage.db import SessionLocal, engine
 from portfolio_manager.storage.models import (
     AccountSetting,
@@ -27,6 +30,10 @@ from portfolio_manager.storage.models import (
     EtfCatalogEntry,
     EtfClass,
     Product,
+    SaaAllocation,
+    SaaBucket,
+    SaaClass,
+    SaaInstrument,
     YahooCurrencyFix,
     YahooInstrument,
     YahooPrice,
@@ -663,3 +670,94 @@ def get_max_product_id() -> int:
     """Largest product id in the catalog."""
     with SessionLocal() as session:
         return session.query(func.max(Product.id)).all()[0][0]
+
+
+SAA_TABLES = (SaaInstrument, SaaBucket, SaaClass)  # the parts of an allocation, keyed by account and allocation
+
+
+def save_allocation(account_name: str, allocation: Allocation):
+    """Save a strategic asset allocation of an account (validated first), replacing the one with the same name."""
+    allocation.validate()
+    with SessionLocal() as session:
+        _delete_allocation(session, account_name, allocation.name)
+        key = {'account': account_name, 'allocation': allocation.name}
+        settings = json.dumps({k: v for k, v in allocation.settings.to_series().items()})
+        session.add(
+            SaaAllocation(
+                account=account_name,
+                name=allocation.name,
+                weight_mode=allocation.weight_mode,
+                rebalancing_freq=allocation.rebalancing_freq,
+                settings=settings,
+                saved_at=datetime.now(),
+            )
+        )
+        for n, (asset_class, weight) in enumerate(allocation.class_targets.items()):
+            session.add(
+                SaaClass(
+                    **key, asset_class=asset_class, weight=weight, split=allocation.splits.get(asset_class), position=n
+                )
+            )
+        for n, bucket in enumerate(allocation.buckets):
+            session.add(
+                SaaBucket(**key, asset_class=bucket.asset_class, value=bucket.value, weight=bucket.weight, position=n)
+            )
+        for n, instrument in enumerate(allocation.instruments):
+            session.add(
+                SaaInstrument(
+                    **key,
+                    ticker=instrument.ticker,
+                    isin=instrument.isin,
+                    asset_class=instrument.asset_class,
+                    bucket=instrument.bucket,
+                    weight=instrument.weight,
+                    position=n,
+                )
+            )
+        session.commit()
+
+
+def query_allocation(account_name: str, name: str) -> Allocation | None:
+    """A saved strategic asset allocation of an account, None if there is none with this name."""
+    with SessionLocal() as session:
+        saved = session.get(SaaAllocation, (account_name, name))
+        if saved is None:
+            return None
+
+        def rows(table):
+            stmt = select(table).where(table.account == account_name, table.allocation == name).order_by(table.position)
+            return session.execute(stmt).scalars().all()
+
+        classes, buckets, instruments = rows(SaaClass), rows(SaaBucket), rows(SaaInstrument)
+        return Allocation(
+            name=saved.name,
+            class_targets={c.asset_class: c.weight for c in classes},
+            splits={c.asset_class: c.split for c in classes if c.split is not None},
+            buckets=[Bucket(b.asset_class, b.value, b.weight) for b in buckets],
+            instruments=[
+                AllocationInstrument(i.ticker, i.isin, i.asset_class, i.bucket, i.weight) for i in instruments
+            ],
+            weight_mode=saved.weight_mode,
+            settings=OptimizationSettings.from_series(pd.Series(json.loads(saved.settings))),
+            rebalancing_freq=saved.rebalancing_freq,
+        )
+
+
+def list_allocations(account_name: str) -> list[str]:
+    """Names of the saved strategic asset allocations of an account, the last saved first."""
+    stmt = select(SaaAllocation.name).where(SaaAllocation.account == account_name)
+    with engine.connect() as connection:
+        return list(connection.execute(stmt.order_by(SaaAllocation.saved_at.desc())).scalars())
+
+
+def delete_allocation(account_name: str, name: str):
+    """Delete a saved strategic asset allocation of an account (nothing happens if there is none)."""
+    with SessionLocal() as session:
+        _delete_allocation(session, account_name, name)
+        session.commit()
+
+
+def _delete_allocation(session: Session, account_name: str, name: str):
+    for table in SAA_TABLES:
+        session.execute(delete(table).where(table.account == account_name, table.allocation == name))
+    session.execute(delete(SaaAllocation).where(SaaAllocation.account == account_name, SaaAllocation.name == name))

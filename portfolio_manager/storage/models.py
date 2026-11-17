@@ -302,6 +302,57 @@ class BenchmarkComponent(Base):
     position = Column(Integer, nullable=False)  # display order
 
 
+# Strategic asset allocations of each account (see config.allocations), saved under a name
+class SaaAllocation(Base):
+    """A strategic asset allocation of an account: weight mode, rebalancing and optimization settings (JSON)."""
+
+    __tablename__ = 'saa_allocations'
+    account = Column(String, primary_key=True)
+    name = Column(String, primary_key=True)
+    weight_mode = Column(String, nullable=False)  # manual or optimize
+    rebalancing_freq = Column(String, nullable=False)
+    settings = Column(String, nullable=False)  # OptimizationSettings as JSON
+    saved_at = Column(DateTime, nullable=False)
+
+
+class SaaClass(Base):
+    """The target weight of an asset class in an allocation, and how the class is split (none, region, sub_class)."""
+
+    __tablename__ = 'saa_classes'
+    account = Column(String, primary_key=True)
+    allocation = Column(String, primary_key=True)
+    asset_class = Column(String, primary_key=True)
+    weight = Column(Float, nullable=False)  # fraction of the portfolio
+    split = Column(String)
+    position = Column(Integer, nullable=False)  # display order
+
+
+class SaaBucket(Base):
+    """A part of a split asset class in an allocation (a region or a sub-class) and its weight in the class."""
+
+    __tablename__ = 'saa_buckets'
+    account = Column(String, primary_key=True)
+    allocation = Column(String, primary_key=True)
+    asset_class = Column(String, primary_key=True)
+    value = Column(String, primary_key=True)
+    weight = Column(Float, nullable=False)  # fraction of the class
+    position = Column(Integer, nullable=False)
+
+
+class SaaInstrument(Base):
+    """An instrument chosen for a bucket of an allocation, with its weight in the bucket."""
+
+    __tablename__ = 'saa_instruments'
+    account = Column(String, primary_key=True)
+    allocation = Column(String, primary_key=True)
+    ticker = Column(String, primary_key=True)  # Yahoo Finance listing
+    isin = Column(String)  # Degiro ISIN of the fund
+    asset_class = Column(String, nullable=False)
+    bucket = Column(String)  # value of the bucket (None: the class is not split)
+    weight = Column(Float, nullable=False)  # fraction of the bucket
+    position = Column(Integer, nullable=False)
+
+
 def init_db():
     """Create the database file, its missing tables and indexes, upgrade an older schema and add the default settings
     of new accounts (called once at start-up).

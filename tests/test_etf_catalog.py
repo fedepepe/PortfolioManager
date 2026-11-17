@@ -87,3 +87,22 @@ def test_catalog_built_into_the_database(market, tmp_path, monkeypatch):
     monkeypatch.setattr(instruments, 'MAX_ETF_CATALOG_SIZE', 1)
     instruments.build_etf_catalog_data(CHF)
     assert sql.query_etf_catalog('Portfolio CHF')['ticker'].tolist() == ['BBB.L']
+
+
+def test_one_listing_per_fund_in_the_catalog(market, tmp_path, monkeypatch):
+    # BBB.L (GBP, the most traded) and CCC.SW (CHF) are lines of the same fund; AAA is another fund
+    products = pd.DataFrame({'id': [1, 2, 3], 'isin': ['IE00000000A1', 'IE00000000B2', 'IE00000000B2']})
+    sql.upsert_products(products)
+    monkeypatch.setattr(instruments, 'catalog_products', lambda: products)
+    monkeypatch.setattr(instruments, 'RESULTS_DIR', str(tmp_path))
+    for product_id, ticker in [(1, 'AAA'), (2, 'BBB.L'), (3, 'CCC.SW')]:
+        sql.save_listing_search([product_id], ticker, 'found', 'own line')
+    # the CHF account gets the CHF line; the fund keeps the rank of its most traded line
+    instruments.build_etf_catalog_data(CHF)
+    assert sql.query_etf_catalog('Portfolio CHF')['ticker'].tolist() == ['CCC.SW', 'AAA']
+    # no line in EUR: the most traded line
+    instruments.build_etf_catalog_data(EUR)
+    assert sql.query_etf_catalog('Portfolio EUR')['ticker'].tolist() == ['BBB.L', 'AAA']
+    # the ISIN shown is the Degiro one of the fund
+    table = instruments.catalog_table(CHF)
+    assert table[instruments.InstrPerfTableCols.isin].tolist() == ['IE00000000B2', 'IE00000000A1']

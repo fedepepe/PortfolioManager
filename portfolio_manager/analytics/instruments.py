@@ -546,17 +546,34 @@ def rank_by_traded_value(account: Account, averages: pd.DataFrame) -> list[str]:
     return averages['traded_value'].mul(rates.astype(float)).dropna().sort_values(ascending=False).index.to_list()
 
 
+def one_listing_per_fund(account: Account, ranked: list[str], currencies: dict[str, str]) -> list[str]:
+    """One listing per fund (Degiro ISIN) among listings ranked by traded value: the most traded one in the account
+    currency, otherwise the most traded one; the funds in the order of their most traded listing.
+    """
+    isins = query_listing_isins(ranked)
+    chosen: dict[str, str] = {}
+    for ticker in ranked:
+        fund = isins.get(ticker, ticker)  # a listing without ISIN is a fund of its own
+        best = chosen.get(fund)
+        if best is None or (currencies.get(best) != account.currency and currencies.get(ticker) == account.currency):
+            chosen[fund] = ticker
+    return list(chosen.values())
+
+
 def build_etf_catalog_data(account: Account) -> pd.DataFrame:
-    """Build and save the ETF catalog of an account from the stored history: the MAX_ETF_CATALOG_SIZE ETFs with the
-    highest average traded value and their performance metrics in the account currency (table etf_catalog, with an
-    Excel copy in the results folder).
+    """Build and save the ETF catalog of an account from the stored history: the MAX_ETF_CATALOG_SIZE funds with the
+    highest average traded value, each with one listing (see one_listing_per_fund), and their performance metrics in
+    the account currency (table etf_catalog, with an Excel copy in the results folder).
     """
     products = catalog_products()
     tickers = sorted(set(query_degiro_yahoo_map(products['id'].to_list()).values()))
     logger.info('%s: %d catalog products, %d distinct listings', account.name, len(products), len(tickers))
     averages = average_traded_values(tickers)
     logger.info('%s: traded value of %d listings with recent prices', account.name, len(averages))
-    most_traded = rank_by_traded_value(account, averages)[:MAX_ETF_CATALOG_SIZE]
+    ranked = rank_by_traded_value(account, averages)
+    funds = one_listing_per_fund(account, ranked, averages['currency'].to_dict())
+    logger.info('%s: %d funds among %d listings', account.name, len(funds), len(ranked))
+    most_traded = funds[:MAX_ETF_CATALOG_SIZE]
     prices = stored_adjusted_prices(account, most_traded)
     logger.info('%s: adjusted prices of the %d most traded in %s', account.name, prices.shape[1], account.currency)
     perf_df = compute_product_performance(prices)

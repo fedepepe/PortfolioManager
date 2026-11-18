@@ -1,7 +1,14 @@
 import pytest
 
 import portfolio_manager.storage.queries as sql
-from portfolio_manager.config.allocations import Allocation, AllocationInstrument, Bucket
+from portfolio_manager.config.allocations import (
+    ASSET_CLASSES,
+    PRESETS,
+    Allocation,
+    AllocationInstrument,
+    Bucket,
+    percent_text,
+)
 from portfolio_manager.optimization.settings import AllocationStrats, OptimizationSettings
 
 
@@ -40,8 +47,8 @@ def test_asset_classes_and_class_bounds_for_an_optimization():
 @pytest.mark.parametrize(
     'change, message',
     [
-        (lambda a: a.class_targets.update({'Equity': 0.5}), 'must add up to 100%'),
-        (lambda a: a.buckets.pop(), 'Equity: the weights of its parts'),
+        (lambda a: a.class_targets.update({'Equity': 0.5}), 'add up to 90%, not 100%'),
+        (lambda a: a.buckets.pop(), 'Equity: the weights of its sub-classes'),
         (lambda a: a.instruments.pop(), 'Fixed Income: no instrument chosen'),
         (lambda a: a.instruments.pop(1), 'Equity - Global: the weights of its instruments'),
         (lambda a: a.splits.update({'Equity': 'continent'}), 'unknown split'),
@@ -54,6 +61,45 @@ def test_allocation_that_cannot_be_backtested(change, message):
     change(allocation)
     with pytest.raises(ValueError, match=message):
         allocation.validate()
+
+
+def test_all_the_problems_listed_in_the_order_of_the_steps():
+    allocation = balanced()
+    allocation.class_targets['Equity'] = 0.5
+    allocation.instruments.pop()
+    assert allocation.problems() == [
+        'The asset class weights add up to 90%, not 100%',
+        'Fixed Income: no instrument chosen',
+    ]
+    assert balanced().problems() == []
+
+
+def test_parts_of_a_class_without_weight_not_checked():
+    allocation = balanced()
+    allocation.class_targets = {'Equity': 0.0, 'Fixed Income': 1.0}
+    allocation.buckets = [Bucket('Equity', 'Switzerland', 0.2)]  # 20% only, but the class has no weight
+    assert allocation.problems() == []
+
+
+def test_allocation_as_plain_data_and_back():
+    import json
+
+    allocation = balanced()
+    allocation.settings.max_vol = None
+    data = json.loads(json.dumps(allocation.to_dict()))  # as kept in the browser
+    assert Allocation.from_dict(data) == allocation
+
+
+def test_percentages_with_their_decimals():
+    assert [percent_text(w) for w in (0.3, 0.305, 0.2425, 1.0, 0.0)] == ['30%', '30.5%', '24.25%', '100%', '0%']
+    allocation = balanced()
+    allocation.class_targets['Equity'] = 0.595
+    assert allocation.problems() == ['The asset class weights add up to 99.5%, not 100%']
+
+
+def test_presets_add_up_to_100_percent_of_known_classes():
+    for targets in PRESETS.values():
+        assert sum(targets.values()) == pytest.approx(1.0) and set(targets) <= set(ASSET_CLASSES)
 
 
 def test_optimized_weights_need_no_manual_weights():

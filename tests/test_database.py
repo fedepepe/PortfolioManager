@@ -169,3 +169,13 @@ def test_traded_value_means_over_the_period_before_each_last_day(temp_db):
         assert means.at[ticker, 'last_date'] == pd.Timestamp(last_day)
         assert means.at[ticker, 'traded_value'] == pytest.approx(expected)
     assert 'NONE' not in means.index
+
+
+def test_first_close_dates(temp_db):
+    first = sql.upsert_yahoo_instrument('AAA', {'currency': 'USD'})
+    sql.save_yahoo_prices(
+        first, pd.DataFrame({'close': [None, 1.0, 1.1]}, index=pd.bdate_range('2024-01-01', periods=3))
+    )
+    sql.upsert_yahoo_instrument('NONE', {'currency': 'USD'})
+    dates = sql.query_first_close_dates(['AAA', 'NONE'])
+    assert dates.to_dict() == {'AAA': pd.Timestamp('2024-01-02')}  # the first day with a close; none without prices

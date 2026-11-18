@@ -1,0 +1,56 @@
+/* Strategic Asset Allocation page */
+
+/* tab of a complete step: a green check mark after its label */
+.saa-done::after {
+    content: " \2713";
+    color: #62c462;
+    font-weight: 700;
+}
+
+/* step tabs: inactive ones grey; the active one white and bold, with a light-blue bar under it */
+.saa-page .nav-tabs .nav-link {
+    color: #8e959c;
+    background-color: transparent;
+    background-image: none !important; /* the theme paints a gradient on the active, hovered and focused tab */
+    border: none;
+    border-bottom: 3px solid transparent;
+}
+
+.saa-page .nav-tabs .nav-link:hover {
+    color: #dee2e6;
+}
+
+.saa-page .nav-tabs .nav-link.active {
+    color: #ffffff;
+    font-weight: 700;
+    background-color: transparent;
+    border-bottom-color: #5bc0de;
+}
+
+/* dropdowns (the box and its open list): black text when active, grey when disabled (the theme's light grey text
+   was inherited on their white background) */
+.saa-page .dash-dropdown,
+.saa-page .dash-dropdown-content {
+    color: #000000;
+}
+
+.saa-page .dash-dropdown:disabled,
+.saa-page .dash-dropdown-option:has(input:disabled) {
+    color: #6c757d;
+}
+
+/* candidate filter switches: dark when off, light when on (the theme's are the other way round) */
+.saa-switches .form-switch .form-check-input,
+.saa-switches.form-switch .form-check-input,
+.saa-switches .form-check-input[role="switch"] {
+    background-color: #272b30;
+    border-color: #7a8288;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23aaaaaa'/%3e%3c/svg%3e");
+}
+
+.saa-switches .form-check-input[role="switch"]:checked,
+.saa-switches .form-switch .form-check-input:checked {
+    background-color: #e9ecef;
+    border-color: #e9ecef;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23272b30'/%3e%3c/svg%3e");
+}

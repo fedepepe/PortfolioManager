@@ -9,7 +9,7 @@ from portfolio_manager.dashboard.sidebar import sidebar
 app = Dash(
     __name__,
     requests_pathname_prefix='/portfolio_manager/',
-    external_stylesheets=[dbc.themes.SLATE],
+    external_stylesheets=[dbc.themes.SLATE, dbc.icons.FONT_AWESOME],  # theme, icons
     meta_tags=[{'name': 'portfolio', 'content': 'width=device-width'}],
 )
 

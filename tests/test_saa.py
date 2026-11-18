@@ -29,6 +29,7 @@ def classify(rows: list[tuple]) -> None:
 
 @pytest.fixture
 def universe(temp_db):
+    saa.clear_caches()  # computed from the database of another test
     # exchange rates of the CHF account; Swiss equity on SIX (CHF) and Xetra (EUR), a global fund, a leveraged one
     sql.upsert_currency_pairs({'EUR/CHF': 1, 'USD/CHF': 2})
     sql.insert_degiro_hist(1, pd.DataFrame({'price': 0.95}, index=DAYS))
@@ -98,3 +99,22 @@ def test_split_values_with_the_home_region_first(universe):
     assert saa.split_values(CHF, 'Equity', 'region').to_dict() == {'Switzerland': 2, 'Global': 1}  # not the leveraged
     assert saa.split_values(EUR, 'Equity', 'region').index.tolist() == ['Switzerland', 'Global']  # by number of funds
     assert saa.split_values(CHF, 'Equity', 'sub_class').to_dict() == {'Broad': 3}
+
+
+def test_candidates_of_the_day_kept_after_a_restart(universe, monkeypatch):
+    import os
+
+    from portfolio_manager.storage.tables import derived_folder
+
+    stale = derived_folder(saa.CACHE_KIND, '2000-01-01_listings_old')
+    os.makedirs(stale)
+    first = saa.bucket_candidates(CHF, 'Equity', 'region', 'Switzerland')
+    assert not os.path.exists(stale)  # the days before are removed
+    saa.clear_caches()  # a restart: nothing in memory, the day cache stays on disk
+
+    def not_again(*args, **kwargs):
+        raise AssertionError('computed again')
+
+    monkeypatch.setattr(saa, 'average_traded_values', not_again)
+    monkeypatch.setattr(saa, 'candidate_metrics', not_again)
+    pd.testing.assert_frame_equal(saa.bucket_candidates(CHF, 'Equity', 'region', 'Switzerland'), first)

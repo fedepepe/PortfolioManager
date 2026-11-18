@@ -6,7 +6,6 @@ import portfolio_manager.analytics.instruments as instruments
 import portfolio_manager.storage.queries as sql
 from portfolio_manager.analytics.metrics import Metrics
 from portfolio_manager.config.accounts import Account, Brokers
-from portfolio_manager.dashboard.instruments_data import InstrumentsData
 from portfolio_manager.market_data.history import traded_value
 
 CHF = Account('Portfolio CHF', Brokers.DEGIRO, 'config.json', 'CHF')
@@ -77,12 +76,13 @@ def test_catalog_built_into_the_database(market, tmp_path, monkeypatch):
     assert catalog[['total_return', 'pa_return', 'volatility', 'sharpe_ratio', 'max_drawdown']].notna().all().all()
     assert catalog[['return_1y', 'return_3y', 'return_5y']].isna().all().all()
     assert (tmp_path / 'Portfolio_CHF_catalog.xlsx').is_file()
-    # the Instruments page: the table with labels, and the prices in the account currency
-    data = InstrumentsData(CHF)
-    assert data.perf_df['Ticker'].tolist() == ['BBB.L', 'AAA'] and data.perf_df['Name'].tolist() == ['BBB.L', 'AAA']
-    assert Metrics.SHARPE_RATIO.name in data.perf_df and list(data.adj_close_df.columns) == ['BBB.L', 'AAA']
+    # the table of the Excel copy, with labels; the prices of the catalog in the account currency
+    table = instruments.catalog_table(CHF)
+    assert table['Ticker'].tolist() == ['BBB.L', 'AAA'] and table['Name'].tolist() == ['BBB.L', 'AAA']
+    assert Metrics.SHARPE_RATIO.name in table
+    prices = instruments.stored_adjusted_prices(CHF, ['BBB.L', 'AAA'])
     last_close = sql.query_yahoo_prices(['BBB.L'])['close'].iloc[-1]
-    assert data.adj_close_df['BBB.L'].iloc[-1] == pytest.approx(last_close / 100 * 1.1)  # pence to CHF
+    assert prices['BBB.L'].iloc[-1] == pytest.approx(last_close / 100 * 1.1)  # pence to CHF
     # another build replaces the catalog of the account
     monkeypatch.setattr(instruments, 'MAX_ETF_CATALOG_SIZE', 1)
     instruments.build_etf_catalog_data(CHF)

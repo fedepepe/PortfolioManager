@@ -21,11 +21,9 @@ from portfolio_manager.backtest.workflows import (
 )
 from portfolio_manager.config.accounts import Account, get_account
 from portfolio_manager.config.settings import DATA_DIR, RESULTS_DIR
-from portfolio_manager.dashboard.instruments_data import InstrumentsData
 from portfolio_manager.dashboard.portfolio_data import PortfolioData
 from portfolio_manager.market_data.freshness import final_since, latest_final_day
 from portfolio_manager.storage.files import to_file_name
-from portfolio_manager.storage.queries import query_etf_catalog_built_at
 from portfolio_manager.storage.tables import derived_folder, tables_version
 
 # tables of the benchmark backtest shown by the dashboard (the others are not loaded)
@@ -76,24 +74,6 @@ def _benchmark_data(account_name: str, version: str) -> PortfolioBacktestData:
         # no saved benchmark yet: compute it from Yahoo Finance data (this also saves it)
         index = get_portfolio_data(account).hist_data.nav_eff.index
         return backtest_portfolio_benchmark(account=account, index=index)
-
-
-def _catalog_version(account: Account) -> str:
-    built_at = query_etf_catalog_built_at(account.name)
-    return str(built_at.timestamp()) if built_at is not None else '0.0'
-
-
-@lru_cache(maxsize=2)
-def _instruments_data(account_name: str, version: str) -> InstrumentsData:
-    return InstrumentsData(account=get_account(account_name))
-
-
-def get_instruments_data(account: Account) -> InstrumentsData | None:
-    """None if the account has no ETF catalog."""
-    version = _catalog_version(account)
-    if float(version) == 0.0:
-        return None
-    return _instruments_data(account.name, version)
 
 
 def available_update(account: Account, now: datetime | None = None) -> str | None:

@@ -536,13 +536,6 @@ def query_etf_catalog(account_name: str) -> pd.DataFrame:
     return pd.read_sql(stmt, engine)
 
 
-def query_etf_catalog_built_at(account_name: str) -> datetime | None:
-    """When the ETF catalog of an account was built, None if it has none."""
-    stmt = select(func.max(EtfCatalogEntry.built_at)).where(EtfCatalogEntry.account == account_name)
-    with engine.connect() as connection:
-        return connection.execute(stmt).scalar()
-
-
 def save_listing_search(product_ids: list[int], ticker: str | None, status: str, rule: str | None = None):
     """Save the result of the search of the Yahoo Finance listing of products (dated now), with the Degiro ISIN of each
     product (from the products table).

@@ -34,8 +34,8 @@ from portfolio_manager.dashboard.common import (
     LAYOUT_TEMPLATE,
     card_wrapper,
     get_fig_empty,
-    get_fig_metrics_table,
     loading_wrapper,
+    metrics_table,
 )
 from portfolio_manager.dashboard.saa_data import (
     ALLOCATION_LABEL,
@@ -312,7 +312,7 @@ def backtest_section() -> html.Div:
             # the metrics and the weights one above the other, side by side on wide screens (assets/saa.css)
             html.Div(
                 [
-                    card_wrapper(dcc.Graph(id='saa-fig-metrics', figure=get_fig_empty())),
+                    card_wrapper(html.Div(id='saa-metrics')),
                     card_wrapper(dcc.Graph(id='saa-fig-weights', figure=get_fig_empty())),
                 ],
                 className='saa-backtest-grid',
@@ -1253,8 +1253,8 @@ def run_backtest(request, submitted, cancelled, data: dict, account_name: str) -
 
 @callback(
     Output('saa-fig-navs', 'figure'),
-    Output('saa-fig-metrics', 'figure'),
     Output('saa-fig-weights', 'figure'),
+    Output('saa-metrics', 'children'),
     Output('saa-backtest-info', 'children'),
     Input('saa-tabs', 'active_tab'),
     Input('saa-backtest-version', 'data'),
@@ -1270,7 +1270,7 @@ def draw_backtest(active_tab: str, version, loaded, data: dict | None, account_n
     backtest = saved_backtest(get_account(account_name), allocation.name) if allocation.name else None
     if backtest is None:
         message = dbc.Alert('No backtest of this allocation yet: press "Run backtest".', color='info')
-        return get_fig_empty(), get_fig_empty(), get_fig_empty(), message
+        return get_fig_empty(), get_fig_empty(), None, message
     computed = f'{datetime.fromtimestamp(backtest.saved_at):%Y-%m-%d %H:%M}' if backtest.saved_at else 'unknown'
     info = html.Div(
         f'Backtest computed on {computed}, from {backtest.navs.index[0]:%Y-%m-%d} to {backtest.navs.index[-1]:%Y-%m-%d}'
@@ -1279,6 +1279,6 @@ def draw_backtest(active_tab: str, version, loaded, data: dict | None, account_n
         className='small text-muted',
     )
     labels = {k: metrics_label(backtest, k, allocation.name) for k in backtest.metrics}
-    metrics = get_fig_metrics_table({labels[k]: v for k, v in backtest.metrics.items()})
-    figs = (get_fig_saa_navs(backtest, allocation.name), metrics, get_fig_saa_weights(backtest))
-    return *(f.update_layout(uirevision=f'{account_name} {allocation.name}') for f in figs), info
+    metrics = metrics_table({labels[k]: v for k, v in backtest.metrics.items()})
+    figs = (get_fig_saa_navs(backtest, allocation.name), get_fig_saa_weights(backtest))
+    return *(f.update_layout(uirevision=f'{account_name} {allocation.name}') for f in figs), metrics, info

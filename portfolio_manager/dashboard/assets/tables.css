@@ -1,0 +1,31 @@
+/* Performance metrics tables (dashboard.common.metrics_table): the colours of the dark plotly theme, the text
+   centred vertically, the metric names on the left and the values centred; each column as wide as its text, the
+   table centred in its card. */
+
+.metrics-table {
+    width: auto;
+    max-width: 100%;
+    margin: 0 auto;
+    border-collapse: collapse;
+    color: #f2f5fa;
+    font-size: 0.85rem;
+}
+
+.metrics-table th,
+.metrics-table td {
+    padding: 4px 14px;
+    vertical-align: middle;
+    white-space: nowrap;
+    text-align: center;
+    border: 1px solid rgb(17, 17, 17);
+}
+
+.metrics-table th {
+    background-color: #2a3f5f;
+    font-weight: 700;
+}
+
+.metrics-table th:first-child,
+.metrics-table td:first-child {
+    text-align: left;
+}

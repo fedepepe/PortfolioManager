@@ -19,8 +19,8 @@ from portfolio_manager.dashboard.common import (
     card_wrapper,
     compute_corr_mat,
     get_fig_empty,
-    get_fig_metrics_table,
     loading_wrapper,
+    metrics_table,
 )
 from portfolio_manager.dashboard.data_service import (
     available_update,
@@ -86,7 +86,9 @@ def build_content_portfolio(account: Account):
                     className='pf-grid',
                     children=[
                         figure_card('fig_navs', 'pf-nav'),
-                        figure_card('fig_perf', 'pf-metrics'),
+                        html.Div(
+                            loading_wrapper(card_wrapper(html.Div(id='table_perf'))), className='pf-card pf-metrics'
+                        ),
                         figure_card('fig_comp', 'pf-alloc'),
                         figure_card('fig_risk_contrib', 'pf-risk'),
                         figure_card('fig_geography', 'pf-geo'),
@@ -241,9 +243,9 @@ def get_fig_breakdown(table: pd.DataFrame, title: str) -> go.Figure:
 
 
 # PERFORMANCE METRICS TABLE
-def get_fig_perf(pf_data: PortfolioData) -> go.Figure:
+def get_table_perf(pf_data: PortfolioData) -> html.Table:
     """Performance metrics of the portfolio and of its benchmark."""
-    return get_fig_metrics_table(
+    return metrics_table(
         {
             'Portfolio': pf_data.perf_dct[PerfDataTabs.RISK_METRICS],
             'Benchmark': pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS],
@@ -284,11 +286,11 @@ def select_account(account_name: str) -> str:
 @callback(
     Output('fig_navs', 'figure'),
     Output('fig_comp', 'figure'),
-    Output('fig_perf', 'figure'),
     Output('fig_corr', 'figure'),
     Output('fig_risk_contrib', 'figure'),
     Output('fig_geography', 'figure'),
     Output('fig_asset_classes', 'figure'),
+    Output('table_perf', 'children'),
     Output('portfolio-message', 'children'),
     Output('portfolio-figures', 'style'),
     Output('button-update', 'disabled'),
@@ -307,7 +309,8 @@ def render_portfolio(account_name: str, data_version) -> tuple:
     if missing is not None:
         not_connected = account is None or account.currency is None
         return (
-            *([get_fig_empty()] * 7),
+            *([get_fig_empty()] * 6),
+            None,
             dbc.Alert(missing, color='info', className='mt-4'),
             {'display': 'none'},
             not_connected,
@@ -319,7 +322,6 @@ def render_portfolio(account_name: str, data_version) -> tuple:
     figs = (
         get_fig_cum_time_weighted_returns(pf_data, bm_data),
         get_fig_allocation(pf_data),
-        get_fig_perf(pf_data),
         get_fig_corr(pf_data),
         get_fig_risk_contrib(pf_data),
         get_fig_breakdown(pf_data.geography_df, 'Geography (invested part)'),
@@ -327,7 +329,8 @@ def render_portfolio(account_name: str, data_version) -> tuple:
     )
     hint = available_update(account)
     color = UPDATE_AVAILABLE_COLOR if hint else UPDATE_COLOR
-    return *(with_ui_revision(fig, account_name) for fig in figs), None, {}, False, color, hint or 'Up to date'
+    figs = (with_ui_revision(fig, account_name) for fig in figs)
+    return *figs, get_table_perf(pf_data), None, {}, False, color, hint or 'Up to date'
 
 
 # update the data of the selected account; the new data version triggers the redraw of the figures

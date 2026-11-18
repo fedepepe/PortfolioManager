@@ -250,3 +250,23 @@ def test_set_as_benchmark_saves_it_and_computes_its_backtest(temp_db, monkeypatc
     optimized = balanced()
     optimized.weight_mode = 'optimize'
     assert page.enable_benchmark(optimized.to_dict()) is True  # disabled
+
+
+def test_metrics_table_of_the_page():
+    from dash import html
+
+    from portfolio_manager.analytics.metrics import compute_portfolio_metrics
+    from portfolio_manager.dashboard.common import header_label, metrics_table
+
+    days = pd.bdate_range('2023-01-02', periods=300)
+    nav = pd.Series(range(100, 400), index=days, dtype=float)
+    risk = compute_portfolio_metrics(nav=nav, print_results=False, compute_hist_metrics=False)['risk_metrics']
+    table = metrics_table({'Growth': risk, 'Portfolio<br>from 2023-06': None})
+    header, body = table.children
+    titles = header.children.children
+    assert [t.children for t in titles[:2]] == ['Performance Metric', ['Growth']]
+    assert titles[2].children[0] == 'Portfolio' and isinstance(titles[2].children[1], html.Br)  # two lines
+    rows = body.children
+    assert len(rows) > 5 and all(len(r.children) == 3 for r in rows)  # metric, Growth, Portfolio (empty)
+    assert rows[0].style['backgroundColor'] != rows[1].style['backgroundColor']  # alternating colours
+    assert header_label('A') == ['A']

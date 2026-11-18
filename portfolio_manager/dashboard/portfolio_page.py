@@ -4,12 +4,14 @@ import logging
 import time
 
 import dash_bootstrap_components as dbc
+import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
-from dash import Input, Output, State, callback, ctx, dcc, html, no_update
+from dash import Input, Output, State, callback, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.instruments import prices_to_base_curr
-from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs
+from portfolio_manager.analytics.metrics import PerfDataTabs
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.config.accounts import Account, get_account, list_accounts
 from portfolio_manager.dashboard.common import (
@@ -27,7 +29,7 @@ from portfolio_manager.dashboard.data_service import (
     missing_data,
     update_account,
 )
-from portfolio_manager.dashboard.portfolio_data import AllocationRiskLabels, PortfolioData
+from portfolio_manager.dashboard.portfolio_data import UNKNOWN, AllocationRiskLabels, PortfolioData
 from portfolio_manager.market_data.history import listing_currencies, load_adjusted_closes, refresh_history
 from portfolio_manager.market_data.yahoo import is_yahoo_reachable
 from portfolio_manager.storage.queries import query_yahoo_instruments, search_yahoo_finance_instruments
@@ -100,25 +102,19 @@ def build_content_portfolio(account: Account):
                             [
                                 dbc.Col(
                                     loading_wrapper(
-                                        card_wrapper(dcc.Graph(id='fig_pf_hist_sharpe', figure=get_fig_empty()))
-                                    ),
-                                    style={'width': '10%'},
-                                ),
-                                dbc.Col(
-                                    loading_wrapper(
                                         card_wrapper(dcc.Graph(id='fig_risk_contrib', figure=get_fig_empty()))
                                     ),
                                     style={'width': '10%'},
                                 ),
                                 dbc.Col(
                                     loading_wrapper(
-                                        card_wrapper(dcc.Graph(id='fig_pf_instr_adj_close', figure=get_fig_empty()))
+                                        card_wrapper(dcc.Graph(id='fig_geography', figure=get_fig_empty()))
                                     ),
                                     style={'width': '10%'},
                                 ),
                                 dbc.Col(
                                     loading_wrapper(
-                                        card_wrapper(dcc.Graph(id='fig_monthly_ret', figure=get_fig_empty()))
+                                        card_wrapper(dcc.Graph(id='fig_asset_classes', figure=get_fig_empty()))
                                     ),
                                     style={'width': '10%'},
                                 ),
@@ -267,6 +263,33 @@ def get_fig_risk_contrib(pf_data: PortfolioData) -> go.Figure:
     )
 
 
+# GEOGRAPHY AND ASSET CLASSES PIE CHARTS
+UNKNOWN_COLOR = '#7f7f7f'  # the Unknown slice, grey
+
+
+def get_fig_breakdown(table: pd.DataFrame, title: str) -> go.Figure:
+    """Weights by region or asset class (see portfolio_data.breakdown), with the instruments of each slice."""
+    colors = [
+        UNKNOWN_COLOR if label == UNKNOWN else px.colors.qualitative.Plotly[n % len(px.colors.qualitative.Plotly)]
+        for n, label in enumerate(table.index)
+    ]
+    return go.Figure(
+        data=[
+            go.Pie(
+                labels=table.index,
+                values=table['weight'],
+                customdata=table[['symbols']],
+                hovertemplate='%{label}<br>%{value:.2%}<br>%{customdata[0]}<extra></extra>',
+                marker=dict(colors=colors),
+                direction='clockwise',
+                hole=0.4,
+                sort=False,
+            )
+        ],
+        layout=go.Layout(title=dict(text=title), legend=dict(orientation='h', y=-0.1), template=LAYOUT_TEMPLATE),
+    )
+
+
 # PERFORMANCE METRICS TABLE
 def get_fig_perf(pf_data: PortfolioData) -> go.Figure:
     """Performance metrics of the portfolio and of its benchmark."""
@@ -276,111 +299,6 @@ def get_fig_perf(pf_data: PortfolioData) -> go.Figure:
             'Benchmark': pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS],
         }
     )
-
-
-# HISTORICAL SHARPE RATIO LINE PLOT
-def get_fig_hist_sharpe(pf_data: PortfolioData) -> go.Figure:
-    """Sharpe ratio over time of the portfolio and of its benchmark."""
-    hist_perf_df = pf_data.perf_dct[PerfDataTabs.HIST_PERF_METRICS]
-    fig_sharpe = go.Figure(
-        data=[
-            go.Scatter(
-                x=hist_perf_df.index,
-                y=hist_perf_df[Metrics.SHARPE_RATIO.name],
-                name='Portfolio',
-                mode='lines',
-                hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
-            )
-        ],
-        layout=go.Layout(
-            xaxis_title=dict(text='Date'),
-            yaxis_title=dict(text=Metrics.SHARPE_RATIO.name),
-            template=LAYOUT_TEMPLATE,
-            legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='right', x=1),
-        ),
-    )
-    hist_perf_bm_df = pf_data.perf_bm_dct[PerfDataTabs.HIST_PERF_METRICS]
-    fig_sharpe.add_trace(
-        go.Scatter(
-            x=hist_perf_bm_df.index,
-            y=hist_perf_bm_df[Metrics.SHARPE_RATIO.name].values,
-            name='Benchmark',
-            mode='lines',
-            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
-        )
-    )
-    return fig_sharpe
-
-
-# MONTHLY RETURNS HISTOGRAM CHART
-def get_fig_monthly_ret(pf_data: PortfolioData) -> go.Figure:
-    """Distribution of the monthly returns."""
-    return go.Figure(
-        data=[
-            go.Histogram(
-                x=pf_data.perf_dct[PerfDataTabs.RETURNS_MONTHLY]['return'].values, histnorm='probability', name='return'
-            )
-        ],
-        layout=go.Layout(
-            title=dict(text='Monthly returns distribution'),
-            xaxis_title=dict(text='Return'),
-            yaxis_title=dict(text='Frequency'),
-            bargap=0.1,
-            template=LAYOUT_TEMPLATE,
-        ),
-    )
-
-
-# PORTFOLIO INSTRUMENTS ADJUSTED CLOSE
-def get_fig_pf_instr_adj_close(
-    pf_data: PortfolioData, currency: str, is_visible: list[bool] | None = None
-) -> go.Figure:
-    """With some instruments hidden, the visible ones are rebased to 100 to make them comparable."""
-    instruments = pf_data.alloc_risk_df.index.drop('Cash')
-    if is_visible is None:
-        is_visible = [True] * len(instruments)
-    close_adj_df = pf_data.hist_data.close_adj.dropna(how='all')
-    rebase = not all(is_visible)
-    if rebase:
-        visible_df = pf_data.hist_data.close_adj[[c for c, v in zip(instruments, is_visible, strict=True) if v]]
-        visible_df = visible_df.ffill().dropna(how='all')
-        visible_df = visible_df.apply(lambda x: x.div(x.dropna().iloc[0]).mul(100))
-    y_label = 'Adjusted Closing Price (rebased to 100)' if rebase else f'Adjusted Closing Price [{currency}]'
-    fig_pf_instr_adj_close = go.Figure(
-        layout=go.Layout(xaxis_title=dict(text='Date'), yaxis_title=dict(text=y_label), template=LAYOUT_TEMPLATE)
-    )
-    col_name_dct = dict(pf_data.prod_df['symbol'])
-    for col, visible in zip(instruments, is_visible, strict=True):
-        ser = visible_df[col] if rebase and visible else close_adj_df[col].ffill()
-        fig_pf_instr_adj_close.add_trace(
-            go.Scatter(
-                x=ser.index,
-                y=ser,
-                name=col_name_dct[col],
-                visible=True if visible else 'legendonly',
-                mode='lines',
-                hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
-            )
-        )
-    return fig_pf_instr_adj_close
-
-
-def get_visibility_after_restyle(figure: dict | None, restyle_data: list | None) -> list[bool] | None:
-    """Visibility of each trace after a legend click, starting from the figure currently shown: restyle_data is
-    [{'visible': [values]}, [trace indices]], listing only the traces that changed.
-    """
-    if not figure or not figure.get('data'):
-        return None
-    is_visible = [trace.get('visible', True) is True for trace in figure['data']]
-    if not restyle_data or 'visible' not in restyle_data[0]:
-        return is_visible
-    values = restyle_data[0]['visible']
-    values = values if isinstance(values, list) else [values]
-    indices = restyle_data[1] if len(restyle_data) > 1 and restyle_data[1] is not None else range(len(is_visible))
-    for n, idx in enumerate(indices):
-        if idx < len(is_visible):
-            is_visible[idx] = values[n % len(values)] is True
-    return is_visible
 
 
 # INSTRUMENT ADJUSTED CLOSE
@@ -418,9 +336,9 @@ def select_account(account_name: str) -> str:
     Output('fig_comp', 'figure'),
     Output('fig_perf', 'figure'),
     Output('fig_corr', 'figure'),
-    Output('fig_pf_hist_sharpe', 'figure'),
     Output('fig_risk_contrib', 'figure'),
-    Output('fig_monthly_ret', 'figure'),
+    Output('fig_geography', 'figure'),
+    Output('fig_asset_classes', 'figure'),
     Output('portfolio-message', 'children'),
     Output('portfolio-figures', 'style'),
     Output('button-update', 'disabled'),
@@ -453,36 +371,13 @@ def render_portfolio(account_name: str, data_version) -> tuple:
         get_fig_allocation(pf_data),
         get_fig_perf(pf_data),
         get_fig_corr(pf_data),
-        get_fig_hist_sharpe(pf_data),
         get_fig_risk_contrib(pf_data),
-        get_fig_monthly_ret(pf_data),
+        get_fig_breakdown(pf_data.geography_df, 'Geography (invested part)'),
+        get_fig_breakdown(pf_data.asset_classes_df, 'Asset classes'),
     )
     hint = available_update(account)
     color = UPDATE_AVAILABLE_COLOR if hint else UPDATE_COLOR
     return *(with_ui_revision(fig, account_name) for fig in figs), None, {}, False, color, hint or 'Up to date'
-
-
-# draw the portfolio instruments chart; a legend click rebases the visible instruments
-@callback(
-    Output('fig_pf_instr_adj_close', 'figure'),
-    Input('dropdown-portfolio', 'value'),
-    Input('store-data-version', 'data'),
-    Input('fig_pf_instr_adj_close', 'restyleData'),
-    State('fig_pf_instr_adj_close', 'figure'),
-)
-def render_pf_instr_adj_close(account_name: str, data_version, restyle_data, figure) -> go.Figure:
-    """Draw the adjusted prices of the instruments held; clicks on the legend rebase the visible ones."""
-    account = get_account(account_name)
-    if missing_data(account, NO_DATA_HINT) is not None:
-        return get_fig_empty()
-    pf_data = get_portfolio_data(account)
-    is_visible = None
-    if ctx.triggered_id == 'fig_pf_instr_adj_close':
-        is_visible = get_visibility_after_restyle(figure, restyle_data)
-        if is_visible is not None and len(is_visible) != len(pf_data.alloc_risk_df.index.drop('Cash')):
-            is_visible = None
-    fig = get_fig_pf_instr_adj_close(pf_data, currency=account.currency, is_visible=is_visible)
-    return with_ui_revision(fig, account_name)
 
 
 # update the data of the selected account; the new data version triggers the redraw of the figures

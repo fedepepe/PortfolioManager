@@ -2,6 +2,7 @@
 data), the candidates of its buckets, its summary and its saved backtest.
 """
 
+import json
 import logging
 import math
 import os
@@ -15,7 +16,8 @@ import pandas as pd
 from portfolio_manager.analytics.metrics import PerfDataTabs, compute_portfolio_metrics
 from portfolio_manager.analytics.saa import CANDIDATES_SHOWN, bucket_candidates
 from portfolio_manager.backtest.saa import comparison_navs, saa_backtest_name
-from portfolio_manager.backtest.workflows import BACKTESTS, load_backtest_data
+from portfolio_manager.backtest.workflows import BACKTESTS, account_benchmark, load_backtest_data
+from portfolio_manager.config.account_settings import Benchmark, BenchmarkComponent
 from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.allocations import (
     PRESETS,
@@ -236,6 +238,33 @@ def delete_saved_backtest(account: Account, allocation_name: str) -> list[str]:
     return removed
 
 
+# BENCHMARK
+def can_be_benchmark(allocation: Allocation) -> bool:
+    """Whether the allocation can become the benchmark of the account: manual weights, all of them set (the first three
+    steps complete).
+    """
+    return allocation.weight_mode == 'manual' and all(completed_steps(allocation).values())
+
+
+def benchmark_from_allocation(allocation: Allocation) -> Benchmark:
+    """The allocation as a benchmark: its instruments with their weights in the portfolio, rebalanced like it."""
+    components = [
+        BenchmarkComponent(label=ticker, search=ticker, weight=weight, ticker=ticker)
+        for ticker, weight in allocation.target_weights().items()
+        if weight > 0
+    ]
+    return Benchmark(components=components, rebalancing_freq=allocation.rebalancing_freq)
+
+
+def benchmark_key(account: Account) -> str:
+    """The benchmark of an account as text: a comparison saved for another benchmark is computed again."""
+    try:
+        benchmark = account_benchmark(account)
+    except ValueError:  # no benchmark
+        return ''
+    return json.dumps([benchmark.rebalancing_freq, [[c.search, c.weight] for c in benchmark.components]])
+
+
 # SUMMARY
 def summary_rows(allocation: Allocation) -> list[tuple[int, str, str]]:
     """The allocation as indented rows (level, label, weight): classes, their parts and their instruments, with the
@@ -282,23 +311,28 @@ def saved_backtest(account: Account, allocation_name: str) -> SavedBacktest | No
         return None
     name = saa_backtest_name(account, allocation_name)
     saved_at = load_attributes(derived_folder(BACKTESTS, name)).get('saved_at')
-    with key_lock(('saved backtest', account, name, saved_at)):  # computed once when two threads ask at once
-        return _saved_backtest(account, name, saved_at)
+    benchmark = benchmark_key(account)
+    with key_lock(('saved backtest', account, name, saved_at, benchmark)):  # computed once when two threads ask
+        return _saved_backtest(account, name, saved_at, benchmark)
 
 
 @lru_cache(maxsize=8)
-def _saved_backtest(account: Account, name: str, saved_at: float | None) -> SavedBacktest:
+def _saved_backtest(account: Account, name: str, saved_at: float | None, benchmark: str) -> SavedBacktest:
     data = load_backtest_data(name, fields=['nav_eff', 'effective_weights'])
-    navs, metrics = _comparison(account, name, saved_at, data.nav_eff.dropna())
+    navs, metrics = _comparison(account, name, saved_at, benchmark, data.nav_eff.dropna())
     return SavedBacktest(navs=navs, weights=data.effective_weights, metrics=metrics, saved_at=saved_at)
 
 
-def _comparison(account: Account, name: str, saved_at: float | None, nav: pd.Series) -> tuple[pd.DataFrame, dict]:
+def _comparison(
+    account: Account, name: str, saved_at: float | None, benchmark: str, nav: pd.Series
+) -> tuple[pd.DataFrame, dict]:
     """The allocation, the benchmark and the portfolio over the dates of a backtest (each starting at 100) and their
-    risk metrics: saved with the backtest (COMPARISONS), computed and saved the first time.
+    risk metrics: saved with the backtest (COMPARISONS), computed and saved the first time, and again after a change
+    of the benchmark (benchmark_key).
     """
     folder = derived_folder(COMPARISONS, name)
-    if has_tables(folder) and load_attributes(folder).get('backtest_saved_at') == saved_at:
+    saved = load_attributes(folder) if has_tables(folder) else {}
+    if saved.get('backtest_saved_at') == saved_at and saved.get('benchmark') == benchmark:
         tables = load_tables(folder)
         metrics_df = tables['metrics']
         return tables['navs'], {label: metrics_df[label].rename(label) for label in metrics_df.columns}
@@ -311,7 +345,8 @@ def _comparison(account: Account, name: str, saved_at: float | None, nav: pd.Ser
         if len(series) >= MIN_METRICS_DAYS:
             perf = compute_portfolio_metrics(nav=series, compute_hist_metrics=False, print_results=False)
             metrics[label] = perf[PerfDataTabs.RISK_METRICS].rename(label)
-    save_tables(folder, {'navs': navs, 'metrics': pd.DataFrame(metrics)}, attributes={'backtest_saved_at': saved_at})
+    attributes = {'backtest_saved_at': saved_at, 'benchmark': benchmark}
+    save_tables(folder, {'navs': navs, 'metrics': pd.DataFrame(metrics)}, attributes=attributes)
     return navs, metrics
 
 

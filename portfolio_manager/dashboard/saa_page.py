@@ -7,6 +7,7 @@ from it when a step is shown or an allocation is loaded, and each change of a co
 is complete gets a check mark on its tab.
 """
 
+import logging
 import time
 from datetime import datetime
 
@@ -19,6 +20,7 @@ from dash.exceptions import PreventUpdate
 from portfolio_manager.analytics.metrics import Metrics
 from portfolio_manager.analytics.saa import split_values
 from portfolio_manager.backtest.saa import backtest_allocation
+from portfolio_manager.backtest.workflows import account_benchmark, refresh_benchmark
 from portfolio_manager.config.accounts import Account, get_account, list_accounts
 from portfolio_manager.config.allocations import (
     ASSET_CLASSES,
@@ -38,7 +40,9 @@ from portfolio_manager.dashboard.saa_data import (
     ALLOCATION_LABEL,
     SPLIT_OPTIONS,
     SavedBacktest,
+    benchmark_from_allocation,
     bucket_key,
+    can_be_benchmark,
     candidate_rows,
     completed_steps,
     delete_saved_backtest,
@@ -58,7 +62,15 @@ from portfolio_manager.dashboard.saa_data import (
     weights_total_class,
 )
 from portfolio_manager.optimization.settings import ALLOCATION_STRATS_LABELS, OPTIMIZATION_FREQ_LABELS, AllocationStrats
-from portfolio_manager.storage.queries import delete_allocation, list_allocations, query_allocation, save_allocation
+from portfolio_manager.storage.queries import (
+    delete_allocation,
+    list_allocations,
+    query_allocation,
+    save_allocation,
+    save_benchmark,
+)
+
+logger = logging.getLogger(__name__)
 
 NEW = '__new__'  # the "new allocation" entry of the allocations dropdown
 STEPS = {
@@ -316,7 +328,14 @@ def build_content_saa(account: Account) -> html.Div:
             # the main action stands out; the destructive one is marked red but less prominent
             dbc.Col(dbc.Button('Save', id='saa-save', n_clicks=0, color='success'), width='auto'),
             dbc.Col(dbc.Button('Delete', id='saa-delete', n_clicks=0, color='danger', outline=True), width='auto'),
-            dbc.Col(html.Div(id='saa-status')),
+            # the allocation as the benchmark of the account: manual weights, all of them set
+            dbc.Col(
+                dbc.Button(
+                    'Set as benchmark', id='saa-benchmark', n_clicks=0, color='info', outline=True, disabled=True
+                ),
+                width='auto',
+            ),
+            dbc.Col(loading_wrapper(html.Div(id='saa-status'))),
         ],
         align='center',
         className='mb-3',
@@ -353,6 +372,7 @@ def build_content_saa(account: Account) -> html.Div:
                 dcc.Store(id='saa-buckets-drawn'),  # what the cards of step 3 were drawn for (see buckets_drawn)
                 dcc.Store(id='saa-splits-drawn'),  # what step 2 was drawn for (see splits_drawn)
                 dcc.ConfirmDialog(id='saa-delete-confirm'),  # asked before an allocation is deleted
+                dcc.ConfirmDialog(id='saa-benchmark-confirm'),  # asked before the benchmark is replaced
                 html.H4('Strategic Asset Allocation', className='mb-3'),
                 header,
                 dbc.Row([dbc.Col(steps, width=9), dbc.Col(summary, width=3)]),
@@ -1077,6 +1097,69 @@ def delete(submitted, selected: str | None, account_name: str) -> tuple:
     delete_allocation(account_name, selected)
     removed = delete_saved_backtest(get_account(account_name), selected)
     return f'Deleted {selected}' + (' and its backtest' if removed else ''), NEW
+
+
+@callback(Output('saa-benchmark', 'disabled'), Input('saa-allocation', 'data'))
+def enable_benchmark(data: dict | None) -> bool:
+    """Set as benchmark only with manual weights, all of them set."""
+    return data is None or not can_be_benchmark(_allocation(data))
+
+
+@callback(
+    Output('saa-benchmark-confirm', 'displayed'),
+    Output('saa-benchmark-confirm', 'message'),
+    Input('saa-benchmark', 'n_clicks'),
+    State('saa-allocation', 'data'),
+    State('saa-account', 'value'),
+    prevent_initial_call=True,
+)
+def ask_benchmark(n_clicks, data: dict, account_name: str) -> tuple:
+    """Ask for a confirmation before replacing the benchmark of the account, showing the current one and the new one."""
+    if not n_clicks:
+        raise PreventUpdate
+    allocation = _allocation(data)
+    try:
+        current = account_benchmark(get_account(account_name)).describe()
+    except ValueError:
+        current = 'none'
+    new = benchmark_from_allocation(allocation).describe()
+    name = f' "{allocation.name}"' if allocation.name else ''
+    message = (
+        f'Use the allocation{name} as the benchmark of {account_name}?\n\n'
+        f'Current benchmark: {current}\n\nNew benchmark: {new}\n\n'
+        'The benchmark backtest is computed again; the Portfolio page and the comparisons use the new benchmark.'
+    )
+    return True, message
+
+
+@callback(
+    Output('saa-status', 'children', allow_duplicate=True),
+    Output('saa-backtest-version', 'data', allow_duplicate=True),
+    Input('saa-benchmark-confirm', 'submit_n_clicks'),
+    State('saa-allocation', 'data'),
+    State('saa-account', 'value'),
+    prevent_initial_call=True,
+)
+def set_benchmark(submitted, data: dict, account_name: str) -> tuple:
+    """Save the allocation as the benchmark of the account once confirmed, and compute the benchmark backtest again
+    (the backtest tab is redrawn against it).
+    """
+    allocation = _allocation(data)
+    if not submitted or not can_be_benchmark(allocation):
+        raise PreventUpdate
+    account = get_account(account_name)
+    try:
+        save_benchmark(account_name, benchmark_from_allocation(allocation))
+    except ValueError as e:
+        return html.Span(f'Benchmark not set: {e}', className='text-danger'), no_update
+    try:
+        refresh_benchmark(account)
+    except FileNotFoundError:  # the account has no saved backtest yet: computed at its first Update
+        return f'Benchmark set {time.strftime("%H:%M")} (computed at the next Update)', time.time()
+    except Exception as e:  # e.g. no connection to Yahoo Finance: the new benchmark is saved anyway
+        logger.exception('Backtest of the new benchmark of %s failed', account_name)
+        return html.Span(f'Benchmark set, but not computed: {e}', className='text-warning'), time.time()
+    return f'Benchmark set {time.strftime("%H:%M")}', time.time()
 
 
 @callback(

@@ -143,19 +143,39 @@ def test_comparison_saved_with_the_backtest_and_read_back(tmp_path, monkeypatch)
         return pd.DataFrame({'Benchmark': np.linspace(100, 110, len(index))}, index=index)  # starts at 100
 
     monkeypatch.setattr(data, 'comparison_navs', fake_comparison)
-    navs, metrics = data._comparison(CHF, 'Portfolio CHF SAA Test', 1.0, nav)
+    navs, metrics = data._comparison(CHF, 'Portfolio CHF SAA Test', 1.0, 'benchmark A', nav)
     assert (
         computed == [300]
         and list(navs.columns) == ['Allocation', 'Benchmark']
         and navs.iloc[0].tolist() == [100.0, 100.0]
     )
-    again_navs, again_metrics = data._comparison(CHF, 'Portfolio CHF SAA Test', 1.0, nav)  # read back, not computed
+    again_navs, again_metrics = data._comparison(CHF, 'Portfolio CHF SAA Test', 1.0, 'benchmark A', nav)  # read back
     assert computed == [300]
     pd.testing.assert_frame_equal(again_navs, navs, check_freq=False)
     for label in metrics:
         pd.testing.assert_series_equal(again_metrics[label], metrics[label], check_dtype=False)
-    data._comparison(CHF, 'Portfolio CHF SAA Test', 2.0, nav)  # a new run of the backtest: computed again
+    data._comparison(CHF, 'Portfolio CHF SAA Test', 2.0, 'benchmark A', nav)  # a new run of the backtest: again
     assert computed == [300, 300]
+    data._comparison(CHF, 'Portfolio CHF SAA Test', 2.0, 'benchmark B', nav)  # another benchmark: again
+    assert computed == [300, 300, 300]
+
+
+def test_only_a_complete_allocation_with_manual_weights_can_be_the_benchmark():
+    allocation = balanced()  # 60% equity: Switzerland 25%, Global 75%; 40% bonds; rebalanced quarterly
+    assert data.can_be_benchmark(allocation)
+    benchmark = data.benchmark_from_allocation(allocation)
+    assert [(c.label, c.search, c.ticker, round(c.weight, 6)) for c in benchmark.components] == [
+        ('CHSPI.SW', 'CHSPI.SW', 'CHSPI.SW', 0.15),
+        ('VWRL.SW', 'VWRL.SW', 'VWRL.SW', 0.45),
+        ('CHCORP.SW', 'CHCORP.SW', 'CHCORP.SW', 0.4),
+    ]
+    assert benchmark.rebalancing_freq == allocation.rebalancing_freq
+    benchmark.validate()  # weights adding up to 100%, labels unique
+    optimized = balanced()
+    optimized.weight_mode = 'optimize'
+    incomplete = balanced()
+    incomplete.instruments.pop()  # the bonds without an instrument
+    assert not data.can_be_benchmark(optimized) and not data.can_be_benchmark(incomplete)
 
 
 def test_one_lock_per_key():
@@ -209,3 +229,24 @@ def test_deleting_an_allocation_removes_only_its_saved_backtest(tmp_path, monkey
     assert not any(os.path.exists(p) for p in paths['Growth'])
     assert all(os.path.exists(p) for p in paths['Growth 2']) and os.path.isdir(portfolio)  # the others are kept
     assert data.delete_saved_backtest(CHF, 'Growth') == [] and data.delete_saved_backtest(CHF, ' ') == []
+
+
+def test_set_as_benchmark_saves_it_and_computes_its_backtest(temp_db, monkeypatch):
+    import portfolio_manager.dashboard.saa_page as page
+    import portfolio_manager.storage.queries as sql
+
+    refreshed = []
+    monkeypatch.setattr(page, 'get_account', lambda name: CHF)
+    monkeypatch.setattr(page, 'refresh_benchmark', lambda account: refreshed.append(account.name))
+    status, version = page.set_benchmark(1, balanced().to_dict(), 'Portfolio CHF')
+    saved = sql.query_benchmark('Portfolio CHF')
+    assert [(c.label, round(c.weight, 6)) for c in saved.components] == [
+        ('CHSPI.SW', 0.15),
+        ('VWRL.SW', 0.45),
+        ('CHCORP.SW', 0.4),
+    ]
+    assert saved.rebalancing_freq == 'Q' and refreshed == ['Portfolio CHF'] and status.startswith('Benchmark set')
+    assert page.enable_benchmark(balanced().to_dict()) is False  # enabled
+    optimized = balanced()
+    optimized.weight_mode = 'optimize'
+    assert page.enable_benchmark(optimized.to_dict()) is True  # disabled

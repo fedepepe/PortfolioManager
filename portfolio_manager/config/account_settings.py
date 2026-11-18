@@ -41,8 +41,10 @@ class Benchmark:
             raise ValueError(f'Unknown rebalancing frequency of the benchmark: {self.rebalancing_freq}')
 
     def describe(self) -> str:
-        """Short description, e.g. "60% IWDC, 20% HYLD, 20% STHC, rebalanced monthly"."""
-        weights = ', '.join(f'{c.weight:.0%} {c.label}' for c in self.components)
+        """Short description, e.g. "60% IWDC, 20% HYLD, 20% STHC, rebalanced monthly" (weights with the decimals they
+        have, up to 2: 3.75%).
+        """
+        weights = ', '.join(f'{100 * c.weight:.2f}'.rstrip('0').rstrip('.') + f'% {c.label}' for c in self.components)
         return (
             f'{weights}, rebalanced {BENCHMARK_FREQ_LABELS.get(self.rebalancing_freq, self.rebalancing_freq).lower()}'
         )

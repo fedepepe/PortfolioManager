@@ -1,4 +1,4 @@
-"""Data update and backtests of the accounts, their benchmarks and optimized portfolios."""
+"""Data update and backtests of the accounts and their benchmarks."""
 
 import logging
 import os
@@ -8,14 +8,13 @@ from dataclasses import asdict
 
 import pandas as pd
 
-from portfolio_manager.analytics.metrics import compute_results_from_navs
-from portfolio_manager.analytics.performance import compute_portfolio_performance, save_performance_data
+from portfolio_manager.analytics.performance import compute_portfolio_performance
 from portfolio_manager.backtest.adjusted_prices import get_benchmark_adj_prices, get_portfolio_adj_prices
 from portfolio_manager.backtest.engine import backtest_portfolio
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.config.account_settings import DEFAULT_BENCHMARKS, Benchmark
 from portfolio_manager.config.accounts import Account
-from portfolio_manager.config.settings import DATA_DIR, DEFAULT_DATA_FREQ
+from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.degiro.charts import (
     fetch_fx_charts,
     fetch_portfolio_charts,
@@ -35,8 +34,6 @@ from portfolio_manager.degiro.transactions import (
     load_account_movements,
     load_tx_history,
 )
-from portfolio_manager.optimization.optimizer import OptimizedWeights, compute_weights_optim_portfolio
-from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage import files as fu
 from portfolio_manager.storage.queries import query_benchmark
 from portfolio_manager.storage.tables import (
@@ -316,71 +313,3 @@ def refresh_account(account: Account):
     compute_portfolio_performance(
         account=account, hist_portfolio_data=hist_portfolio_data, hist_benchmark_data=hist_benchmark_data
     )
-
-
-OPTIMIZATION_SETTINGS_LABEL = 'settings'
-
-
-def optimized_portfolio_name(account: Account) -> str:
-    """Name of the saved backtest and performance files of the optimized portfolio."""
-    return f'{account.name} Opt. (Tangency)'
-
-
-def optimization_prices(account: Account) -> tuple[pd.DataFrame, str]:
-    """Full history of adjusted prices (Yahoo Finance, or the database when offline) and where they come from; products
-    without adjusted prices use the unadjusted Degiro prices of the saved backtest (portfolio period only). One
-    column per instrument: products with the same ISIN (e.g. one ETF on two exchanges) have the same prices, so only
-    one is kept, preferring the product held at the end of the backtest.
-    """
-    adj_prices = get_portfolio_adj_prices(account=account)
-    hist_data = load_backtest_data(name=account.name)
-    prices_df = adj_prices.prices.reindex(index=adj_prices.prices.index.union(hist_data.prices.index))
-    for prod_id in hist_data.prices.columns:
-        if prod_id not in prices_df.columns:
-            prices_df[prod_id] = hist_data.prices[prod_id]
-    isin = load_portfolio_products(account=account).set_index('id')['isin']
-    units_last = hist_data.units.iloc[-1]
-    keep, seen = [], set()
-    for prod_id in sorted(prices_df.columns, key=lambda c: -units_last.get(c, 0.0)):
-        key = isin.get(prod_id)
-        key = key if isinstance(key, str) else prod_id  # products without ISIN are always kept
-        if key not in seen:
-            seen.add(key)
-            keep.append(prod_id)
-    return prices_df[[c for c in prices_df.columns if c in keep]], adj_prices.summary
-
-
-def backtest_portfolio_optimized(
-    account: Account,
-    index: pd.DatetimeIndex,
-    prices_adj_df: pd.DataFrame | None = None,
-    settings: OptimizationSettings | None = None,
-) -> tuple[PortfolioBacktestData, OptimizedWeights]:
-    """Backtest of the optimized portfolio over the given dates with the given settings; saves the backtest and its
-    performance with the settings.
-    """
-    settings = settings or OptimizationSettings()
-    if prices_adj_df is None:
-        prices_adj_df, _ = optimization_prices(account=account)
-    # only the optimization dates within the backtest period are used (the earlier history is used for estimation)
-    optimized_weights = compute_weights_optim_portfolio(
-        allocation_method=settings.method,
-        prices=prices_adj_df,
-        sampling_freq=DEFAULT_DATA_FREQ,
-        optimization_freq=settings.optimization_freq,
-        extra_args=settings.extra_args(),
-        start_date=index[0],
-    )
-    portfolio_name = optimized_portfolio_name(account)
-    backtest_data_optimized = backtest_portfolio(
-        name=portfolio_name,
-        prices_df=prices_adj_df.reindex(index=index).ffill(),
-        target_exp=optimized_weights.weights,
-        curr_base=account.currency,
-    )
-    # performance results saved together with the settings they were computed with
-    results_dict = compute_results_from_navs(navs=backtest_data_optimized.nav, save=False)
-    results_dict[OPTIMIZATION_SETTINGS_LABEL] = settings.to_series().to_frame()
-    save_performance_data(results_dict=results_dict, file_name=portfolio_name)
-    save_backtest_data(hist_portfolio_data=backtest_data_optimized)
-    return backtest_data_optimized, optimized_weights

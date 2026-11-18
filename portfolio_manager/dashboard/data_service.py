@@ -1,5 +1,5 @@
 """Single access point of the dashboard to the saved data, cached per account and data version, and to the long-running
-jobs (update, optimization).
+update of an account.
 """
 
 # Data is cached per account and data version: the version changes whenever an update rewrites the account's
@@ -9,21 +9,14 @@ import os
 import threading
 from datetime import datetime
 from functools import lru_cache
-from typing import NamedTuple
 
-import pandas as pd
-
-from portfolio_manager.analytics.performance import RESULTS, load_performance_data
+from portfolio_manager.analytics.performance import RESULTS
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.backtest.workflows import (
     BACKTESTS,
-    OPTIMIZATION_SETTINGS_LABEL,
     backtest_portfolio_benchmark,
-    backtest_portfolio_optimized,
     backtest_saved_at,
     load_backtest_data,
-    optimization_prices,
-    optimized_portfolio_name,
     refresh_account,
 )
 from portfolio_manager.config.accounts import Account, get_account
@@ -31,26 +24,15 @@ from portfolio_manager.config.settings import DATA_DIR, RESULTS_DIR
 from portfolio_manager.dashboard.instruments_data import InstrumentsData
 from portfolio_manager.dashboard.portfolio_data import PortfolioData
 from portfolio_manager.market_data.freshness import final_since, latest_final_day
-from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage.files import to_file_name
 from portfolio_manager.storage.queries import query_etf_catalog_built_at
 from portfolio_manager.storage.tables import derived_folder, tables_version
 
-# tables of the benchmark and optimized backtests shown by the dashboard (the others are not loaded)
+# tables of the benchmark backtest shown by the dashboard (the others are not loaded)
 BENCHMARK_FIELDS = ['nav_eff']
-OPTIMIZED_FIELDS = ['nav_eff']
 
-# serializes the long-running jobs (data update, optimization)
+# serializes the updates of the accounts
 _UPDATE_LOCK = threading.Lock()
-
-
-class OptimizedData(NamedTuple):
-    """Saved optimization of an account: backtest, performance, date and settings."""
-
-    hist_data: PortfolioBacktestData
-    perf_dct: dict[str, pd.DataFrame] | None  # None if the performance results are missing
-    computed_at: float  # time the saved optimization was computed
-    settings: OptimizationSettings  # settings of the saved optimization (defaults for files saved without them)
 
 
 def _benchmark_name(account: Account) -> str:
@@ -114,37 +96,6 @@ def get_instruments_data(account: Account) -> InstrumentsData | None:
     return _instruments_data(account.name, version)
 
 
-def _optimized_version(account: Account) -> str:
-    name = optimized_portfolio_name(account)
-    return _version([(BACKTESTS, name, DATA_DIR), (RESULTS, name, RESULTS_DIR)])
-
-
-@lru_cache(maxsize=2)
-def _optimized_data(account_name: str, version: str) -> OptimizedData:
-    account = get_account(account_name)
-    name = optimized_portfolio_name(account)
-    try:
-        perf_dct = load_performance_data(name)
-    except FileNotFoundError:
-        perf_dct = None
-    settings = OptimizationSettings()
-    if perf_dct is not None and OPTIMIZATION_SETTINGS_LABEL in perf_dct:
-        settings = OptimizationSettings.from_series(perf_dct[OPTIMIZATION_SETTINGS_LABEL].iloc[:, 0])
-    return OptimizedData(
-        hist_data=load_backtest_data(name=name, fields=OPTIMIZED_FIELDS),
-        perf_dct=perf_dct,
-        computed_at=backtest_saved_at(name),
-        settings=settings,
-    )
-
-
-def get_optimized_data(account: Account) -> OptimizedData | None:
-    """None if no optimization has been computed for the account."""
-    if backtest_saved_at(optimized_portfolio_name(account)) is None:
-        return None
-    return _optimized_data(account.name, _optimized_version(account))
-
-
 def available_update(account: Account, now: datetime | None = None) -> str | None:
     """Why the account should be updated: the prices of a trading day became final after its last update (None if
     they did not). Compared with the time of the update, not with its last day: after a holiday it is not asked again.
@@ -183,29 +134,3 @@ def update_account(account: Account):
     """One update at a time: a second request waits for the running one to finish."""
     with _UPDATE_LOCK:
         refresh_account(account=account)
-
-
-def run_optimization(account: Account, settings: OptimizationSettings) -> str:
-    """Backtest of the optimized portfolio over the dates of the saved portfolio (saves its files); returns where the
-    prices come from (online / offline) and the failed optimization dates, if any. Raises ValueError if the settings
-    cannot be satisfied.
-    """
-    error = settings.validate()
-    if error:
-        raise ValueError(error)
-    with _UPDATE_LOCK:
-        index = get_portfolio_data(account).hist_data.nav_eff.index
-        prices_df, prices_summary = optimization_prices(account=account)
-        error = settings.validate(n_assets=prices_df.shape[1])
-        if error:
-            raise ValueError(error)
-        _, optimized_weights = backtest_portfolio_optimized(
-            account=account, index=index, prices_adj_df=prices_df, settings=settings
-        )
-    summary = f'prices {prices_summary}'
-    n_failed = len(optimized_weights.failed_dates)
-    if n_failed:
-        summary += (
-            f'; optimization failed on {n_failed} of {len(optimized_weights.weights)} dates, previous weights kept'
-        )
-    return summary

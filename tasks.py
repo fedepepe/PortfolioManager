@@ -2,7 +2,7 @@
 
 Examples:
     python tasks.py update                      # like the Update button, for every account
-    python tasks.py optimize --account "Portfolio EUR"
+    python tasks.py refresh-benchmark --account "Portfolio EUR"
     python tasks.py add-account --name "Portfolio USD" --currency USD
     python tasks.py --help
 """
@@ -91,18 +91,6 @@ def refresh_benchmark(args: argparse.Namespace):
     for account in selected_accounts(args):
         refresh(account)
         logger.info('Benchmark of %s recomputed', account.name)
-
-
-def optimize(args: argparse.Namespace):
-    """Rerun the optimization with the settings of the saved one (defaults if there is none), like Run optimization."""
-    from portfolio_manager.dashboard.data_service import get_optimized_data, run_optimization
-    from portfolio_manager.optimization.settings import OptimizationSettings
-
-    for account in selected_accounts(args):
-        saved = get_optimized_data(account)
-        settings = saved.settings if saved is not None else OptimizationSettings()
-        summary = run_optimization(account, settings=settings)
-        logger.info('%s optimized (%s): %s', account.name, settings.describe(), summary)
 
 
 def instruments_performance(args: argparse.Namespace):
@@ -220,7 +208,6 @@ def convert_results(args: argparse.Namespace):
         BACKTESTS,
         load_backtest_data,
         load_backtest_data_excel,
-        optimized_portfolio_name,
         save_backtest_tables,
     )
     from portfolio_manager.config.settings import DATA_DIR, PROJECT_DIR, RESULTS_DIR
@@ -239,7 +226,7 @@ def convert_results(args: argparse.Namespace):
         os.path.dirname(PROJECT_DIR), f'{os.path.basename(PROJECT_DIR)}_archive', str(datetime.date.today()), 'data'
     )
     for account in selected_accounts(args):
-        names = [account.name, f'{account.name}_benchmark', optimized_portfolio_name(account)]
+        names = [account.name, f'{account.name}_benchmark']
         for name in names:
             excel_file = os.path.join(DATA_DIR, f'{to_file_name(name)}.xlsx')
             if os.path.isfile(excel_file) and not has_tables(derived_folder(BACKTESTS, name)):
@@ -347,7 +334,6 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'backtest': (backtest, ('account',)),
     'show-benchmark': (show_benchmark, ('account',)),
     'refresh-benchmark': (refresh_benchmark, ('account',)),
-    'optimize': (optimize, ('account',)),
     'instruments-performance': (instruments_performance, ()),
     'etf-performance': (etf_performance, ('isin',)),
     'fetch-product-catalog': (fetch_product_catalog, ()),

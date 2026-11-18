@@ -10,8 +10,8 @@ import pandas as pd
 import statsmodels.api as sm
 
 from portfolio_manager.backtest.portfolio import DEFAULT_FREQ_HIST_DATA, PortfolioBacktestData
-from portfolio_manager.config.settings import DEFAULT_CORR_DATA_FREQ, RESULTS_DIR, RISK_FREE_RATE
-from portfolio_manager.storage.files import PD_DATA_TYPES, save_df_dict_to_excel
+from portfolio_manager.config.settings import DEFAULT_CORR_DATA_FREQ, RISK_FREE_RATE
+from portfolio_manager.storage.files import PD_DATA_TYPES
 from portfolio_manager.utils.dates import ANN_FACTOR_DICT
 
 logger = logging.getLogger(__name__)
@@ -303,34 +303,6 @@ def regress_strat_vs_bm(nav: pd.Series, strategy_benchmark: pd.Series, freq: str
         beta = np.nan
         pval_alpha = np.nan
     return alpha, beta, pval_alpha
-
-
-def compute_results_from_navs(
-    navs: pd.Series | pd.DataFrame,
-    nav_benchmark: pd.Series | None = None,
-    file_name: str | None = None,
-    save: bool = True,
-) -> dict[str, pd.DataFrame]:
-    """Performance of each NAV, and the correlation of their monthly returns."""
-    if isinstance(navs, pd.Series):
-        navs = navs.to_frame()
-    results_dict = {
-        PerfDataTabs.RETURNS_YEARLY: pd.DataFrame(),
-        PerfDataTabs.RETURNS_MONTHLY: pd.DataFrame(),
-        PerfDataTabs.RISK_METRICS: pd.DataFrame(),
-    }
-    for col in navs.columns.to_list():
-        nav = navs[col].copy()
-        results_single = compute_portfolio_metrics(nav=nav, strategy_benchmark=nav_benchmark)
-        for label in results_dict:
-            logger.debug('%s of %s:\n%s', label, nav.name, results_single[label])
-            results_dict[label] = pd.concat([results_dict[label], results_single[label].rename(nav.name)], axis=1)
-    results_dict[PerfDataTabs.CORRELATION] = results_dict[PerfDataTabs.RETURNS_MONTHLY].corr()
-    if save:
-        if file_name is None:
-            file_name = 'results'
-        save_df_dict_to_excel(df_dict=results_dict, folder_name=RESULTS_DIR, file_name=file_name)
-    return results_dict
 
 
 class PerfDataTabs:

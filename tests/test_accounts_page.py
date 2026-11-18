@@ -142,16 +142,12 @@ def render(client, output: str, dropdown: str, account_name: str) -> dict:
     ('currency', 'message', 'update_disabled'),
     [(None, 'is not connected yet', True), ('CHF', 'No data yet for Portfolio CHF: press Update', False)],
 )
-def test_portfolio_and_strategies_pages_without_data(client, currency, message, update_disabled):
+def test_portfolio_page_without_data(client, currency, message, update_disabled):
     add_account('Portfolio CHF', Brokers.DEGIRO, currency=currency)
     portfolio = render(client, 'fig_navs.figure', 'dropdown-portfolio', 'Portfolio CHF')
     assert message in json.dumps(portfolio['portfolio-message'])
     assert portfolio['portfolio-figures']['style'] == {'display': 'none'}
     assert portfolio['button-update']['disabled'] is update_disabled
-    strategies = render(client, 'fig_strat_navs.figure', 'dropdown-strategies', 'Portfolio CHF')
-    expected = message if currency is None else 'press Update on the Portfolio page'
-    assert expected in json.dumps(strategies['strategies-message'])
-    assert strategies['button-optimize']['disabled'] is True
 
 
 def test_failed_update_is_shown_next_to_the_button(client, monkeypatch):

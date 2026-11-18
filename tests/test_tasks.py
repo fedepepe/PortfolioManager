@@ -29,17 +29,9 @@ def test_update_all_accounts(no_db, monkeypatch):
     assert updated == list_accounts() and len(updated) == 2
 
 
-def test_optimize_one_account_with_saved_settings(no_db, monkeypatch):
-    calls = []
-    monkeypatch.setattr(data_service, 'get_optimized_data', lambda account: None)
-    monkeypatch.setattr(data_service, 'run_optimization', lambda account, settings: calls.append(account) or 'ok')
-    tasks.main(['optimize', '--account', 'Portfolio EUR'])
-    assert calls == [Account('Portfolio EUR', Brokers.DEGIRO, 'portfolio_eur.json', 'EUR')]
-
-
 def test_unknown_account_is_rejected(no_db):
     with pytest.raises(SystemExit, match='Portfolio CHF'):
-        tasks.main(['optimize', '--account', 'unknown'])
+        tasks.main(['show-benchmark', '--account', 'unknown'])
 
 
 def test_add_account(no_db):

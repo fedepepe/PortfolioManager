@@ -9,7 +9,6 @@ from portfolio_manager.dashboard.common import SIDEBAR_STYLE
 from portfolio_manager.dashboard.markets_page import build_content_markets
 from portfolio_manager.dashboard.portfolio_page import build_content_portfolio
 from portfolio_manager.dashboard.saa_page import build_content_saa
-from portfolio_manager.dashboard.strategies_page import build_content_strategies
 
 # Sidebar
 sidebar = html.Div(
@@ -24,8 +23,6 @@ sidebar = html.Div(
                             dbc.Button('Markets', id='button-markets'),
                             html.Br(),
                             dbc.Button('Strategic Asset Allocation', id='button-saa'),
-                            html.Br(),
-                            dbc.Button('Strategies', id='button-strategies'),
                             html.Br(),
                             dbc.Button('Accounts', id='button-accounts'),
                         ],
@@ -46,11 +43,10 @@ sidebar = html.Div(
     Input('button-portfolio', 'n_clicks'),
     Input('button-markets', 'n_clicks'),
     Input('button-saa', 'n_clicks'),
-    Input('button-strategies', 'n_clicks'),
     Input('button-accounts', 'n_clicks'),
     State('store-account', 'data'),
 )
-def switch_content(n1, n2, n3, n4, n5, account_name):
+def switch_content(n1, n2, n3, n4, account_name):
     """Show the page of the clicked sidebar button for the remembered account; the Accounts page without accounts,
     and at start-up while the account is not connected.
     """
@@ -62,7 +58,5 @@ def switch_content(n1, n2, n3, n4, n5, account_name):
         return build_content_markets()
     elif ctx.triggered_id == 'button-saa':
         return build_content_saa(account=account)
-    elif ctx.triggered_id == 'button-strategies':
-        return build_content_strategies(account=account)
     else:
         return build_content_portfolio(account=account)

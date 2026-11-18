@@ -401,7 +401,7 @@ def with_ui_revision(fig: go.Figure, account_name: str) -> go.Figure:
     return fig.update_layout(uirevision=account_name)
 
 
-# remember the selected account in the browser (shared with the Strategies page)
+# remember the selected account in the browser (shared with the other pages)
 @callback(
     Output('store-account', 'data', allow_duplicate=True),
     Input('dropdown-portfolio', 'value'),

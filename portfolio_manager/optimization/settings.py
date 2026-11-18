@@ -35,7 +35,8 @@ def class_bounds(targets: dict[str, float], tolerance: float) -> dict[str, tuple
     return {c: (max(0.0, t - tolerance), min(1.0, t + tolerance)) for c, t in targets.items()}
 
 
-# settings of a portfolio optimization; the defaults are used when an account has no saved optimization
+# settings of a portfolio optimization (the strategic asset allocations start from their own defaults, see
+# config.allocations.default_settings)
 @dataclass
 class OptimizationSettings:
     """Settings of a portfolio optimization (weights and exposures as fractions)."""
@@ -90,7 +91,7 @@ class OptimizationSettings:
             setattr(settings, f.name, value)
         return settings
 
-    def validate(self, n_assets: int | None = None) -> str | None:
+    def validate(self) -> str | None:
         """None if the settings can be satisfied, otherwise the reason."""
         if not 0.0 <= self.min_asset_exposure <= self.max_asset_exposure <= 1.0:
             return 'Weight per asset: the minimum must not exceed the maximum (both between 0% and 100%)'
@@ -105,42 +106,4 @@ class OptimizationSettings:
             return 'Max assets must be at least 1'
         if not 0.0 <= self.class_tolerance <= 1.0:
             return 'Asset class tolerance must be between 0% and 100%'
-        if n_assets is not None:
-            if self.min_asset_exposure * n_assets > self.max_pf_exposure + 1e-9:
-                return (
-                    f'Min weight {self.min_asset_exposure:.0%} x {n_assets} assets = '
-                    f'{self.min_asset_exposure * n_assets:.0%} exceeds the max total invested '
-                    f'{self.max_pf_exposure:.0%}'
-                )
-            if self.max_asset_exposure * n_assets < self.min_pf_exposure - 1e-9:
-                return (
-                    f'Max weight {self.max_asset_exposure:.0%} x {n_assets} assets = '
-                    f'{self.max_asset_exposure * n_assets:.0%} is below the min total invested '
-                    f'{self.min_pf_exposure:.0%}'
-                )
         return None
-
-    def describe(self) -> str:
-        """Short description, e.g. "Max Sharpe, monthly, weight 0%-30%, ..."."""
-        freq = OPTIMIZATION_FREQ_LABELS.get(self.optimization_freq, self.optimization_freq).lower()
-        text = (
-            f'{ALLOCATION_STRATS_LABELS[self.method]}, {freq}, '
-            f'weight {self.min_asset_exposure:.0%}-{self.max_asset_exposure:.0%}, '
-            f'invested {self.min_pf_exposure:.0%}-{self.max_pf_exposure:.0%}'
-        )
-        equal_weight = self.method == AllocationStrats.EQUAL_WEIGHT
-        if self.min_position_size > 0 and not equal_weight:
-            text += f', min position {self.min_position_size:.0%}'
-        if self.method == AllocationStrats.MAX_SHARPE and self.max_vol is not None:
-            text += f', max vol {self.max_vol:.0%}'
-        if self.method == AllocationStrats.MAX_RET and self.target_vol is not None:
-            text += f', target vol {self.target_vol:.0%}'
-        if self.max_asset_num is not None and not equal_weight:
-            text += f', max {self.max_asset_num} assets'
-        return text
-
-
-# class StrategyData:
-# 	def __init__(self, hist_data: HistPortfolioData):
-# 		self.hist_data = hist_data
-# 		self.perf_dct = compute_portfolio_metrics(nav=hist_data.nav_eff)

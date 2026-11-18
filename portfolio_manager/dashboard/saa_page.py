@@ -309,11 +309,13 @@ def backtest_section() -> html.Div:
             html.Div(id='saa-backtest-info', className='mb-2'),
             loading_wrapper(card_wrapper(dcc.Graph(id='saa-fig-navs', figure=get_fig_empty()))),
             html.Br(),
-            dbc.Row(
+            # the metrics and the weights one above the other, side by side on wide screens (assets/saa.css)
+            html.Div(
                 [
-                    dbc.Col(card_wrapper(dcc.Graph(id='saa-fig-metrics', figure=get_fig_empty())), width=6),
-                    dbc.Col(card_wrapper(dcc.Graph(id='saa-fig-weights', figure=get_fig_empty())), width=6),
-                ]
+                    card_wrapper(dcc.Graph(id='saa-fig-metrics', figure=get_fig_empty())),
+                    card_wrapper(dcc.Graph(id='saa-fig-weights', figure=get_fig_empty())),
+                ],
+                className='saa-backtest-grid',
             ),
         ]
     )

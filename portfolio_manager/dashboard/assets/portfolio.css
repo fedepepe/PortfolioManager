@@ -4,6 +4,7 @@
 
 .pf-grid {
     display: grid;
+    align-items: start; /* each card as tall as its content, not stretched to its row */
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
     margin-top: 1rem;

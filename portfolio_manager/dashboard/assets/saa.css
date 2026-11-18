@@ -1,5 +1,20 @@
 /* Strategic Asset Allocation page */
 
+/* backtest step: the metrics table and the weights chart one above the other, side by side on wide screens (the
+   same width as the grid of the Portfolio page, assets/portfolio.css) */
+.saa-backtest-grid {
+    display: grid;
+    align-items: start; /* each card as tall as its content, not stretched to its row */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+}
+
+@media (min-width: 2000px) {
+    .saa-backtest-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 /* tab of a complete step: a green check mark after its label */
 .saa-done::after {
     content: " \2713";

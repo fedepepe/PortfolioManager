@@ -1,15 +1,19 @@
 # Portfolio Manager
 
-A dashboard to track, backtest and optimize Degiro portfolios.
+A dashboard to track Degiro portfolios and to build and backtest strategic asset allocations.
 
 It downloads the trades, cash movements and prices of one or more Degiro accounts, rebuilds the history of each
-portfolio, compares it with a benchmark, and computes optimized portfolios on the same instruments.
+portfolio, compares it with a benchmark, and backtests allocations of the classified ETF catalog.
 
 - **Portfolio** page: NAV against the benchmark, allocation, performance and risk metrics, correlations, risk
   contributions, monthly returns, adjusted prices of the instruments held, and a price chart of any instrument.
-- **Instruments** page: performance metrics and correlations of the ETF catalog.
-- **Strategies** page: optimized portfolios (max Sharpe, min variance, max return, risk parity, equal weight) with
-  configurable constraints, backtested against the real portfolio.
+- **Markets** page: the monthly returns of the last 12 months of sectors, world indices, bonds, commodities,
+  currencies and crypto, as heatmaps.
+- **Strategic Asset Allocation** page: an allocation built in four steps (asset class weights, sub-classes,
+  instruments of each part with manual weights or weights optimized within the class ranges, backtest against the
+  benchmark and the portfolio), saved per account under a name; an allocation with manual weights can become the
+  benchmark of the account.
+- **Accounts** page: the accounts, their connection and their benchmark.
 
 ## Setup
 
@@ -59,9 +63,12 @@ the library reads the credentials from it instead of the file, for every account
 python main.py
 ```
 
-Then open <http://127.0.0.1:8000/portfolio_manager>. At start-up the dashboard only reads the data saved by previous
-runs; new data is downloaded only with the **Update** button (Portfolio page) and optimizations run only with **Run
-optimization** (Strategies page).
+Then open <http://127.0.0.1:8000/portfolio_manager>. Start-up and the pages only read the data saved by previous
+runs; the Degiro data is downloaded only with the **Update** button (Portfolio page), which turns orange when the
+prices of a newer trading day are available. The Yahoo Finance data of the listings in use (allocations, benchmarks,
+portfolios, then the catalog from the most traded) is brought up to date in the background while the server runs:
+the prices of a trading day count as final from 08:00 of the next day. **Run backtest** (Strategic Asset Allocation
+page) offers to download the new prices of its instruments first.
 
 ### First run
 
@@ -73,16 +80,17 @@ With no saved data, the dashboard opens on the **Accounts** page (also in the si
 3. Press **Connect**: the base currency of the account and the currency pairs are read from Degiro, and an account in
    CHF or EUR gets its default benchmark.
 4. On the **Portfolio** page, press **Update**: the first download of the transactions, cash movements and prices
-   takes a few minutes; then the figures are drawn, and the **Strategies** page can run optimizations.
+   takes a few minutes; then the figures are drawn.
 
-The **Instruments** page needs the ETF catalog, built by the long catalog tasks below, in this order:
+The **Strategic Asset Allocation** page chooses its instruments among the classified catalog funds, prepared by the
+long catalog tasks below, in this order:
 
 1. `fetch-product-catalog`: the Degiro products.
 2. `map-etf-catalog` (Degiro login): the Yahoo Finance listing of every catalog product, i.e. every line of an ETF
    (exchange and currency) on Xetra, SIX, Milan and Amsterdam; see *Mapping* below.
 3. `fetch-etf-catalog`: the Yahoo Finance history of the mapped listings.
 4. `classify-etfs` (Degiro login): the asset class of each fund; see *Classification* below.
-5. `build-etf-catalog`: the catalog of each account.
+5. `build-etf-catalog`: the ranked catalog of each account (Excel copy in `results/`).
 
 The catalog keeps the 250 funds with the highest average daily traded value (close x volume) of the last 3 months,
 each in the currency of its listing; the values are compared at the latest exchange rates, so the ranking is the same
@@ -135,7 +143,6 @@ review (`results/etf_classes.xlsx`).
 ```bash
 python tasks.py --help
 python tasks.py update                             # like the Update button, for every account
-python tasks.py optimize --account "Portfolio EUR"  # rerun the saved optimization of one account
 python tasks.py show-benchmark                     # the benchmark of each account
 python tasks.py refresh-benchmark                  # recompute the benchmarks from the saved backtests
 python tasks.py etf-performance --isin IE00B4L5Y983
@@ -145,6 +152,7 @@ python tasks.py fetch-etf-catalog                  # ETF catalog history: about 
 python tasks.py classify-etfs                      # asset classes of the catalog funds
 python tasks.py build-etf-catalog                  # catalog of each account
 python tasks.py refresh-yahoo-history --full       # download every stored Yahoo Finance history again
+python tasks.py refresh-markets                    # the data of the Markets page
 ```
 
 ## Data
@@ -194,8 +202,8 @@ portfolio_manager/
 ├── degiro/                Degiro API: connection, products, transactions, price charts
 ├── market_data/           Yahoo Finance
 ├── storage/               database (models, queries, schema upgrades), Parquet tables and Excel files
-├── backtest/              portfolio model, backtest engine, account/benchmark/optimized workflows
-├── analytics/             performance metrics, instrument and ETF catalog analysis
+├── backtest/              portfolio model, backtest engine, account/benchmark/allocation workflows
+├── analytics/             performance metrics, ETF catalog, classification, allocation candidates, price updates
 ├── optimization/          optimization settings, optimizer, objective functions
 ├── dashboard/             Dash app: pages, figures, data service
 └── utils/

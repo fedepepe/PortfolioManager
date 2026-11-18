@@ -9,32 +9,6 @@ import yfinance as yf
 from curl_cffi.requests.exceptions import DNSError, HTTPError, Timeout
 
 
-class YFinHistCols(Enum):
-    """Price history columns of Yahoo Finance."""
-
-    open = 'Open'
-    high = 'High'
-    low = 'Low'
-    close = 'Close'
-    adj_close = 'Adj Close'
-    volume = 'Volume'
-    dividends = 'Dividends'
-    stock_splits = 'Stock Splits'
-    capital_gains = 'Capital Gains'
-
-    def __str__(self):
-        return self.value
-
-    @classmethod
-    def get_entry_by_val(cls, value: str):
-        """Member with the given value (the value itself if there is none)."""
-        lst = [e for e in YFinHistCols if e.value == value]
-        return lst[0] if lst else value
-
-
-YF_PROD_INFO_LABEL = 'Product Info'
-
-
 class YFinInfoCols(Enum):
     """Instrument information fields of Yahoo Finance."""
 

@@ -113,7 +113,6 @@ def fetch_charts(
         product_ids = product_info_df['id'].astype(int).to_list()
     # ESTABLISH CONNECTION
     client_details_table = degiro_conn.get_client_details()
-    # int_account = client_details_table['data']['intAccount']
     user_token = client_details_table['data']['id']
     # FETCH DATA
     chart_fetcher = ChartFetcher(user_token=user_token)

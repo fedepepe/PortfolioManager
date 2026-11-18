@@ -15,14 +15,12 @@ from portfolio_manager.storage.files import PD_DATA_TYPES
 SIDEBAR_STYLE = {
     'position': 'fixed',
     'top': 0,
-    # "left": 0,
     'bottom': 0,
     'width': '10rem',
     'padding': '2rem 0rem',
 }
 CONTENT_STYLE = {
     'margin-left': '12rem',
-    # "margin-right": "2rem",
     'padding': '2rem 0rem',
 }
 

@@ -7,7 +7,6 @@ capital gains), as Yahoo computes it; the prices are already adjusted for splits
 """
 
 import logging
-import re
 from collections.abc import Callable
 from datetime import date, timedelta
 from difflib import SequenceMatcher
@@ -62,7 +61,6 @@ FIX_CURRENCIES = ('EUR', 'USD', 'CHF', 'GBP')
 # listing with fewer (e.g. a single stale quote) gives no usable history, and in other currencies it could match by
 # chance
 MIN_COMMON_DAYS = 20
-ISIN_PATTERN = re.compile(r'[A-Z]{2}[A-Z0-9]{9}[0-9]')
 # currencies quoted by Yahoo in hundredths of the currency: pence, South African cents, Israeli agorot
 MINOR_UNITS = {'GBp': 'GBP', 'GBX': 'GBP', 'ZAc': 'ZAR', 'ILA': 'ILS'}
 

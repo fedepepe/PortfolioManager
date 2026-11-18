@@ -568,13 +568,13 @@ def chosen_inputs(allocation: Allocation, asset_class: str, bucket: str | None) 
 
 # FIGURES
 def get_fig_saa_navs(backtest: SavedBacktest, name: str) -> go.Figure:
-    """The allocation, the benchmark and the portfolio, each starting at 100."""
+    """The allocation (under its name), the benchmark and the portfolio, each starting at 100."""
     fig = go.Figure(
         layout=go.Layout(
             template=LAYOUT_TEMPLATE,
-            title=dict(text=f'{name}: growth of 100'),
-            yaxis_title=dict(text='Value'),
+            yaxis_title=dict(text='NAV'),
             legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='right', x=1),
+            margin=dict(t=40),  # no title: the legend only above the chart
         )
     )
     for label in backtest.navs.columns:
@@ -583,7 +583,7 @@ def get_fig_saa_navs(backtest: SavedBacktest, name: str) -> go.Figure:
             go.Scatter(
                 x=series.index,
                 y=series.values,
-                name=label,
+                name=name if label == ALLOCATION_LABEL else label,
                 mode='lines',
                 hovertemplate='%{x|%Y/%m/%d}: %{y:.1f}<extra></extra>',
             )
@@ -622,12 +622,14 @@ def get_fig_saa_weights(backtest: SavedBacktest) -> go.Figure:
     return fig
 
 
-def metrics_label(backtest: SavedBacktest, label: str) -> str:
-    """Column title of the metrics table: the series, and its start when it is later than the allocation's."""
+def metrics_label(backtest: SavedBacktest, label: str, name: str) -> str:
+    """Column title of the metrics table: the allocation under its name, the others with their start when it is
+    later than the allocation's.
+    """
+    if label == ALLOCATION_LABEL:
+        return name
     start = backtest.navs[label].first_valid_index()
-    if label != ALLOCATION_LABEL and start > backtest.navs.index[0]:
-        return f'{label}<br>from {start:%Y-%m}'
-    return label
+    return f'{label}<br>from {start:%Y-%m}' if start > backtest.navs.index[0] else label
 
 
 # CALLBACKS
@@ -1274,6 +1276,7 @@ def draw_backtest(active_tab: str, version, loaded, data: dict | None, account_n
         ' Run it again after changing the allocation.',
         className='small text-muted',
     )
-    metrics = get_fig_metrics_table({metrics_label(backtest, k): v for k, v in backtest.metrics.items()})
+    labels = {k: metrics_label(backtest, k, allocation.name) for k in backtest.metrics}
+    metrics = get_fig_metrics_table({labels[k]: v for k, v in backtest.metrics.items()})
     figs = (get_fig_saa_navs(backtest, allocation.name), metrics, get_fig_saa_weights(backtest))
     return *(f.update_layout(uirevision=f'{account_name} {allocation.name}') for f in figs), info

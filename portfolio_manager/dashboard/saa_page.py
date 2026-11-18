@@ -20,7 +20,7 @@ from dash.exceptions import PreventUpdate
 from portfolio_manager.analytics.metrics import Metrics
 from portfolio_manager.analytics.price_updates import UPDATER, status_text
 from portfolio_manager.analytics.saa import split_values
-from portfolio_manager.backtest.saa import backtest_allocation
+from portfolio_manager.backtest.saa import BENCHMARK_LABEL, PORTFOLIO_LABEL, backtest_allocation
 from portfolio_manager.backtest.workflows import account_benchmark, refresh_benchmark
 from portfolio_manager.config.accounts import Account, get_account, list_accounts
 from portfolio_manager.config.allocations import (
@@ -569,6 +569,12 @@ def chosen_inputs(allocation: Allocation, asset_class: str, bucket: str | None) 
 
 
 # FIGURES
+def shown_order(labels) -> list[str]:
+    """The series of a backtest in the order they are shown: the allocation, the portfolio, the benchmark."""
+    order = [ALLOCATION_LABEL, PORTFOLIO_LABEL, BENCHMARK_LABEL]
+    return sorted(labels, key=lambda label: order.index(label) if label in order else len(order))
+
+
 def get_fig_saa_navs(backtest: SavedBacktest, name: str) -> go.Figure:
     """The allocation (under its name), the benchmark and the portfolio, each starting at 100."""
     fig = go.Figure(
@@ -579,7 +585,7 @@ def get_fig_saa_navs(backtest: SavedBacktest, name: str) -> go.Figure:
             margin=dict(t=40),  # no title: the legend only above the chart
         )
     )
-    for label in backtest.navs.columns:
+    for label in shown_order(backtest.navs.columns):
         series = backtest.navs[label].dropna()
         fig.add_trace(
             go.Scatter(
@@ -1278,7 +1284,7 @@ def draw_backtest(active_tab: str, version, loaded, data: dict | None, account_n
         ' Run it again after changing the allocation.',
         className='small text-muted',
     )
-    labels = {k: metrics_label(backtest, k, allocation.name) for k in backtest.metrics}
-    metrics = metrics_table({labels[k]: v for k, v in backtest.metrics.items()})
+    shown = shown_order(backtest.metrics)
+    metrics = metrics_table({metrics_label(backtest, k, allocation.name): backtest.metrics[k] for k in shown})
     figs = (get_fig_saa_navs(backtest, allocation.name), get_fig_saa_weights(backtest))
     return *(f.update_layout(uirevision=f'{account_name} {allocation.name}') for f in figs), metrics, info

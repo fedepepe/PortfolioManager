@@ -270,3 +270,10 @@ def test_metrics_table_of_the_page():
     assert len(rows) > 5 and all(len(r.children) == 3 for r in rows)  # metric, Growth, Portfolio (empty)
     assert rows[0].style['backgroundColor'] != rows[1].style['backgroundColor']  # alternating colours
     assert header_label('A') == ['A']
+
+
+def test_backtest_series_shown_allocation_portfolio_benchmark():
+    from portfolio_manager.dashboard.saa_page import shown_order
+
+    assert shown_order(['Allocation', 'Benchmark', 'Portfolio']) == ['Allocation', 'Portfolio', 'Benchmark']
+    assert shown_order(['Allocation', 'Benchmark']) == ['Allocation', 'Benchmark']  # no saved portfolio backtest

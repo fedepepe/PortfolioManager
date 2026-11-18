@@ -220,8 +220,14 @@ def load_fx_rates(
     """Exchange rates of the foreign currencies to the account currency ({currency}/{base}), with a column of ones for
     the base currency.
     """
-    pairs = query_currency_pairs()
-    pair_prices = load_portfolio_charts(account=account, chart_name=FX_RATES_CHART_FILE_NAME)
+    # only the pairs a rate can be computed from: between the currencies, the base and the cross currencies
+    wanted = {*curr_foreign_lst, account.currency, *CROSS_CURRENCIES}
+    pairs = {pair: pid for pair, pid in query_currency_pairs().items() if set(pair.split('/')) <= wanted}
+    if pairs:
+        pair_prices = query_degiro_hist(sorted(pairs.values()), columns=ChartType.PRICE.value)
+        pair_prices.index.name, pair_prices.columns.name = None, None
+    else:
+        pair_prices = pd.DataFrame()
     pair_prices = pair_prices.rename(columns={product_id: pair for pair, product_id in pairs.items()})
     rates = []
     for cur in curr_foreign_lst:

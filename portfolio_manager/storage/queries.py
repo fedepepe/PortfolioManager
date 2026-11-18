@@ -422,6 +422,40 @@ def query_yahoo_prices(
     return df
 
 
+def query_traded_value_means(tickers: list[str], start: date, period: pd.DateOffset) -> pd.DataFrame:
+    """Mean daily traded value (close x volume, in the quoted currency of each listing) over the period before the last
+    day of each listing with a close and a volume, from a day on: columns last_date and traded_value by ticker
+    (listings without such a day from start on are left out). Computed by the database: one row per listing is read.
+    """
+    tickers_by_id = dict(
+        select_all(select(YahooInstrument.id, YahooInstrument.ticker).where(YahooInstrument.ticker.in_(tickers)))
+    )
+    traded = (YahooPrice.close.is_not(None)) & (YahooPrice.volume.is_not(None)) & (YahooPrice.date >= start)
+    last_stmt = (
+        select(YahooPrice.instrument_id, func.max(YahooPrice.date))
+        .where(YahooPrice.instrument_id.in_(list(tickers_by_id)), traded)
+        .group_by(YahooPrice.instrument_id)
+    )
+    last_dates = pd.Series(dict(select_all(last_stmt)), dtype=object)
+    rows = []
+    # one query per last day (listings mostly share a few): the period runs back from it
+    for last_date, ids in last_dates.groupby(last_dates).groups.items():
+        cutoff = (pd.Timestamp(last_date) - period).date()
+        mean_stmt = (
+            select(YahooPrice.instrument_id, func.avg(YahooPrice.close * YahooPrice.volume))
+            .where(YahooPrice.instrument_id.in_([int(i) for i in ids]), traded, YahooPrice.date > cutoff)
+            .group_by(YahooPrice.instrument_id)
+        )
+        rows += [(tickers_by_id[i], pd.Timestamp(last_date), value) for i, value in select_all(mean_stmt)]
+    return pd.DataFrame(rows, columns=['ticker', 'last_date', 'traded_value']).set_index('ticker')
+
+
+def select_all(stmt) -> list[tuple]:
+    """All the rows of a query, as tuples."""
+    with engine.connect() as connection:
+        return [tuple(row) for row in connection.execute(stmt).all()]
+
+
 def query_yahoo_tickers_with_history() -> list[str]:
     """Listings with a stored history (sorted tickers)."""
     stmt = select(YahooInstrument.ticker).where(

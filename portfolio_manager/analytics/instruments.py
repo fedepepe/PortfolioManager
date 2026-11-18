@@ -32,7 +32,6 @@ from portfolio_manager.market_data.history import (
     refresh_info,
     search_listing,
     store_listing,
-    traded_value,
 )
 from portfolio_manager.market_data.yahoo import YFinInfoCols
 from portfolio_manager.storage.files import PD_DATA_TYPES, save_df_dict_to_excel, save_df_to_excel
@@ -49,6 +48,7 @@ from portfolio_manager.storage.queries import (
     query_listing_isins,
     query_listing_searches,
     query_products,
+    query_traded_value_means,
     query_yahoo_instruments,
     save_currency_fix,
     save_etf_catalog,
@@ -525,13 +525,13 @@ def average_traded_values(tickers: list[str]) -> pd.DataFrame:
     MAX_DAYS_WITHOUT_PRICE days are left out.
     """
     recent = pd.Timestamp(date.today() - timedelta(days=MAX_DAYS_WITHOUT_PRICE))
-    traded, currencies = traded_value(tickers, start=(recent - TRADED_VALUE_PERIOD).date())
+    means = query_traded_value_means(tickers, start=(recent - TRADED_VALUE_PERIOD).date(), period=TRADED_VALUE_PERIOD)
+    means = means[means['last_date'] >= recent]
     rows = {}
-    for ticker in traded.columns:
-        values = traded[ticker].dropna()
-        if not values.empty and values.index[-1] >= recent:
-            last_months = values[values.index > values.index[-1] - TRADED_VALUE_PERIOD]
-            rows[ticker] = {'traded_value': last_months.mean(), 'currency': currencies[ticker]}
+    # amounts quoted in hundredths of a currency (e.g. pence) in the major currency; no known currency: left out
+    for ticker, currency in listing_currencies(list(means.index)).items():
+        major, factor = major_currency(currency)
+        rows[ticker] = {'traded_value': means.at[ticker, 'traded_value'] * factor, 'currency': major}
     return pd.DataFrame.from_dict(rows, orient='index', columns=['traded_value', 'currency'])
 
 

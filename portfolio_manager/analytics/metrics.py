@@ -76,6 +76,23 @@ def downside_deviation(returns: pd.Series) -> float:
     return math.sqrt(returns.clip(upper=0.0).pow(2).mean())
 
 
+def resample_last(series: pd.Series, freq: str) -> pd.Series:
+    """The last value of each period of freq (NaN for periods without one), as series.resample(freq).last().
+
+    Business days are binned with array operations: pandas 2.0 builds the business-day bins one day at a time in
+    Python, which made the metrics of a long price history slow. As with resample, a value on a weekend counts for the
+    Friday before, and the periods run from the business day on or before the first value to the one on or before the
+    last.
+    """
+    if freq != 'B' or series.empty:
+        return series.resample(freq).last()
+    days = series.index.normalize()
+    labels = days - pd.to_timedelta(np.maximum(days.weekday - 4, 0), unit='D')  # Saturday, Sunday: the Friday before
+    last = series.groupby(labels).last()
+    calendar = pd.date_range(labels.min(), labels.max(), freq='D')
+    return last.reindex(calendar[calendar.weekday < 5])
+
+
 def compute_portfolio_metrics(
     nav: pd.Series | None = None,
     hist_portfolio_data: PortfolioBacktestData | None = None,
@@ -89,7 +106,7 @@ def compute_portfolio_metrics(
     nav = nav.loc[nav.first_valid_index() :]  # remove initial nans
     freq = _sampling_freq(nav, hist_portfolio_data)
     # the NAV at each period of freq (periods without a value, e.g. holidays, keep the previous one)
-    nav_resampled = nav.resample(freq).last().ffill()
+    nav_resampled = resample_last(nav, freq).ffill()
     returns_monthly = nav.resample('M').last().pct_change().dropna().rename('return')
     turnover, turnover_mean_daily = _turnover(hist_portfolio_data, freq)
 

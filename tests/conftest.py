@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 import portfolio_manager.storage.models as tables
 import portfolio_manager.storage.queries as sql
+import portfolio_manager.storage.tables as derived_tables
 
 
 def make_prices(
@@ -43,6 +44,8 @@ def temp_db(tmp_path, monkeypatch):
     engine = create_engine(f'sqlite:///{tmp_path / "db" / "test.db"}')
     monkeypatch.setattr(tables, 'engine', engine)
     monkeypatch.setattr(tables, 'DATA_DIR', str(tmp_path / 'db'))
+    # derived results (backtests, cached candidates) in the temporary folder too, never in the project's
+    monkeypatch.setattr(derived_tables, 'DERIVED_DIR', str(tmp_path / 'derived'))
     monkeypatch.setattr(sql, 'engine', engine)
     monkeypatch.setattr(sql, 'SessionLocal', sessionmaker(bind=engine, autoflush=False))
     tables.init_db()

@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import portfolio_manager.degiro.charts as charts
 import portfolio_manager.degiro.connection as connection
 import portfolio_manager.storage.migrations as migrations
 import portfolio_manager.storage.models as tables
@@ -145,3 +146,19 @@ def test_database_of_version_2_gets_the_currency_pairs_of_the_catalog(tmp_path, 
     tables.init_db()
     assert migrations.schema_version(engine) == migrations.latest_version()
     assert sql.query_currency_pairs() == {'EUR/CHF': 714322, 'USD/CAD': 5466016, 'INR/EUR': 1531238}
+
+
+def test_load_fx_rates_reads_only_the_pairs_it_can_use(temp_db, monkeypatch):
+    # GBP/JPY can serve neither EUR nor USD in CHF: not read; the cross rate GBP via EUR uses EUR/GBP
+    pairs = {'EUR/CHF': 1, 'USD/CHF': 2, 'GBP/JPY': 3, 'EUR/GBP': 4}
+    sql.upsert_currency_pairs(pairs)
+    for product_id in pairs.values():
+        sql.insert_degiro_hist(product_id, pd.DataFrame({'price': [1.0, 1.1]}, index=DAYS[:2]))
+    read = []
+    original = charts.query_degiro_hist
+    monkeypatch.setattr(charts, 'query_degiro_hist', lambda ids, **kw: read.append(ids) or original(ids, **kw))
+    account = Account('Portfolio CHF', Brokers.DEGIRO, 'config.json', 'CHF')
+    assert list(load_fx_rates(account, ['USD'], index=DAYS).columns) == ['USD/CHF', 'CHF/CHF']
+    assert read[-1] == [1, 2]  # the pairs between CHF, USD and the cross currencies EUR, USD
+    rates = load_fx_rates(account, ['GBP'], index=DAYS)
+    assert read[-1] == [1, 2, 4] and rates['GBP/CHF'].tolist() == pytest.approx([1.0, 1.0])  # 1 / EUR/GBP x EUR/CHF

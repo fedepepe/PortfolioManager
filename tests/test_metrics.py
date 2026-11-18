@@ -2,7 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from portfolio_manager.analytics.metrics import Metrics, PerfDataTabs, compute_portfolio_metrics, downside_deviation
+from portfolio_manager.analytics.metrics import (
+    Metrics,
+    PerfDataTabs,
+    compute_portfolio_metrics,
+    downside_deviation,
+    resample_last,
+)
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 
 
@@ -115,3 +121,23 @@ def test_turnover_counts_purchases_and_sales():
     data = PortfolioBacktestData(name='x', nav=nav, units=trades, nav_eff=nav, transaction_value=trades, freq='B')
     turnover = compute_portfolio_metrics(hist_portfolio_data=data, print_results=False)[PerfDataTabs.TURNOVER]
     assert turnover.iloc[99] == pytest.approx(100.0 / nav.iloc[100])  # day 100 (the first day is left out)
+
+
+@pytest.mark.parametrize(
+    'days',
+    [
+        pd.bdate_range('2023-01-02', periods=300),  # business days only
+        pd.date_range('2023-01-04', periods=300),  # every day, starting on a Wednesday: weekends join the Friday
+        pd.date_range('2023-01-07', periods=40),  # starting on a Saturday: the first period is the Friday before
+        pd.bdate_range('2023-01-02', periods=60).delete([5, 6, 7, 30]),  # missing days: empty periods
+        pd.DatetimeIndex(['2023-01-06 17:30', '2023-01-08 09:00', '2023-01-10 12:00']),  # times within the day
+    ],
+)
+def test_business_day_resampling_as_pandas(days):
+    rng = np.random.default_rng(len(days))
+    series = pd.Series(100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(days)))), index=days, name='nav')
+    series.iloc[len(days) // 3] = np.nan  # a missing value: the last valid one of its period counts
+    expected = series.resample('B').last()
+    pd.testing.assert_series_equal(resample_last(series, 'B'), expected, check_freq=False)
+    # other frequencies are left to pandas
+    pd.testing.assert_series_equal(resample_last(series, 'M'), series.resample('M').last())

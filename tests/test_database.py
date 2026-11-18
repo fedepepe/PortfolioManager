@@ -2,6 +2,7 @@ import os
 from datetime import date
 
 import pandas as pd
+import pytest
 from sqlalchemy import inspect
 
 import portfolio_manager.storage.models as tables
@@ -149,3 +150,22 @@ def test_degiro_hist_without_overwrite_adds_missing_days_only(temp_db):
     sql.insert_degiro_hist(1, pd.DataFrame({'price': [10.0]}, index=days[:1]))
     sql.insert_degiro_hist(1, pd.DataFrame({'price': [9.0, 11.0]}, index=days), overwrite=False)
     assert sql.query_degiro_hist(1, 'price')[1].tolist() == [10.0, 11.0]
+
+
+def test_traded_value_means_over_the_period_before_each_last_day(temp_db):
+    # AAA trades until June 28, BBB until May 31: each mean covers the month before its own last day
+    for ticker, last_day in [('AAA', '2024-06-28'), ('BBB', '2024-05-31')]:
+        days = pd.bdate_range('2024-03-01', last_day)
+        instrument_id = sql.upsert_yahoo_instrument(ticker, {'currency': 'USD'})
+        volume = pd.Series(range(1, len(days) + 1), index=days, dtype=float)
+        volume.iloc[-2] = float('nan')  # a day without volume does not count
+        sql.save_yahoo_prices(instrument_id, pd.DataFrame({'close': 2.0, 'volume': volume}, index=days))
+    means = sql.query_traded_value_means(['AAA', 'BBB', 'NONE'], start=date(2024, 3, 1), period=pd.DateOffset(months=1))
+    for ticker, last_day in [('AAA', '2024-06-28'), ('BBB', '2024-05-31')]:
+        days = pd.bdate_range('2024-03-01', last_day)
+        traded = pd.Series([2.0 * v for v in range(1, len(days) + 1)], index=days)
+        traded.iloc[-2] = float('nan')
+        expected = traded[traded.index > pd.Timestamp(last_day) - pd.DateOffset(months=1)].mean()
+        assert means.at[ticker, 'last_date'] == pd.Timestamp(last_day)
+        assert means.at[ticker, 'traded_value'] == pytest.approx(expected)
+    assert 'NONE' not in means.index

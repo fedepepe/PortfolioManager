@@ -268,7 +268,8 @@ def test_metrics_table_of_the_page():
     assert titles[2].children[0] == 'Portfolio' and isinstance(titles[2].children[1], html.Br)  # two lines
     rows = body.children
     assert len(rows) > 5 and all(len(r.children) == 3 for r in rows)  # metric, Growth, Portfolio (empty)
-    assert rows[0].style['backgroundColor'] != rows[1].style['backgroundColor']  # alternating colours
+    # each series underlined in the colour of its line in the chart, in the same order
+    assert titles[1].style['borderBottom'].endswith('#636efa') and titles[2].style['borderBottom'].endswith('#EF553B')
     assert header_label('A') == ['A']
 
 

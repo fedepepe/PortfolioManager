@@ -3,7 +3,6 @@
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 from dash import dcc, html
@@ -26,8 +25,8 @@ CONTENT_STYLE = {
 
 LAYOUT_TEMPLATE = 'plotly_dark'
 
-COLOR_ROW_EVEN = px.colors.qualitative.Plotly[2]
-COLOR_ROW_ODD = px.colors.qualitative.Plotly[0]
+# colours of the series in the charts, in their order (those of the dark plotly theme)
+SERIES_COLORS = list(pio.templates[LAYOUT_TEMPLATE].layout.colorway)
 
 
 def loading_wrapper(children) -> dcc.Loading:
@@ -58,7 +57,8 @@ def header_label(label: str) -> list:
 # PERFORMANCE METRICS TABLE: one column per entry of risk_metrics_dct (label -> risk metrics, None if missing)
 def metrics_table(risk_metrics_dct: dict[str, PD_DATA_TYPES | None], currency: str | None = None) -> html.Table:
     """Table of performance metrics, one column per entry (None: empty column): a table of the page (assets/
-    tables.css), as tall as its rows, its text centred vertically, the rows in alternating colours.
+    tables.css), as tall as its rows, its text centred vertically, the rows in alternating dark greys. The title of
+    each series is underlined in the colour of its line in the chart next to the table (the series in the same order).
     """
     columns = [
         to_str_risk_metrics(m, currency) if m is not None else pd.Series(name='Parameter', dtype=str)
@@ -67,14 +67,12 @@ def metrics_table(risk_metrics_dct: dict[str, PD_DATA_TYPES | None], currency: s
     perf_df = pd.concat(columns, axis=1)
     perf_df = perf_df.drop([Metrics.BETA_OVERALL.title, Metrics.SKEWNESS.title], errors='ignore')
     values = perf_df.round(3).replace(np.nan, '')
-    header = html.Tr([html.Th('Performance Metric')] + [html.Th(header_label(label)) for label in risk_metrics_dct])
-    rows = [
-        html.Tr(
-            [html.Td(metric)] + [html.Td(value) for value in row],
-            style={'backgroundColor': COLOR_ROW_ODD if n % 2 == 0 else COLOR_ROW_EVEN},
-        )
-        for n, (metric, row) in enumerate(values.iterrows())
+    titles = [
+        html.Th(header_label(label), style={'borderBottom': f'3px solid {SERIES_COLORS[n % len(SERIES_COLORS)]}'})
+        for n, label in enumerate(risk_metrics_dct)
     ]
+    header = html.Tr([html.Th('Performance Metric')] + titles)
+    rows = [html.Tr([html.Td(metric)] + [html.Td(value) for value in row]) for metric, row in values.iterrows()]
     return html.Table([html.Thead(header), html.Tbody(rows)], className='metrics-table')
 
 

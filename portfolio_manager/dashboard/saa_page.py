@@ -18,6 +18,7 @@ from dash import ALL, MATCH, Input, Output, State, callback, ctx, dcc, html, no_
 from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.metrics import Metrics
+from portfolio_manager.analytics.price_updates import UPDATER, status_text
 from portfolio_manager.analytics.saa import split_values
 from portfolio_manager.backtest.saa import backtest_allocation
 from portfolio_manager.backtest.workflows import account_benchmark, refresh_benchmark
@@ -61,6 +62,7 @@ from portfolio_manager.dashboard.saa_data import (
     warm_up,
     weights_total_class,
 )
+from portfolio_manager.market_data.freshness import due_listings, latest_final_day, update_listings
 from portfolio_manager.optimization.settings import ALLOCATION_STRATS_LABELS, OPTIMIZATION_FREQ_LABELS, AllocationStrats
 from portfolio_manager.storage.queries import (
     delete_allocation,
@@ -279,6 +281,8 @@ def instruments_section() -> html.Div:
                 id='saa-optimize-settings',
                 className='mb-3',
             ),
+            # the background update of the prices (analytics.price_updates)
+            html.Div(id='saa-price-status', className='small text-muted mb-2'),
             # the spinner only while all the cards are drawn: a grid being updated stays visible
             dcc.Loading(html.Div(id='saa-buckets'), target_components={'saa-buckets': 'children'}),
         ]
@@ -373,6 +377,9 @@ def build_content_saa(account: Account) -> html.Div:
                 dcc.Store(id='saa-splits-drawn'),  # what step 2 was drawn for (see splits_drawn)
                 dcc.ConfirmDialog(id='saa-delete-confirm'),  # asked before an allocation is deleted
                 dcc.ConfirmDialog(id='saa-benchmark-confirm'),  # asked before the benchmark is replaced
+                dcc.ConfirmDialog(id='saa-update-confirm'),  # asked before a backtest when new prices are available
+                dcc.Store(id='saa-run-request'),  # a backtest to run without downloading prices first
+                dcc.Interval(id='saa-price-status-interval', interval=10_000),  # refreshes the prices status
                 html.H4('Strategic Asset Allocation', className='mb-3'),
                 header,
                 dbc.Row([dbc.Col(steps, width=9), dbc.Col(summary, width=3)]),
@@ -1162,27 +1169,82 @@ def set_benchmark(submitted, data: dict, account_name: str) -> tuple:
     return f'Benchmark set {time.strftime("%H:%M")}', time.time()
 
 
+@callback(Output('saa-price-status', 'children'), Input('saa-price-status-interval', 'n_intervals'))
+def show_price_status(n_intervals) -> str:
+    """State of the background update of the prices, refreshed every few seconds."""
+    return status_text(UPDATER.status)
+
+
+def backtest_tickers(account: Account, allocation: Allocation) -> list[str]:
+    """The listings a backtest of the allocation uses: its instruments, and the benchmark's it is compared with."""
+    try:
+        benchmark = [c.ticker for c in account_benchmark(account).components if c.ticker]
+    except ValueError:  # no benchmark
+        benchmark = []
+    return list(dict.fromkeys([i.ticker for i in allocation.instruments] + benchmark))
+
+
 @callback(
-    Output('saa-backtest-version', 'data'),
-    Output('saa-backtested', 'data', allow_duplicate=True),
-    Output('saa-run-status', 'children'),
+    Output('saa-update-confirm', 'displayed'),
+    Output('saa-update-confirm', 'message'),
+    Output('saa-run-request', 'data'),
     Input('saa-run', 'n_clicks'),
     State('saa-allocation', 'data'),
     State('saa-account', 'value'),
     prevent_initial_call=True,
 )
-def run_backtest(n_clicks, data: dict, account_name: str) -> tuple:
-    """Backtest the allocation as it stands (saved under its name); the new version redraws the figures."""
+def prepare_backtest(n_clicks, data: dict, account_name: str) -> tuple:
+    """Before a backtest: if prices of a later final trading day should be available for its listings, ask whether
+    to download them first; otherwise run it at once.
+    """
     if not n_clicks:
         raise PreventUpdate
+    tickers = backtest_tickers(get_account(account_name), _allocation(data))
+    due = due_listings(tickers)
+    if not due:
+        return False, no_update, time.time()
+    lines = '\n'.join(f'  {t}: last stored {d:%a %d %b}' if d else f'  {t}: no prices stored' for t, d in due.items())
+    message = (
+        f'New prices should be available for {len(due)} of the {len(tickers)} instruments of the backtest '
+        f'(latest final trading day: {latest_final_day():%a %d %b}):\n{lines}\n\n'
+        'Download them before the backtest?\n(Cancel: backtest with the prices stored now.)'
+    )
+    return True, message, no_update
+
+
+@callback(
+    Output('saa-backtest-version', 'data'),
+    Output('saa-backtested', 'data', allow_duplicate=True),
+    Output('saa-run-status', 'children'),
+    Input('saa-run-request', 'data'),
+    Input('saa-update-confirm', 'submit_n_clicks'),
+    Input('saa-update-confirm', 'cancel_n_clicks'),
+    State('saa-allocation', 'data'),
+    State('saa-account', 'value'),
+    prevent_initial_call=True,
+)
+def run_backtest(request, submitted, cancelled, data: dict, account_name: str) -> tuple:
+    """Backtest the allocation as it stands (saved under its name), after downloading the new prices of its listings
+    if asked; the new version redraws the figures.
+    """
+    if ctx.triggered_id is None or not ctx.triggered[0]['value']:
+        raise PreventUpdate
     account, allocation = get_account(account_name), _allocation(data)
+    note = ''
+    if ctx.triggered_id == 'saa-update-confirm' and ctx.triggered[0]['prop_id'].endswith('submit_n_clicks'):
+        due = list(due_listings(backtest_tickers(account, allocation)))
+        update_listings(due)
+        still = list(due_listings(due))
+        note = f', prices of {len(due) - len(still)} of {len(due)} instruments updated'
+        if still:
+            note += f' (none yet for {", ".join(still)})'
     try:
         result = backtest_allocation(account, allocation)
     except ValueError as e:
-        return no_update, no_update, html.Span(f'Not run: {e}', className='text-danger')
+        return no_update, no_update, html.Span(f'Not run: {e}{note}', className='text-danger')
     saved_backtest(account, allocation.name)  # its comparison with the benchmark and the portfolio, saved with it
     failed = f', {len(result.failed_dates)} optimizations failed' if result.failed_dates else ''
-    return time.time(), data, f'Backtested {time.strftime("%H:%M")}{failed}'
+    return time.time(), data, f'Backtested {time.strftime("%H:%M")}{note}{failed}'
 
 
 @callback(

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.wsgi import WSGIMiddleware
 from fastapi.responses import RedirectResponse
 
+from portfolio_manager.analytics.price_updates import start_background_updates
 from portfolio_manager.dashboard.app import app
 from portfolio_manager.storage.models import init_db
 from portfolio_manager.utils.logs import configure_logging
@@ -14,8 +15,11 @@ from portfolio_manager.utils.logs import configure_logging
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Start-up: make sure the database and its tables exist."""
+    """Start-up: make sure the database and its tables exist, then update the prices in the background (start-up does
+    not wait for any download).
+    """
     init_db()
+    start_background_updates()
     yield
 
 

@@ -165,10 +165,19 @@ def _cached_metrics_unlocked(account: Account, tickers: list[str]) -> pd.DataFra
 
 
 def clear_caches():
-    """Forget the cached listings and metrics (e.g. after new prices were stored)."""
+    """Forget the cached listings and metrics in memory (the day cache on disk stays)."""
     _bucket_listings.cache_clear()
     _metrics_cache.clear()
     _metrics_loaded.clear()
+
+
+def clear_day_cache():
+    """Forget the listings and metrics computed today, in memory and on disk (after new prices were stored): they are
+    computed again at their next use.
+    """
+    with _metrics_lock:
+        clear_caches()
+        shutil.rmtree(os.path.dirname(_day_cache(date.today(), 'any')), ignore_errors=True)
 
 
 def bucket_candidates(

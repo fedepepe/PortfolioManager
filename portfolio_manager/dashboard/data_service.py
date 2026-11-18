@@ -7,6 +7,7 @@ jobs (update, optimization).
 # Cached objects are shared by all browser sessions: callers must treat them as read-only.
 import os
 import threading
+from datetime import datetime
 from functools import lru_cache
 from typing import NamedTuple
 
@@ -29,6 +30,7 @@ from portfolio_manager.config.accounts import Account, get_account
 from portfolio_manager.config.settings import DATA_DIR, RESULTS_DIR
 from portfolio_manager.dashboard.instruments_data import InstrumentsData
 from portfolio_manager.dashboard.portfolio_data import PortfolioData
+from portfolio_manager.market_data.freshness import final_since, latest_final_day
 from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage.files import to_file_name
 from portfolio_manager.storage.queries import query_etf_catalog_built_at
@@ -141,6 +143,17 @@ def get_optimized_data(account: Account) -> OptimizedData | None:
     if backtest_saved_at(optimized_portfolio_name(account)) is None:
         return None
     return _optimized_data(account.name, _optimized_version(account))
+
+
+def available_update(account: Account, now: datetime | None = None) -> str | None:
+    """Why the account should be updated: the prices of a trading day became final after its last update (None if
+    they did not). Compared with the time of the update, not with its last day: after a holiday it is not asked again.
+    """
+    final_day = latest_final_day(now)
+    updated_at = tables_version(derived_folder(BACKTESTS, account.name))  # 0 without a saved backtest
+    if updated_at >= final_since(final_day).timestamp():
+        return None
+    return f'The prices of {final_day:%a %d %b} are final since {final_since(final_day):%a %d %b %H:%M}: press Update'
 
 
 def missing_data(account: Account | None, update_hint: str) -> str | None:

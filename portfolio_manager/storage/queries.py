@@ -461,6 +461,17 @@ def query_first_close_dates(tickers: list[str]) -> pd.Series:
     return pd.Series({ticker: pd.Timestamp(day) for ticker, day in select_all(stmt)}, dtype='datetime64[ns]')
 
 
+def query_last_close_dates(tickers: list[str]) -> pd.Series:
+    """Day of the last stored close of each listing (listings without one are left out), by ticker."""
+    stmt = (
+        select(YahooInstrument.ticker, func.max(YahooPrice.date))
+        .join(YahooInstrument, YahooInstrument.id == YahooPrice.instrument_id)
+        .where(YahooInstrument.ticker.in_(tickers), YahooPrice.close.is_not(None))
+        .group_by(YahooInstrument.ticker)
+    )
+    return pd.Series({ticker: pd.Timestamp(day) for ticker, day in select_all(stmt)}, dtype='datetime64[ns]')
+
+
 def select_all(stmt) -> list[tuple]:
     """All the rows of a query, as tuples."""
     with engine.connect() as connection:

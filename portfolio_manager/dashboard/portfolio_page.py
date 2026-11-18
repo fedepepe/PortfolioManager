@@ -21,6 +21,7 @@ from portfolio_manager.dashboard.common import (
     loading_wrapper,
 )
 from portfolio_manager.dashboard.data_service import (
+    available_update,
     get_benchmark_data,
     get_portfolio_data,
     missing_data,
@@ -35,6 +36,8 @@ from portfolio_manager.utils.logs import hide_secrets
 logger = logging.getLogger(__name__)
 
 NO_DATA_HINT = 'press Update (downloads the Degiro data, a few minutes)'
+UPDATE_COLOR = 'primary'  # Update button: nothing new to download
+UPDATE_AVAILABLE_COLOR = 'warning'  # Update button: the prices of a later trading day are final
 
 
 # DASHBOARD
@@ -421,12 +424,15 @@ def select_account(account_name: str) -> str:
     Output('portfolio-message', 'children'),
     Output('portfolio-figures', 'style'),
     Output('button-update', 'disabled'),
+    Output('button-update', 'color'),
+    Output('button-update', 'title'),
     Input('dropdown-portfolio', 'value'),
     Input('store-data-version', 'data'),
 )
 def render_portfolio(account_name: str, data_version) -> tuple:
     """Draw the figures of the Portfolio page from the saved data of the account; without data, a message instead
-    (Update is disabled until the account is connected).
+    (Update is disabled until the account is connected). Update is orange when the prices of a trading day became
+    final after the last update.
     """
     account = get_account(account_name)
     missing = missing_data(account, NO_DATA_HINT)
@@ -437,6 +443,8 @@ def render_portfolio(account_name: str, data_version) -> tuple:
             dbc.Alert(missing, color='info', className='mt-4'),
             {'display': 'none'},
             not_connected,
+            UPDATE_COLOR,
+            None,
         )
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
@@ -449,7 +457,9 @@ def render_portfolio(account_name: str, data_version) -> tuple:
         get_fig_risk_contrib(pf_data),
         get_fig_monthly_ret(pf_data),
     )
-    return *(with_ui_revision(fig, account_name) for fig in figs), None, {}, False
+    hint = available_update(account)
+    color = UPDATE_AVAILABLE_COLOR if hint else UPDATE_COLOR
+    return *(with_ui_revision(fig, account_name) for fig in figs), None, {}, False, color, hint or 'Up to date'
 
 
 # draw the portfolio instruments chart; a legend click rebases the visible instruments

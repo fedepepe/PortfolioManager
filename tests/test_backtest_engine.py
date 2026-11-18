@@ -32,7 +32,7 @@ def test_target_weights_follow_monthly_rebalancing(prices):
     held = data.effective_weights.drop(columns='Cash').loc[trade_days]
     assert (held.sub(0.25).abs() <= 0.0101).all().all()
     assert (data.effective_weights['Cash'] >= 0).all()
-    assert data.nav_eff.iloc[0] == pytest.approx(100.0)
+    assert data.cum_time_weighted_return.iloc[0] == pytest.approx(0.0)
 
 
 def test_nan_target_weights_keep_units_in_minimal_rebalance(prices):
@@ -69,7 +69,6 @@ def test_account_replays_trades_dividends_and_deposits(prices):
     assert data.units['Cash'].iloc[-1] == pytest.approx(2000.0 - 1000.0 - 2.0 + 5.0 + 500.0)
     assert data.dividends['A0'].sum() == 5.0
     assert data.deposits.sum() == 2500.0
-    # the effective NAV ignores deposits: the 500 deposit is not counted as a return
-    assert data.nav_eff.iloc[20] == pytest.approx(
-        data.nav_eff.iloc[19] * (data.nav.iloc[20] - 500.0) / data.nav.iloc[19]
-    )
+    # the cumulative time-weighted return ignores deposits: the 500 deposit is not counted as a return
+    growth = data.cum_time_weighted_return.add(1.0)
+    assert growth.iloc[20] == pytest.approx(growth.iloc[19] * (data.nav.iloc[20] - 500.0) / data.nav.iloc[19])

@@ -100,7 +100,11 @@ def test_comparison_with_the_benchmark_and_the_portfolio(prices, monkeypatch):
     monkeypatch.setattr(saa, 'get_benchmark_adj_prices', lambda account, b: benchmark_prices)
     portfolio_nav = pd.Series(np.linspace(200, 220, 60), index=pd.bdate_range('2023-04-03', periods=60))
     monkeypatch.setattr(
-        saa, 'load_backtest_data', lambda name, fields: PortfolioBacktestData(name=name, nav_eff=portfolio_nav)
+        saa,
+        'load_backtest_data',
+        lambda name, fields: PortfolioBacktestData(
+            name=name, cum_time_weighted_return=portfolio_nav / portfolio_nav.iloc[0] - 1
+        ),
     )
     navs = saa.comparison_navs(CHF, index)
     assert list(navs.columns) == [saa.BENCHMARK_LABEL, saa.PORTFOLIO_LABEL]

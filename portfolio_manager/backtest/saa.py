@@ -127,11 +127,12 @@ def comparison_navs(account: Account, index: pd.DatetimeIndex) -> pd.DataFrame:
             curr_base=account.currency,
             freq_rebalancing=benchmark.rebalancing_freq,
         )
-        navs[BENCHMARK_LABEL] = backtest.nav_eff
+        navs[BENCHMARK_LABEL] = backtest.cum_time_weighted_return.add(1.0)
     else:
         logger.warning('Benchmark of %s without prices over the backtest: not compared', account.name)
     try:
-        portfolio = load_backtest_data(name=account.name, fields=['nav_eff']).nav_eff
+        saved = load_backtest_data(name=account.name, fields=['cum_time_weighted_return'])
+        portfolio = saved.cum_time_weighted_return.add(1.0)
         navs[PORTFOLIO_LABEL] = portfolio.reindex(index)
     except FileNotFoundError:
         logger.info('%s has no saved backtest: not compared', account.name)

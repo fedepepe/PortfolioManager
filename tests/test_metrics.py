@@ -6,6 +6,7 @@ from portfolio_manager.analytics.metrics import (
     Metrics,
     PerfDataTabs,
     compute_portfolio_metrics,
+    cum_time_weighted_return,
     downside_deviation,
     resample_last,
 )
@@ -80,7 +81,12 @@ def test_minimum_history_counts_periods_not_rows():
         nav = pd.Series(np.linspace(100.0, 110.0, len(index)), index=index, name='NAV')
         no_trades = pd.DataFrame(0.0, index=index, columns=['A'])
         data = PortfolioBacktestData(
-            name='x', nav=nav, units=no_trades, nav_eff=nav, transaction_value=no_trades, freq='B'
+            name='x',
+            nav=nav,
+            units=no_trades,
+            cum_time_weighted_return=nav / nav.iloc[0] - 1,
+            transaction_value=no_trades,
+            freq='B',
         )
         return compute_portfolio_metrics(hist_portfolio_data=data, print_results=False)[PerfDataTabs.HIST_PERF_METRICS]
 
@@ -104,7 +110,12 @@ def test_monthly_dividends_averaged_over_the_last_12_months():
     dividends.loc['2026-10-30', 'B'] = 10.0  # last of the 12 months
     dividends.loc['2026-11-02', 'B'] = 20.0  # current month: left out
     data = PortfolioBacktestData(
-        name='x', nav=nav, units=dividends, nav_eff=nav, transaction_value=dividends * 0.0, freq='B'
+        name='x',
+        nav=nav,
+        units=dividends,
+        cum_time_weighted_return=nav / nav.iloc[0] - 1,
+        transaction_value=dividends * 0.0,
+        freq='B',
     )
     data.dividends = dividends.resample('M').sum()  # monthly, as saved by the backtest
     risk = compute_portfolio_metrics(hist_portfolio_data=data, print_results=False)[PerfDataTabs.RISK_METRICS]
@@ -118,7 +129,10 @@ def test_turnover_counts_purchases_and_sales():
     nav = pd.Series(np.linspace(1000.0, 1100.0, len(index)), index=index, name='NAV')
     trades = pd.DataFrame(0.0, index=index, columns=['A', 'B'])
     trades.iloc[100] = [-50.0, 50.0]  # rebalancing: buy A for 50, sell B for 50 (net zero)
-    data = PortfolioBacktestData(name='x', nav=nav, units=trades, nav_eff=nav, transaction_value=trades, freq='B')
+    cum_twr = nav / nav.iloc[0] - 1
+    data = PortfolioBacktestData(
+        name='x', nav=nav, units=trades, cum_time_weighted_return=cum_twr, transaction_value=trades, freq='B'
+    )
     turnover = compute_portfolio_metrics(hist_portfolio_data=data, print_results=False)[PerfDataTabs.TURNOVER]
     assert turnover.iloc[99] == pytest.approx(100.0 / nav.iloc[100])  # day 100 (the first day is left out)
 
@@ -141,3 +155,17 @@ def test_business_day_resampling_as_pandas(days):
     pd.testing.assert_series_equal(resample_last(series, 'B'), expected, check_freq=False)
     # other frequencies are left to pandas
     pd.testing.assert_series_equal(resample_last(series, 'M'), series.resample('M').last())
+
+
+def test_cum_time_weighted_return_leaves_out_deposits_and_withdrawals():
+    days = pd.bdate_range('2024-01-01', periods=5)
+    # 100 invested; +10% on day 2; a deposit of 100 on day 3 (no market move); -10% on day 4;
+    # a withdrawal of 50 on day 5 (no market move)
+    nav = pd.Series([100.0, 110.0, 210.0, 189.0, 139.0], index=days)
+    deposits = pd.Series([0.0, 0.0, 100.0, 0.0, -50.0], index=days)
+    twr = cum_time_weighted_return(nav, deposits)
+    assert twr.tolist() == pytest.approx([0.0, 0.1, 0.1, 1.1 * 0.9 - 1, 1.1 * 0.9 - 1])
+    assert twr.iloc[-1] == pytest.approx(-0.01)  # +10% then -10%, whatever was deposited or withdrawn
+    # without deposits it is the change of the NAV
+    no_flows = cum_time_weighted_return(nav.iloc[:2], deposits.iloc[:2])
+    assert no_flows.iloc[-1] == pytest.approx(nav.iloc[1] / nav.iloc[0] - 1)

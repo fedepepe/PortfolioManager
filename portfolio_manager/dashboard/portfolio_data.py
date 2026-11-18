@@ -26,7 +26,7 @@ class AllocationRiskLabels:
 
 
 # tables of the portfolio backtest shown by the Portfolio page (the others are not loaded)
-PORTFOLIO_PAGE_FIELDS = ['nav_eff', 'effective_weights', 'close_adj']
+PORTFOLIO_PAGE_FIELDS = ['cum_time_weighted_return', 'effective_weights', 'close_adj']
 
 UNKNOWN = 'Unknown'  # the class or region of an instrument that is not known
 CASH = 'Cash'

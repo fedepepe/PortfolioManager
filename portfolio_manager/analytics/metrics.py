@@ -16,6 +16,8 @@ from portfolio_manager.utils.dates import ANN_FACTOR_DICT
 
 logger = logging.getLogger(__name__)
 
+CUM_TWR_LABEL = 'Cumulative time-weighted return'
+
 MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6, '2M': 3, 'Q': 2, '2Q': 2, 'Y': 2}
 
 
@@ -61,6 +63,14 @@ class Metrics(Metric, Enum):
     PVAL_ALPHA = Metric('pval alpha')
 
 
+def cum_time_weighted_return(nav: pd.Series, deposits: pd.Series) -> pd.Series:
+    """Cumulative time-weighted return of a portfolio on each day, from 0 on its first day: the daily returns with the
+    deposits and withdrawals of each day taken out (they count at the end of the day, earning nothing on it), chained.
+    """
+    daily_returns = (nav - deposits).div(nav.shift(1)).sub(1.0).fillna(0.0)
+    return daily_returns.add(1.0).cumprod().sub(1.0).rename(CUM_TWR_LABEL)
+
+
 def compute_total_return(nav: pd.Series) -> float:
     """Return from the first to the last value."""
     return nav.iloc[-1] / nav.iloc[0] - 1
@@ -100,9 +110,11 @@ def compute_portfolio_metrics(
     compute_hist_metrics: bool = True,
     print_results: bool = True,
 ) -> dict[str, PD_DATA_TYPES]:
-    """Performance of a NAV (or of the effective NAV of a backtest): returns, risk metrics and their history."""
+    """Performance of a NAV (or of a backtest, from its cumulative time-weighted return: the growth of 1 without the
+    effect of deposits and withdrawals): returns, risk metrics and their history.
+    """
     if hist_portfolio_data is not None:
-        nav = hist_portfolio_data.nav_eff
+        nav = hist_portfolio_data.cum_time_weighted_return.add(1.0)
     nav = nav.loc[nav.first_valid_index() :]  # remove initial nans
     freq = _sampling_freq(nav, hist_portfolio_data)
     # the NAV at each period of freq (periods without a value, e.g. holidays, keep the previous one)

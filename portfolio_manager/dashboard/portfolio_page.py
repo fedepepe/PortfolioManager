@@ -11,7 +11,7 @@ from dash import Input, Output, State, callback, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.instruments import prices_to_base_curr
-from portfolio_manager.analytics.metrics import PerfDataTabs
+from portfolio_manager.analytics.metrics import CUM_TWR_LABEL, PerfDataTabs
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.config.accounts import Account, get_account, list_accounts
 from portfolio_manager.dashboard.common import (
@@ -119,36 +119,31 @@ def build_content_portfolio(account: Account):
     )
 
 
-# NAV ADJUSTED LINE PLOT
-def get_fig_navs(pf_data: PortfolioData, bm_data: PortfolioBacktestData) -> go.Figure:
-    """Effective NAV of the portfolio and of its benchmark."""
-    fig_navs = go.Figure(
-        data=[
-            go.Scatter(
-                x=pf_data.hist_data.nav_eff.index,
-                y=pf_data.hist_data.nav_eff.values,
-                name='Portfolio',
-                mode='lines',
-                hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
-            )
-        ],
+# CUMULATIVE TIME-WEIGHTED RETURN LINE PLOT
+def get_fig_cum_time_weighted_returns(pf_data: PortfolioData, bm_data: PortfolioBacktestData) -> go.Figure:
+    """Cumulative time-weighted return of the portfolio (without the effect of deposits and withdrawals) and of its
+    benchmark, from the first day.
+    """
+    fig = go.Figure(
         layout=go.Layout(
             xaxis_title=dict(text='Date'),
-            yaxis_title=dict(text='NAV (adjusted)'),
+            yaxis=dict(title=dict(text=CUM_TWR_LABEL), tickformat='.0%'),
             template=LAYOUT_TEMPLATE,
             legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='right', x=1),
         ),
     )
-    fig_navs.add_trace(
-        go.Scatter(
-            x=bm_data.nav_eff.index,
-            y=bm_data.nav_eff.values,
-            name='Benchmark',
-            mode='lines',
-            hovertemplate='%{x|%Y/%m/%d}: %{y}<extra></extra>',
+    for label, data in [('Portfolio', pf_data.hist_data), ('Benchmark', bm_data)]:
+        returns = data.cum_time_weighted_return
+        fig.add_trace(
+            go.Scatter(
+                x=returns.index,
+                y=returns.values,
+                name=label,
+                mode='lines',
+                hovertemplate='%{x|%Y/%m/%d}: %{y:.2%}<extra></extra>',
+            )
         )
-    )
-    return fig_navs
+    return fig
 
 
 # PORTFOLIO ALLOCATION PIE CHART
@@ -322,7 +317,7 @@ def render_portfolio(account_name: str, data_version) -> tuple:
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
     figs = (
-        get_fig_navs(pf_data, bm_data),
+        get_fig_cum_time_weighted_returns(pf_data, bm_data),
         get_fig_allocation(pf_data),
         get_fig_perf(pf_data),
         get_fig_corr(pf_data),

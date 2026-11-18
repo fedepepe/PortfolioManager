@@ -179,7 +179,7 @@ class PortfolioBacktestData:
     dividends: pd.DataFrame | None = None
     fx_rates: pd.DataFrame | None = None
     deposits: pd.Series | None = None
-    nav_eff: pd.Series | None = None
+    cum_time_weighted_return: pd.Series | None = None  # from 0 on the first day (see cum_time_weighted_return)
     close_adj: pd.DataFrame | None = None
     freq: str | None = DEFAULT_FREQ_HIST_DATA
     id_symbol_map: dict | None = None

@@ -318,8 +318,9 @@ def saved_backtest(account: Account, allocation_name: str) -> SavedBacktest | No
 
 @lru_cache(maxsize=8)
 def _saved_backtest(account: Account, name: str, saved_at: float | None, benchmark: str) -> SavedBacktest:
-    data = load_backtest_data(name, fields=['nav_eff', 'effective_weights'])
-    navs, metrics = _comparison(account, name, saved_at, benchmark, data.nav_eff.dropna())
+    data = load_backtest_data(name, fields=['cum_time_weighted_return', 'effective_weights'])
+    growth = data.cum_time_weighted_return.dropna().add(1.0)  # rebased to 100 in the comparison
+    navs, metrics = _comparison(account, name, saved_at, benchmark, growth)
     return SavedBacktest(navs=navs, weights=data.effective_weights, metrics=metrics, saved_at=saved_at)
 
 

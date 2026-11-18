@@ -27,7 +27,7 @@ from portfolio_manager.storage.files import to_file_name
 from portfolio_manager.storage.tables import derived_folder, tables_version
 
 # tables of the benchmark backtest shown by the dashboard (the others are not loaded)
-BENCHMARK_FIELDS = ['nav_eff']
+BENCHMARK_FIELDS = ['cum_time_weighted_return']
 
 # serializes the updates of the accounts
 _UPDATE_LOCK = threading.Lock()
@@ -72,7 +72,7 @@ def _benchmark_data(account_name: str, version: str) -> PortfolioBacktestData:
         return load_backtest_data(name=_benchmark_name(account), fields=BENCHMARK_FIELDS)
     except FileNotFoundError:
         # no saved benchmark yet: compute it from Yahoo Finance data (this also saves it)
-        index = get_portfolio_data(account).hist_data.nav_eff.index
+        index = get_portfolio_data(account).hist_data.cum_time_weighted_return.index
         return backtest_portfolio_benchmark(account=account, index=index)
 
 

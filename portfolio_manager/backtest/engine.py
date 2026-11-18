@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from portfolio_manager.analytics.metrics import cum_time_weighted_return
 from portfolio_manager.backtest.degiro_portfolio import PortfolioDegiro
 from portfolio_manager.backtest.portfolio import Currencies, Portfolio, PortfolioBacktestData, PortfolioGeneric
 from portfolio_manager.config.accounts import Account, Brokers
@@ -238,9 +239,8 @@ def _to_backtest_data(
     yield_total_tmp = cum_pnl.resample('Y').last().div(amounts_invested.resample('Y').mean())
     yield_total = yield_total_tmp.diff().fillna(yield_total_tmp)
     yield_total.loc['Total', :] = yield_total.sum()
-    # NAV without the effect of deposits and withdrawals, starting at 100
-    returns = (nav - deposits).div(nav.shift(1)).sub(1.0).fillna(0.0)
-    nav_eff = 100.0 * returns.add(1.0).cumprod().rename('NAV Effective')
+    # the return without the effect of deposits and withdrawals
+    cum_twr = cum_time_weighted_return(nav, deposits)
     units['Cash'] = records.cash_balance
 
     return PortfolioBacktestData(
@@ -258,7 +258,7 @@ def _to_backtest_data(
         dividends=dividends.resample('M').sum(),
         fx_rates=fx_rates_df,
         deposits=deposits,
-        nav_eff=nav_eff,
+        cum_time_weighted_return=cum_twr,
         close_adj=_complete_adjusted_prices(name, prices_df, close_adj_df),
         id_symbol_map=id_symbol_map,
     )

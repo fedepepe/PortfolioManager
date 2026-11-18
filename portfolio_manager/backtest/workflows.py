@@ -103,7 +103,7 @@ def backtest_saved_at(name: str) -> float | None:
     return os.path.getmtime(excel_file) if os.path.isfile(excel_file) else None
 
 
-BACKTEST_SERIES_FIELDS = ['nav', 'nav_eff', 'deposits']
+BACKTEST_SERIES_FIELDS = ['nav', 'cum_time_weighted_return', 'deposits']
 
 
 def load_backtest_data_excel(name: str, fields: list[str] | None = None) -> PortfolioBacktestData:

@@ -23,7 +23,7 @@ def compute_portfolio_performance(
     results_dict = compute_portfolio_metrics(
         hist_portfolio_data=hist_portfolio_data, strategy_benchmark=hist_benchmark_data.nav
     )
-    results_bm_dict = compute_portfolio_metrics(nav=hist_benchmark_data.nav_eff)
+    results_bm_dict = compute_portfolio_metrics(nav=hist_benchmark_data.cum_time_weighted_return.add(1.0))
     save_performance_data(results_dict=results_dict, file_name=account.name)
     save_performance_data(results_dict=results_bm_dict, file_name=f'{account.name}_benchmark')
 

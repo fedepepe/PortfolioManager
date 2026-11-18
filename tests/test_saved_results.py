@@ -33,7 +33,7 @@ def test_backtest_saved_as_tables_and_visual_excel(folders, backtest):
     excel_files = sorted(os.listdir(folders / 'data'))
     assert excel_files == ['Test_portfolio_visual.xlsx', 'derived']  # no Excel copy with product ids
     loaded = workflows.load_backtest_data('Test portfolio')
-    for field in ['nav', 'nav_eff', 'units', 'effective_weights', 'transaction_value', 'yield_total']:
+    for field in ['nav', 'cum_time_weighted_return', 'units', 'effective_weights', 'transaction_value', 'yield_total']:
         expected, value = getattr(backtest, field), getattr(loaded, field)
         if isinstance(expected, pd.Series):
             pd.testing.assert_series_equal(expected, value, check_freq=False)
@@ -46,8 +46,8 @@ def test_backtest_saved_as_tables_and_visual_excel(folders, backtest):
 
 def test_backtest_selected_fields_and_saved_at(folders, backtest):
     workflows.save_backtest_data(backtest)
-    loaded = workflows.load_backtest_data('Test portfolio', fields=['nav_eff'])
-    assert loaded.nav_eff is not None and loaded.units is None and loaded.prices is None
+    loaded = workflows.load_backtest_data('Test portfolio', fields=['cum_time_weighted_return'])
+    assert loaded.cum_time_weighted_return is not None and loaded.units is None and loaded.prices is None
     assert workflows.backtest_saved_at('Test portfolio') > 0
     assert workflows.backtest_saved_at('Unknown') is None
 

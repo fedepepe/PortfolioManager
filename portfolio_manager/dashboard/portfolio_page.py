@@ -40,9 +40,17 @@ logger = logging.getLogger(__name__)
 NO_DATA_HINT = 'press Update (downloads the Degiro data, a few minutes)'
 UPDATE_COLOR = 'primary'  # Update button: nothing new to download
 UPDATE_AVAILABLE_COLOR = 'warning'  # Update button: the prices of a later trading day are final
+# legend of the pie charts on their right: the pie keeps its size whatever the length of the legend
+PIE_LEGEND = dict(orientation='v', x=1.02, xanchor='left', y=0.5, yanchor='middle')
 
 
 # DASHBOARD
+def figure_card(graph_id: str, position: str) -> html.Div:
+    """A figure in its card, at its place in the grid of the page (position: its class in assets/portfolio.css)."""
+    graph = dcc.Graph(id=graph_id, figure=get_fig_empty())
+    return html.Div(loading_wrapper(card_wrapper(graph)), className=f'pf-card {position}')
+
+
 def build_content_portfolio(account: Account):
     """Layout only: the figures are filled by the render callbacks, which also run when the page is loaded."""
     return html.Div(
@@ -74,83 +82,34 @@ def build_content_portfolio(account: Account):
                 # the figures, hidden while the account has no data
                 html.Div(
                     id='portfolio-figures',
+                    # two cards per row, four on wide screens (assets/portfolio.css)
+                    className='pf-grid',
                     children=[
-                        html.Br(),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_navs', figure=get_fig_empty()))),
-                                    style={'width': '10%'},
-                                ),
-                                dbc.Col(
-                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_comp', figure=get_fig_empty()))),
-                                    style={'width': '10%'},
-                                ),
-                                dbc.Col(
-                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_perf', figure=get_fig_empty()))),
-                                    style={'width': '10%'},
-                                ),
-                                dbc.Col(
-                                    loading_wrapper(card_wrapper(dcc.Graph(id='fig_corr', figure=get_fig_empty()))),
-                                    style={'width': '10%'},
-                                ),
-                            ],
-                            align='center',
-                        ),
-                        html.Br(),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    loading_wrapper(
-                                        card_wrapper(dcc.Graph(id='fig_risk_contrib', figure=get_fig_empty()))
+                        figure_card('fig_navs', 'pf-nav'),
+                        figure_card('fig_perf', 'pf-metrics'),
+                        figure_card('fig_comp', 'pf-alloc'),
+                        figure_card('fig_risk_contrib', 'pf-risk'),
+                        figure_card('fig_geography', 'pf-geo'),
+                        figure_card('fig_asset_classes', 'pf-classes'),
+                        figure_card('fig_corr', 'pf-corr'),
+                        html.Div(
+                            card_wrapper(
+                                [
+                                    # options are filled while typing from the instruments in the database
+                                    dcc.Dropdown(
+                                        id='dropdown_instr',
+                                        options=[],
+                                        placeholder='Enter ticker, ISIN or name...',
+                                        searchable=True,
+                                        clearable=True,
                                     ),
-                                    style={'width': '10%'},
-                                ),
-                                dbc.Col(
                                     loading_wrapper(
-                                        card_wrapper(dcc.Graph(id='fig_geography', figure=get_fig_empty()))
+                                        dcc.Graph(id='fig_instr_adj_close', figure=get_fig_instr_adj_close())
                                     ),
-                                    style={'width': '10%'},
-                                ),
-                                dbc.Col(
-                                    loading_wrapper(
-                                        card_wrapper(dcc.Graph(id='fig_asset_classes', figure=get_fig_empty()))
-                                    ),
-                                    style={'width': '10%'},
-                                ),
-                            ],
-                            align='center',
+                                ]
+                            ),
+                            className='pf-card pf-search',
                         ),
-                        html.Br(),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        # options are filled while typing from the instruments in the database
-                                        dbc.Row(
-                                            [
-                                                dcc.Dropdown(
-                                                    id='dropdown_instr',
-                                                    options=[],
-                                                    placeholder='Enter ticker, ISIN or name...',
-                                                    searchable=True,
-                                                    clearable=True,
-                                                ),
-                                                loading_wrapper(
-                                                    dcc.Graph(
-                                                        id='fig_instr_adj_close', figure=get_fig_instr_adj_close()
-                                                    )
-                                                ),
-                                            ],
-                                            align='center',
-                                        )
-                                    ],
-                                    style={'width': '15%'},
-                                ),
-                            ],
-                            align='center',
-                        ),
-                        html.Br(),
                     ],
                 ),
             ],
@@ -207,9 +166,7 @@ def get_fig_allocation(pf_data: PortfolioData) -> go.Figure:
                 sort=False,
             )
         ],
-        layout=go.Layout(
-            title=dict(text='Portfolio allocation'), legend=dict(orientation='h', y=-0.1), template=LAYOUT_TEMPLATE
-        ),
+        layout=go.Layout(title=dict(text='Portfolio allocation'), legend=PIE_LEGEND, template=LAYOUT_TEMPLATE),
     )
 
 
@@ -257,9 +214,7 @@ def get_fig_risk_contrib(pf_data: PortfolioData) -> go.Figure:
                 sort=False,
             )
         ],
-        layout=go.Layout(
-            title=dict(text='Risk allocation'), legend=dict(orientation='h', y=-0.1), template=LAYOUT_TEMPLATE
-        ),
+        layout=go.Layout(title=dict(text='Risk allocation'), legend=PIE_LEGEND, template=LAYOUT_TEMPLATE),
     )
 
 
@@ -286,7 +241,7 @@ def get_fig_breakdown(table: pd.DataFrame, title: str) -> go.Figure:
                 sort=False,
             )
         ],
-        layout=go.Layout(title=dict(text=title), legend=dict(orientation='h', y=-0.1), template=LAYOUT_TEMPLATE),
+        layout=go.Layout(title=dict(text=title), legend=PIE_LEGEND, template=LAYOUT_TEMPLATE),
     )
 
 

@@ -1,0 +1,50 @@
+/* Portfolio page: the figures in a grid, grouped by topic.
+   Two cards per row (laptop): NAV and metrics, the four pies two by two, correlations and the instrument search.
+   On wide screens, four per row: the NAV (two slots), metrics and correlations; the four pies; the search across. */
+
+.pf-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+@media (min-width: 2000px) {
+    .pf-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .pf-nav {
+        grid-column: span 2;
+        order: 1;
+    }
+
+    .pf-metrics {
+        order: 2;
+    }
+
+    .pf-corr {
+        order: 3;
+    }
+
+    .pf-alloc {
+        order: 4;
+    }
+
+    .pf-risk {
+        order: 5;
+    }
+
+    .pf-geo {
+        order: 6;
+    }
+
+    .pf-classes {
+        order: 7;
+    }
+
+    .pf-search {
+        grid-column: 1 / -1;
+        order: 8;
+    }
+}

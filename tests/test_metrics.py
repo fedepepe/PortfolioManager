@@ -9,6 +9,7 @@ from portfolio_manager.analytics.metrics import (
     cum_time_weighted_return,
     downside_deviation,
     resample_last,
+    to_str_risk_metrics,
 )
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 
@@ -169,3 +170,22 @@ def test_cum_time_weighted_return_leaves_out_deposits_and_withdrawals():
     # without deposits it is the change of the NAV
     no_flows = cum_time_weighted_return(nav.iloc[:2], deposits.iloc[:2])
     assert no_flows.iloc[-1] == pytest.approx(nav.iloc[1] / nav.iloc[0] - 1)
+
+
+def test_performance_table_titles_and_dividends_currency():
+    risk = pd.Series(
+        {
+            Metrics.ANN_3Y_RETURN.name: 0.05,
+            Metrics.ANN_5Y_RETURN.name: 0.04,
+            Metrics.DIVIDENDS_MONTHLY.name: 1234.5,
+            Metrics.VOLATILITY.name: float('nan'),  # missing: left out
+        }
+    )
+    shown = to_str_risk_metrics(risk, currency='CHF')
+    assert shown.to_dict() == {
+        '3Y Return (p.a.)': '5.00%',
+        '5Y Return (p.a.)': '4.00%',
+        'Dividends (monthly avg.)': '1,234.50 CHF',
+    }
+    assert to_str_risk_metrics(risk)['Dividends (monthly avg.)'] == '1,234.50'  # no currency given
+    assert Metrics.ANN_3Y_RETURN.name == '3Y Return'  # the key of the saved results is unchanged

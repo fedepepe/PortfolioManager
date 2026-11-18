@@ -22,11 +22,19 @@ MIN_PERIODS_DICT = {'H': 180 * 24, 'D': 180, 'B': 130, 'W': 26, '2W': 13, 'M': 6
 
 
 class Metric(NamedTuple):
-    """A metric: label, display format and sort order in the tables."""
+    """A metric: its name (the key of the saved results), display format, sort order in the tables, and the title shown
+    in the performance tables when it differs from the name.
+    """
 
     name: str
     format: str = '{:.2%}'
     sort: str | None = None
+    label: str | None = None
+
+    @property
+    def title(self) -> str:
+        """The title of the metric in the performance tables."""
+        return self.label or self.name
 
     def to_ag_grid_format_func(self):
         """JavaScript formatter of the metric for AG Grid."""
@@ -43,8 +51,8 @@ class Metrics(Metric, Enum):
     TOTAL_RETURN = Metric('Total Return')
     PA_RETURN = Metric('P.a. Return')
     LAST_YEAR_RETURN = Metric('1Y Return')
-    ANN_3Y_RETURN = Metric('3Y Return')
-    ANN_5Y_RETURN = Metric('5Y Return')
+    ANN_3Y_RETURN = Metric('3Y Return', label='3Y Return (p.a.)')
+    ANN_5Y_RETURN = Metric('5Y Return', label='5Y Return (p.a.)')
     VOLATILITY = Metric('Volatility')
     SHARPE_RATIO = Metric('Sharpe ratio', format='{:.2f}', sort='desc')
     SORTINO_RATIO = Metric('Sortino ratio', format='{:.2f}')
@@ -278,8 +286,10 @@ def _historical_metrics(nav_resampled: pd.Series, freq: str) -> pd.DataFrame:
     return pd.concat([pa_return, volatility, sharpe_ratio, sortino_ratio], axis=1)
 
 
-def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES):
-    """Metrics formatted for display (missing ones left out)."""
+def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES, currency: str | None = None) -> pd.Series:
+    """Metrics formatted for display, by their title in the performance tables (missing ones left out); amounts (the
+    dividends) followed by the currency if given.
+    """
     if isinstance(risk_metrics, pd.DataFrame):
         risk_metrics = risk_metrics.iloc[:, 0]
     risk_metrics_str = pd.Series(name='Parameter', dtype=str)
@@ -288,7 +298,10 @@ def to_str_risk_metrics(risk_metrics: PD_DATA_TYPES):
             continue
         if np.isnan(risk_metrics[metric.name]):
             continue
-        risk_metrics_str[metric.name] = metric.format.format(risk_metrics[metric.name])
+        text = metric.format.format(risk_metrics[metric.name])
+        if metric == Metrics.DIVIDENDS_MONTHLY and currency:
+            text += f' {currency}'
+        risk_metrics_str[metric.title] = text
     return risk_metrics_str.copy()
 
 

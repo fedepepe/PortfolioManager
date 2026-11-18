@@ -249,7 +249,8 @@ def get_table_perf(pf_data: PortfolioData) -> html.Table:
         {
             'Portfolio': pf_data.perf_dct[PerfDataTabs.RISK_METRICS],
             'Benchmark': pf_data.perf_bm_dct[PerfDataTabs.RISK_METRICS],
-        }
+        },
+        currency=pf_data.account.currency,
     )
 
 

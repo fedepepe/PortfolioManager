@@ -56,16 +56,16 @@ def header_label(label: str) -> list:
 
 
 # PERFORMANCE METRICS TABLE: one column per entry of risk_metrics_dct (label -> risk metrics, None if missing)
-def metrics_table(risk_metrics_dct: dict[str, PD_DATA_TYPES | None]) -> html.Table:
+def metrics_table(risk_metrics_dct: dict[str, PD_DATA_TYPES | None], currency: str | None = None) -> html.Table:
     """Table of performance metrics, one column per entry (None: empty column): a table of the page (assets/
     tables.css), as tall as its rows, its text centred vertically, the rows in alternating colours.
     """
     columns = [
-        to_str_risk_metrics(m) if m is not None else pd.Series(name='Parameter', dtype=str)
+        to_str_risk_metrics(m, currency) if m is not None else pd.Series(name='Parameter', dtype=str)
         for m in risk_metrics_dct.values()
     ]
     perf_df = pd.concat(columns, axis=1)
-    perf_df = perf_df.drop([Metrics.BETA_OVERALL.name, Metrics.SKEWNESS.name], errors='ignore')
+    perf_df = perf_df.drop([Metrics.BETA_OVERALL.title, Metrics.SKEWNESS.title], errors='ignore')
     values = perf_df.round(3).replace(np.nan, '')
     header = html.Tr([html.Th('Performance Metric')] + [html.Th(header_label(label)) for label in risk_metrics_dct])
     rows = [

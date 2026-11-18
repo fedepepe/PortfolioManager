@@ -1285,6 +1285,7 @@ def draw_backtest(active_tab: str, version, loaded, data: dict | None, account_n
         className='small text-muted',
     )
     shown = shown_order(backtest.metrics)
-    metrics = metrics_table({metrics_label(backtest, k, allocation.name): backtest.metrics[k] for k in shown})
+    tables = {metrics_label(backtest, k, allocation.name): backtest.metrics[k] for k in shown}
+    metrics = metrics_table(tables, currency=get_account(account_name).currency)
     figs = (get_fig_saa_navs(backtest, allocation.name), get_fig_saa_weights(backtest))
     return *(f.update_layout(uirevision=f'{account_name} {allocation.name}') for f in figs), metrics, info

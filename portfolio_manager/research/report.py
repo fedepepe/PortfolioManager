@@ -48,6 +48,12 @@ NOTES = [
         'Cross section: the top third of the universe by signal (short the bottom third for long/short).',
     ),
     (
+        'Stocks',
+        "Today's members of the S&P 500, SMI and Euro Stoxx 50 only: the companies that left the index are missing "
+        '(survivorship bias), which flatters long-only results. Top and bottom fifth; sector-neutral: ranked within '
+        'each sector.',
+    ),
+    (
         'Benchmark',
         'Long-only: every instrument of the universe in equal shares. Currency hedging: never hedged. '
         'Long/short: cash.',

@@ -26,7 +26,13 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 from portfolio_manager.research.backtest import signal_days
-from portfolio_manager.research.strategies import CURRENCIES_UNIVERSE, Strategy, StrategyResults, Universe
+from portfolio_manager.research.strategies import (
+    CURRENCIES_UNIVERSE,
+    Strategy,
+    StrategyResults,
+    Universe,
+    within_sectors,
+)
 
 NW_LAGS = 3  # lags of the Newey-West standard errors of monthly series
 MIN_OBSERVATIONS = 24  # periods needed for a regression
@@ -114,7 +120,10 @@ def signal_test(strategy: Strategy, universe: Universe) -> Regression:
     """Whether the signal of a strategy predicts the next period's excess returns of its universe: pooled time-series
     regression for a time-series strategy, Fama-MacBeth for a cross-sectional one.
     """
-    signal, forward = signal_and_forward_returns(strategy.signal(universe), universe.index, strategy.freq)
+    score = strategy.signal(universe)
+    if strategy.sector_neutral and universe.sectors is not None:
+        score = within_sectors(score, universe.sectors)
+    signal, forward = signal_and_forward_returns(score, universe.index, strategy.freq)
     if strategy.construction == 'xs':
         return fama_macbeth(signal, forward)
     return time_series_regressions(signal, forward)[1]

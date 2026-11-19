@@ -36,6 +36,19 @@ def zscore_reversal(index: pd.DataFrame, window: int) -> pd.DataFrame:
     return (average - index) / deviation.replace(0.0, np.nan)
 
 
+def low_volatility(excess_returns: pd.DataFrame, months: int = 12) -> pd.DataFrame:
+    """Minus the volatility of the daily excess returns over the last months: the calmest instruments score the
+    highest.
+    """
+    days = months * DAYS_PER_MONTH
+    return -excess_returns.rolling(days, min_periods=days * 3 // 4).std()
+
+
+def high_proximity(index: pd.DataFrame, days: int = 252) -> pd.DataFrame:
+    """Distance from the highest price of the last days (52 weeks by default), 0 at a new high."""
+    return index / index.rolling(days).max() - 1.0
+
+
 def volatility(excess_returns: pd.DataFrame, days: int = 3 * DAYS_PER_MONTH) -> pd.DataFrame:
     """Annualized volatility of the daily excess returns over the last days."""
     return excess_returns.rolling(days, min_periods=days // 2).std() * np.sqrt(261)

@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from portfolio_manager.market_data.history import listing_currencies, load_adjusted_closes, major_currency
-from portfolio_manager.storage.queries import query_interest_rates, query_taa_instruments
+from portfolio_manager.storage.queries import query_index_members, query_interest_rates, query_taa_instruments
 
 # series giving the cash rate of each currency, in order of preference (each day, the first one with a value): EONIA
 # before the euro short-term rate
@@ -68,8 +68,8 @@ class ResearchData:
     """Prices of the instruments and cash rates of the currencies, on business days.
 
     prices: total return index of each instrument in its own currency (date x ticker); a pair includes the interest
-    of its base currency. instruments: by ticker, its group, label and currency (the quote currency of a pair).
-    cash_rates: date x currency, decimals per year.
+    of its base currency. instruments: by ticker, its group, label, sector (stocks) and currency (the quote currency of
+    a pair). cash_rates: date x currency, decimals per year.
     """
 
     prices: pd.DataFrame
@@ -119,11 +119,32 @@ def cash_rates(currencies: list[str], days: pd.DatetimeIndex) -> pd.DataFrame:
     return pd.DataFrame(rates, index=days)
 
 
-def load_research_data(tickers: list[str] | None = None) -> ResearchData:
-    """Prices and cash rates of the instruments of the research (those in use, if no tickers are given), from their
-    stored history.
+def stock_group(index_name: str) -> str:
+    """Group of the stocks of an index in the research data."""
+    return f'{index_name} stocks'
+
+
+def research_instruments(include_stocks: bool = True) -> pd.DataFrame:
+    """The instruments of the research by ticker (group, label, sector): those in use, and today's members of the stock
+    indices (group '<index> stocks').
     """
-    instruments = pd.DataFrame(query_taa_instruments()).set_index('ticker')[['group', 'label']]
+    instruments = pd.DataFrame(query_taa_instruments(), columns=['group', 'label', 'ticker', 'active'])
+    instruments = instruments.set_index('ticker')[['group', 'label']].assign(sector=None)
+    if include_stocks:
+        members = query_index_members()
+        stocks = pd.DataFrame(
+            {'group': members['index_name'].map(stock_group), 'label': members['name'], 'sector': members['sector']}
+        ).set_axis(members['ticker'])
+        stocks = stocks[~stocks.index.duplicated() & ~stocks.index.isin(instruments.index)]
+        instruments = pd.concat([instruments, stocks])
+    return instruments
+
+
+def load_research_data(tickers: list[str] | None = None, include_stocks: bool = True) -> ResearchData:
+    """Prices and cash rates of the instruments of the research (see research_instruments, or only the given tickers
+    among them), from their stored history.
+    """
+    instruments = research_instruments(include_stocks)
     if tickers is not None:
         instruments = instruments.reindex(tickers)
     currencies = {t: major_currency(c)[0] for t, c in listing_currencies(instruments.index.to_list()).items()}

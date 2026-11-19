@@ -84,6 +84,19 @@ class BacktestResult:
         return (1.0 + self.returns).cumprod()
 
 
+def stop_at_ruin(returns: np.ndarray) -> np.ndarray:
+    """Daily returns ending at the first day the value of the strategy falls to zero or below (a long/short strategy
+    can lose more than its capital): that day loses everything (-100%), nothing happens afterwards.
+    """
+    value = np.cumprod(1.0 + returns)
+    ruined = np.flatnonzero(value <= 0.0)
+    if len(ruined):
+        returns = returns.copy()
+        returns[ruined[0]] = -1.0
+        returns[ruined[0] + 1 :] = 0.0
+    return returns
+
+
 def run_backtest(
     weights: pd.DataFrame, excess_returns: pd.DataFrame, cost_rate: float = COST_RATE, lag: int = TRADE_LAG
 ) -> BacktestResult:
@@ -115,8 +128,9 @@ def run_backtest(
         else:
             held = target
     first = trade_pos[0] if len(trade_pos) else len(days)
+    returns = stop_at_ruin(returns[first:])
     return BacktestResult(
-        returns=pd.Series(returns[first:], index=days[first:]),
+        returns=pd.Series(returns, index=days[first:]),
         weights=weights,
         turnover=pd.Series(turnover, index=days[trade_pos]),
     )

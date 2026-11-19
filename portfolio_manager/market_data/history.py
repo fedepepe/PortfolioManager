@@ -21,6 +21,7 @@ from portfolio_manager.market_data.yahoo import Exchanges, get_ticker_info, sear
 from portfolio_manager.storage.queries import (
     YAHOO_PRICE_COLUMNS,
     query_currency_fixes,
+    query_index_changes,
     query_index_members,
     query_taa_instruments,
     query_yahoo_instruments,
@@ -83,11 +84,13 @@ def major_currency(currency: str) -> tuple[str, float]:
 
 def history_period(ticker: str) -> str:
     """History downloaded for a listing without a stored one: the whole history for the instruments of the Tactical
-    Asset Allocation research, paused ones included, and the stocks of its indices, former members included
-    (strategies are tested over many years), HISTORY_PERIOD for the others.
+    Asset Allocation research, paused ones included, and the stocks of its indices, former members included (from the
+    lists and the changes of the indices; strategies are tested over many years), HISTORY_PERIOD for the others.
     """
     taa_tickers = {instrument.ticker for instrument in query_taa_instruments(active_only=False)}
     taa_tickers |= set(query_index_members(current_only=False)['ticker'])
+    changes = query_index_changes()
+    taa_tickers |= set(changes['added'].dropna()) | set(changes['removed'].dropna())
     return 'max' if ticker in taa_tickers else HISTORY_PERIOD
 
 

@@ -155,6 +155,7 @@ python tasks.py build-etf-catalog                  # catalog of each account
 python tasks.py refresh-yahoo-history --full       # download every stored Yahoo Finance history again
 python tasks.py refresh-markets                    # the data of the Markets page
 python tasks.py fetch-taa-data [--full]            # TAA research: index members, instruments and stocks (whole history), rates
+python tasks.py fetch-former-members               # S&P 500 changes and former members (survivorship research)
 python tasks.py taa-research                       # backtest and test the TAA strategies: results/taa_research.xlsx
 ```
 

@@ -177,11 +177,12 @@ def fetch_taa_data(args: argparse.Namespace):
     from collections import Counter
 
     from portfolio_manager.market_data.history import listing_currencies, refresh_history, refresh_info
-    from portfolio_manager.market_data.index_members import member_tickers, refresh_index_members
+    from portfolio_manager.market_data.index_members import member_tickers, refresh_index_changes, refresh_index_members
     from portfolio_manager.market_data.rates import update_rates
     from portfolio_manager.storage.queries import query_taa_instruments
 
     refresh_index_members()
+    refresh_index_changes()
     tickers = list(dict.fromkeys([i.ticker for i in query_taa_instruments()] + member_tickers()))
     known = listing_currencies(tickers)
     results = Counter()
@@ -200,6 +201,16 @@ def fetch_taa_data(args: argparse.Namespace):
         time.sleep(0.2)  # spread the requests to Yahoo Finance
     logger.info('Instruments downloaded: %s', ', '.join(f'{k} {v}' for k, v in sorted(results.items())))
     update_rates(full=args.full)
+
+
+def fetch_former_members(args: argparse.Namespace):
+    """Download the whole history of the stocks removed from the S&P 500 since 2011 (from Wikipedia's changes, see
+    fetch-taa-data) where Yahoo Finance still has them, and of the equal-weight S&P 500 ETF (survivorship research).
+    """
+    from portfolio_manager.market_data.index_members import download_former_members, refresh_index_changes
+
+    refresh_index_changes()
+    download_former_members()
 
 
 def taa_research(args: argparse.Namespace):
@@ -389,6 +400,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'classify-etfs': (classify_etfs, ()),
     'refresh-markets': (refresh_markets, ()),
     'fetch-taa-data': (fetch_taa_data, ('full',)),
+    'fetch-former-members': (fetch_former_members, ()),
     'taa-research': (taa_research, ()),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),

@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from portfolio_manager.market_data.history import listing_currencies, load_adjusted_closes, major_currency
+from portfolio_manager.market_data.index_members import CHANGES_PAGES, former_member_tickers
 from portfolio_manager.storage.queries import query_index_members, query_interest_rates, query_taa_instruments
 
 # series giving the cash rate of each currency, in order of preference (each day, the first one with a value): EONIA
@@ -124,9 +125,15 @@ def stock_group(index_name: str) -> str:
     return f'{index_name} stocks'
 
 
+def former_members_group(index_name: str) -> str:
+    """Group of the former members of an index in the research data."""
+    return f'{index_name} former members'
+
+
 def research_instruments(include_stocks: bool = True) -> pd.DataFrame:
-    """The instruments of the research by ticker (group, label, sector): those in use, and today's members of the stock
-    indices (group '<index> stocks').
+    """The instruments of the research by ticker (group, label, sector): those in use, today's members of the stock
+    indices (group '<index> stocks') and the stocks removed from an index with a table of changes since its changes are
+    complete (group '<index> former members', see research.survivorship).
     """
     instruments = pd.DataFrame(query_taa_instruments(), columns=['group', 'label', 'ticker', 'active'])
     instruments = instruments.set_index('ticker')[['group', 'label']].assign(sector=None)
@@ -137,6 +144,12 @@ def research_instruments(include_stocks: bool = True) -> pd.DataFrame:
         ).set_axis(members['ticker'])
         stocks = stocks[~stocks.index.duplicated() & ~stocks.index.isin(instruments.index)]
         instruments = pd.concat([instruments, stocks])
+        for index_name in CHANGES_PAGES:
+            former = [t for t in former_member_tickers(index_name) if t not in instruments.index]
+            group = former_members_group(index_name)
+            instruments = pd.concat(
+                [instruments, pd.DataFrame({'group': group, 'label': None, 'sector': None}, index=former)]
+            )
     return instruments
 
 

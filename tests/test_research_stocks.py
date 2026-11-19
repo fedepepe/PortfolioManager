@@ -68,7 +68,7 @@ def test_sector_neutral_ranks_each_stock_within_its_sector():
     assert within_sectors(score, sectors).iloc[0].tolist() == [1.0, 0.5, 1.0, 0.5]
 
 
-def test_stock_strategies_hold_the_top_fifth():
+def test_stock_strategies_hold_the_top_fifth(temp_db):
     universes = build_universes(stock_data())
     universe = universes[SP500]
     momentum = Strategy('Relative momentum', 'M', SP500, lambda x: signals.momentum(x.index, 12, 1), 'xs', fraction=0.2)

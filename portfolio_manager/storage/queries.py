@@ -31,6 +31,7 @@ from portfolio_manager.storage.models import (
     DegiroYahooMap,
     EtfCatalogEntry,
     EtfClass,
+    IndexChange,
     IndexMember,
     InterestRate,
     MarketInstrumentEntry,
@@ -569,6 +570,36 @@ def query_index_members(index_name: str | None = None, current_only: bool = True
     return pd.DataFrame(
         select_all(stmt.order_by(IndexMember.index_name, IndexMember.ticker)), columns=INDEX_MEMBER_COLUMNS
     )
+
+
+INDEX_CHANGE_COLUMNS = ['date', 'added', 'added_name', 'removed', 'removed_name', 'reason']
+
+
+def save_index_changes(index_name: str, changes: pd.DataFrame):
+    """Replace the stored changes of an index (columns INDEX_CHANGE_COLUMNS; empty tickers: none added or removed)."""
+    rows = [
+        {'index_name': index_name, **{c: _value(IndexChange.__table__.c[c].type, row[c]) for c in INDEX_CHANGE_COLUMNS}}
+        for _, row in changes.iterrows()
+    ]
+    for row in rows:
+        row['added'], row['removed'] = row['added'] or None, row['removed'] or None
+    with SessionLocal() as session:
+        session.execute(delete(IndexChange).where(IndexChange.index_name == index_name))
+        if rows:
+            session.execute(insert(IndexChange), rows)
+        session.commit()
+
+
+def query_index_changes(index_name: str | None = None) -> pd.DataFrame:
+    """Stored changes of an index (of every index if none is given), latest first: INDEX_CHANGE_COLUMNS, dates as
+    timestamps, missing tickers as None.
+    """
+    stmt = select(IndexChange.index_name, *[IndexChange.__table__.c[c] for c in INDEX_CHANGE_COLUMNS])
+    if index_name is not None:
+        stmt = stmt.where(IndexChange.index_name == index_name)
+    df = pd.DataFrame(select_all(stmt.order_by(IndexChange.date.desc())), columns=['index_name', *INDEX_CHANGE_COLUMNS])
+    df['date'] = pd.to_datetime(df['date'])
+    return df
 
 
 def save_rate_series(series: list[RateSeries]):

@@ -12,9 +12,16 @@ import pandas as pd
 
 from portfolio_manager.config.settings import RESULTS_DIR
 from portfolio_manager.research.evaluation import evaluate_families, family_table, stability
-from portfolio_manager.research.returns import ResearchData
+from portfolio_manager.research.returns import ResearchData, load_research_data, stock_group
 from portfolio_manager.research.statistics import strategy_tests, uncovered_interest_parity
 from portfolio_manager.research.strategies import run_strategies
+from portfolio_manager.research.survivorship import (
+    CHANGES_RELIABLE_FROM,
+    benchmark_table,
+    coverage_table,
+    point_in_time,
+    strategy_comparison,
+)
 from portfolio_manager.storage.tables import derived_folder, save_tables
 
 logger = logging.getLogger(__name__)
@@ -32,6 +39,9 @@ PERCENT_COLUMNS = {
     'wf_alpha',
     'combo_excess_return',
     'combo_alpha',
+    'gap_to_real_index',
+    'todays_excess_return',
+    'pit_excess_return',
 }
 NOTES = [
     (
@@ -111,6 +121,14 @@ NOTES = [
         'Fama regression of each currency against the dollar: parity means beta = 1 (the higher rate '
         'is offset by a depreciation); beta below 1 is what carry earns.',
     ),
+    (
+        'Survivorship',
+        'S&P 500 with the members of each date since 2011 (rebuilt from the changes listed by Wikipedia) instead of '
+        "today's: a stock is held only while a member. Former members without usable prices on Yahoo Finance are "
+        'missing; the bracket assumes they lost nothing or everything when removed. RSP (equal-weight S&P 500 ETF) '
+        'is the real index: the gap to it is the bias left. Survivorship strategies: each S&P 500 stock strategy '
+        "on today's members and point-in-time members over the same days.",
+    ),
 ]
 
 
@@ -122,14 +140,24 @@ class ResearchReport:
     families: pd.DataFrame
     parity: pd.DataFrame
     created_at: datetime
+    survivorship: pd.DataFrame | None = None  # equal-weight S&P 500: today's members, point-in-time, real index
+    coverage: pd.DataFrame | None = None  # prices of the point-in-time members
+    survivorship_strategies: pd.DataFrame | None = None  # each S&P 500 stock strategy on both universes
 
 
 def build_report(data: ResearchData | None = None) -> ResearchReport:
     """Backtest, test and evaluate every default strategy (on the stored data if none is given)."""
+    data = data or load_research_data()
     results = run_strategies(data=data)
     strategies = pd.concat([results.table(), strategy_tests(results), stability(results)], axis=1)
     families = family_table(results, evaluate_families(results))
-    return ResearchReport(strategies, families, uncovered_interest_parity(results), datetime.now())
+    report = ResearchReport(strategies, families, uncovered_interest_parity(results), datetime.now())
+    pit = point_in_time(data) if stock_group('S&P 500') in results.benchmarks else None
+    if pit is not None:
+        report.survivorship = benchmark_table(data, pit, results.benchmarks[stock_group('S&P 500')].returns)
+        report.coverage = coverage_table(pit)
+        report.survivorship_strategies = strategy_comparison(results, CHANGES_RELIABLE_FROM)
+    return report
 
 
 def _write_sheet(writer: pd.ExcelWriter, name: str, df: pd.DataFrame, index: bool = False):
@@ -154,6 +182,10 @@ def write_report(report: ResearchReport, path: str = REPORT_FILE):
         _write_sheet(writer, 'Families', report.families)
         _write_sheet(writer, 'Strategies', strategies)
         _write_sheet(writer, 'Interest parity', report.parity, index=True)
+        if report.survivorship is not None:
+            _write_sheet(writer, 'Survivorship', report.survivorship, index=True)
+            _write_sheet(writer, 'Survivorship coverage', report.coverage, index=True)
+            _write_sheet(writer, 'Survivorship strategies', report.survivorship_strategies)
         notes = pd.DataFrame(NOTES, columns=['Item', 'Meaning'])
         notes.loc[len(notes)] = ['Computed', report.created_at.strftime('%Y-%m-%d %H:%M')]
         _write_sheet(writer, 'Notes', notes)
@@ -163,7 +195,14 @@ def save_report(report: ResearchReport):
     """Save the tables of the report (derived results), for the dashboard."""
     save_tables(
         derived_folder(DERIVED_KIND, DERIVED_NAME),
-        {'strategies': report.strategies, 'families': report.families, 'parity': report.parity},
+        {
+            'strategies': report.strategies,
+            'families': report.families,
+            'parity': report.parity,
+            'survivorship': report.survivorship,
+            'coverage': report.coverage,
+            'survivorship_strategies': report.survivorship_strategies,
+        },
         attributes={'created_at': report.created_at.isoformat(timespec='seconds')},
     )
 

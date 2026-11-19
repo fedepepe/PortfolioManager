@@ -205,6 +205,21 @@ class IndexMember(Base):
     last_seen = Column(Date, nullable=False)
 
 
+# Changes of the members of a stock index, as listed by Wikipedia (S&P 500: "Historical components of the S&P 500")
+class IndexChange(Base):
+    """A change of an index on its effective date: the stock added and/or the stock removed (Yahoo Finance tickers)."""
+
+    __tablename__ = 'index_changes'
+    id = Column(Integer, primary_key=True)
+    index_name = Column(String, nullable=False)
+    date = Column(Date, nullable=False)  # effective date: the added stock is a member from this day
+    added = Column(String)
+    added_name = Column(String)
+    removed = Column(String)
+    removed_name = Column(String)
+    reason = Column(String)
+
+
 # Interest rate series of the Tactical Asset Allocation research (starting data: config.taa)
 class TaaRateSeriesEntry(Base):
     """An interest rate series: where it is downloaded from (source and its code there)."""

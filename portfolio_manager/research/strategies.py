@@ -31,6 +31,7 @@ from portfolio_manager.research.backtest import (
 )
 from portfolio_manager.research.currencies import CurrencyIndices, excess_index
 from portfolio_manager.research.returns import ResearchData, load_research_data, stock_group
+from portfolio_manager.research.survivorship import POINT_IN_TIME_UNIVERSE, point_in_time
 from portfolio_manager.storage.queries import query_interest_rates
 
 ASSET_GROUPS = ['Equity indices', 'US sectors', 'European sectors', 'Bonds', 'Commodities']
@@ -39,7 +40,9 @@ SECTOR_NEUTRAL_UNIVERSES = [stock_group('S&P 500')]  # enough stocks in each sec
 STOCK_FRACTION = 0.2  # stocks: the top (and bottom) fifth
 MIN_MEMBER_COVERAGE = 0.5  # share of today's members with prices from which the stocks of an index are studied
 # single-instrument (time-series) strategies with signal-weighted positions: on these universes
-TIME_SERIES_UNIVERSES = ['Equity indices', 'US sectors', 'European sectors', 'Commodities', *STOCK_UNIVERSES]
+# the S&P 500 also with the members of each date (survivorship bias, see research.survivorship)
+ALL_STOCK_UNIVERSES = [*STOCK_UNIVERSES, POINT_IN_TIME_UNIVERSE]
+TIME_SERIES_UNIVERSES = ['Equity indices', 'US sectors', 'European sectors', 'Commodities', *ALL_STOCK_UNIVERSES]
 COST_SCENARIO = 0.0025  # a cost scenario closer to small orders of single stocks (0.25% per trade)
 NO_TRADE_BAND = 0.1  # strategies checked daily: positions traded only when 10% of their share away (Carver 2015)
 CURRENCIES_UNIVERSE = 'Currencies vs USD'
@@ -61,6 +64,7 @@ class Universe:
     carry: pd.DataFrame | None = None
     hedging: bool = False  # currency hedging: the benchmark is never hedged
     sectors: pd.Series | None = None  # by ticker
+    members: pd.DataFrame | None = None  # date x ticker, True while a stock can be held (point-in-time index members)
 
     @cached_property
     def index(self) -> pd.DataFrame:
@@ -137,6 +141,14 @@ def build_universes(data: ResearchData) -> dict[str, Universe]:
         stocks = data.instruments[data.instruments['group'] == group]
         if len(stocks):
             universes[group] = Universe(group, stock_history(excess[stocks.index]), sectors=stocks['sector'])
+    pit = point_in_time(data) if stock_group('S&P 500') in universes else None
+    if pit is not None:
+        tickers = pit.members.columns.intersection(excess.columns)
+        if len(tickers):
+            start = pit.members.index[0]
+            universes[POINT_IN_TIME_UNIVERSE] = Universe(
+                POINT_IN_TIME_UNIVERSE, excess.loc[start:, tickers], members=pit.members[tickers]
+            )
     currencies = CurrencyIndices(data)
     available = currencies.currencies()
     others = [c for c in available if c != 'USD']
@@ -252,7 +264,7 @@ def stock_strategies() -> list[Strategy]:
         ('52-week high', 'Near the 52-week high', lambda x: signals.high_proximity(x.index)),
     ]
     strategies = []
-    for universe in STOCK_UNIVERSES:
+    for universe in ALL_STOCK_UNIVERSES:
         for neutral in [False, True] if universe in SECTOR_NEUTRAL_UNIVERSES else [False]:
             for family, name, signal in specs:
                 for long_short in [False, True]:
@@ -289,7 +301,7 @@ def time_series_strategies() -> list[Strategy]:
         strategies.extend([Strategy(**kwargs), Strategy(**kwargs, long_short=True)])
 
     for universe in TIME_SERIES_UNIVERSES:
-        stocks = universe in STOCK_UNIVERSES
+        stocks = universe in ALL_STOCK_UNIVERSES
         u = {'universe': universe}
         weighted = {'signal_weighted': True}
         daily = {'freq': 'B', 'no_trade_band': NO_TRADE_BAND}
@@ -349,7 +361,7 @@ def strategy_positions(strategy: Strategy, universe: Universe) -> tuple[pd.DataF
     score = daily_score.reindex(days)
     if strategy.sector_neutral and universe.sectors is not None:
         score = within_sectors(score, universe.sectors)
-    eligible = universe.index.reindex(days).notna() & score.notna()
+    eligible = universe.index.reindex(days).notna() & score.notna() & held_members(universe, days)
     budget = budgets(eligible, universe.vol.reindex(days) if strategy.risk_parity else None)
     if strategy.construction == 'xs':
         weights = cross_section_weights(score, budget, fraction=strategy.fraction, long_short=strategy.long_short)
@@ -371,10 +383,21 @@ def backtest_strategy(strategy: Strategy, universe: Universe) -> BacktestResult:
     return run_backtest(weights, universe.excess, bands=bands if strategy.no_trade_band else None)
 
 
+def held_members(universe: Universe, days: pd.DatetimeIndex) -> pd.DataFrame | bool:
+    """Whether each instrument can be held on each day: a member of the index that day (point-in-time universe), any
+    day otherwise.
+    """
+    if universe.members is None:
+        return True
+    return universe.members.reindex(index=days, columns=universe.excess.columns).fillna(False).astype(bool)
+
+
 def benchmark_weights(universe: Universe, freq: str = 'M') -> pd.DataFrame:
-    """Every instrument with an excess return held in equal shares (never hedged, for currency hedging)."""
+    """Every instrument with an excess return held in equal shares (never hedged, for currency hedging; the members of
+    each day for the point-in-time universe).
+    """
     days = signal_days(universe.excess.index, freq)
-    return budgets(universe.index.reindex(days).notna())
+    return budgets(universe.index.reindex(days).notna() & held_members(universe, days))
 
 
 @dataclass

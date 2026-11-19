@@ -18,7 +18,17 @@ from sqlalchemy import Connection, Engine, inspect, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from portfolio_manager.config.accounts import attach_default_benchmark, list_accounts
+from portfolio_manager.config.markets import DEFAULT_MARKET_INSTRUMENTS
+from portfolio_manager.config.taa import DEFAULT_RATE_SERIES, DEFAULT_TAA_INSTRUMENTS
 from portfolio_manager.storage.models import BrokerAccount, CurrencyPair, Product, SchemaVersion, YahooInstrument
+from portfolio_manager.storage.queries import (
+    query_market_instruments,
+    query_rate_series,
+    query_taa_instruments,
+    save_market_instruments,
+    save_rate_series,
+    save_taa_instruments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -240,8 +250,15 @@ def compact_database(engine: Engine):
 
 
 def seed_default_settings():
-    """Save the default benchmark of the currency of each account without a benchmark (saved settings are never
-    changed).
+    """Save the default benchmark of the currency of each account without a benchmark, and the starting lists of the
+    instruments of the Markets page and of the Tactical Asset Allocation research and of its rate series when none is
+    saved (saved settings are never changed).
     """
+    if not query_market_instruments():
+        save_market_instruments(DEFAULT_MARKET_INSTRUMENTS)
+    if not query_taa_instruments(active_only=False):
+        save_taa_instruments(DEFAULT_TAA_INSTRUMENTS)
+    if not query_rate_series(active_only=False):
+        save_rate_series(DEFAULT_RATE_SERIES)
     for account in list_accounts():
         attach_default_benchmark(account)

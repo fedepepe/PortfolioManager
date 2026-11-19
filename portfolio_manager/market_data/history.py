@@ -17,11 +17,11 @@ import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFPricesMissingError, YFTzMissingError
 
-from portfolio_manager.config.taa import TAA_TICKERS
 from portfolio_manager.market_data.yahoo import Exchanges, get_ticker_info, search_ticker
 from portfolio_manager.storage.queries import (
     YAHOO_PRICE_COLUMNS,
     query_currency_fixes,
+    query_taa_instruments,
     query_yahoo_instruments,
     query_yahoo_last_date,
     query_yahoo_prices,
@@ -82,9 +82,11 @@ def major_currency(currency: str) -> tuple[str, float]:
 
 def history_period(ticker: str) -> str:
     """History downloaded for a listing without a stored one: the whole history for the instruments of the Tactical
-    Asset Allocation research (strategies are tested over many years), HISTORY_PERIOD for the others.
+    Asset Allocation research, paused ones included (strategies are tested over many years), HISTORY_PERIOD for the
+    others.
     """
-    return 'max' if ticker in TAA_TICKERS else HISTORY_PERIOD
+    taa_tickers = {instrument.ticker for instrument in query_taa_instruments(active_only=False)}
+    return 'max' if ticker in taa_tickers else HISTORY_PERIOD
 
 
 def download_history(ticker: str, start: date | None = None) -> pd.DataFrame:

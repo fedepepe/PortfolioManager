@@ -5,20 +5,26 @@ currencies (central banks and Yahoo Finance).
 Total returns: a total return index where Yahoo Finance has one (S&P 500 TR, SPI), otherwise an ETF on the index,
 accumulating or with its distributions stored (adjusted close). Commodities are investable funds, which include the cost
 of rolling the futures. Instruments with long histories are preferred: strategies are tested over many years.
+
+The instruments and the rate series are saved in the database (tables taa_instruments and taa_rate_series): the lists
+below are only the starting data of a database without any.
 """
 
 from typing import NamedTuple
 
 
 class TaaInstrument(NamedTuple):
-    """An instrument of the research: its group, its label and its Yahoo Finance ticker."""
+    """An instrument of the research: its group, its label, its Yahoo Finance ticker, and whether it is in use (a paused
+    instrument keeps its stored data but is no longer updated).
+    """
 
     group: str
     label: str
     ticker: str
+    active: bool = True
 
 
-TAA_INSTRUMENTS = [
+DEFAULT_TAA_INSTRUMENTS = [
     # equity indices
     TaaInstrument('Equity indices', 'S&P 500 (TR)', '^SP500TR'),
     TaaInstrument('Equity indices', 'Nasdaq 100', 'QQQ'),
@@ -88,7 +94,6 @@ TAA_INSTRUMENTS = [
     TaaInstrument('Currencies', 'USD/SEK', 'USDSEK=X'),
     TaaInstrument('Currencies', 'USD/NOK', 'USDNOK=X'),
 ]
-TAA_TICKERS = frozenset(i.ticker for i in TAA_INSTRUMENTS)
 
 
 class RateSources:
@@ -101,7 +106,9 @@ class RateSources:
 
 
 class RateSeries(NamedTuple):
-    """A daily interest rate series: its key in the database, label, currency, maturity, source and its code there."""
+    """A daily interest rate series: its key in the database, label, currency, maturity, source and its code there, and
+    whether it is in use (a paused series keeps its stored values but is no longer updated).
+    """
 
     key: str
     label: str
@@ -109,10 +116,11 @@ class RateSeries(NamedTuple):
     tenor: str
     source: str
     code: str
+    active: bool = True
 
 
 ECB_AAA_YIELD = 'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_'  # spot yields of the euro area AAA government bonds
-RATE_SERIES = [
+DEFAULT_RATE_SERIES = [
     # EUR: the euro short-term rate since October 2019, EONIA before (EONIA = euro short-term rate + 0.085% from
     # October 2019 to its end in January 2022); euro area AAA government spot yields
     RateSeries('EUR_ESTR', 'Euro short-term rate (€STR)', 'EUR', 'O/N', RateSources.ECB, 'EST/B.EU000A2X2A25.WT'),

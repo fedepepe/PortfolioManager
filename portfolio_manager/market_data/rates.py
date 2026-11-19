@@ -1,4 +1,4 @@
-"""Interest rates of the Tactical Asset Allocation research (config.taa.RATE_SERIES), downloaded from the central banks
+"""Interest rates of the Tactical Asset Allocation research (table taa_rate_series), downloaded from the central banks
 (ECB, SNB, Bank of England: public data, no account) and Yahoo Finance (US Treasury yields), stored as decimals.
 
 A series without stored values is downloaded whole; later downloads fetch the days from a few before the last stored
@@ -15,8 +15,8 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-from portfolio_manager.config.taa import RATE_SERIES, RateSeries, RateSources
-from portfolio_manager.storage.queries import query_interest_rate_last_dates, save_interest_rates
+from portfolio_manager.config.taa import RateSeries, RateSources
+from portfolio_manager.storage.queries import query_interest_rate_last_dates, query_rate_series, save_interest_rates
 
 logger = logging.getLogger(__name__)
 
@@ -124,14 +124,14 @@ def download_rates(series: RateSeries, start: date | None = None, snb_tables: di
 
 
 def update_rates(series_list: list[RateSeries] | None = None, full: bool = False) -> Counter:
-    """Bring the stored interest rates up to date (every series of config.taa by default; the whole history if none is
+    """Bring the stored interest rates up to date (the series in use by default; the whole history if none is
     stored or if full); returns the count of each result: 'new' (whole history stored), 'updated' (new days),
     'unchanged', 'failed' (a download problem: the stored values are kept).
     """
     last_dates = query_interest_rate_last_dates()
     snb_tables: dict[str, pd.DataFrame] = {}
     results = Counter()
-    for series in series_list or RATE_SERIES:
+    for series in series_list or query_rate_series():
         last = last_dates.get(series.key)
         start = None if last is None or full else last - OVERLAP
         try:

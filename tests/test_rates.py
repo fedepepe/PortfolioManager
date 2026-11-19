@@ -7,7 +7,15 @@ import portfolio_manager.analytics.price_updates as updates
 import portfolio_manager.market_data.history as history
 import portfolio_manager.market_data.rates as rates
 import portfolio_manager.storage.queries as sql
-from portfolio_manager.config.taa import TAA_INSTRUMENTS, RateSeries, RateSources
+from portfolio_manager.config.markets import DEFAULT_MARKET_INSTRUMENTS
+from portfolio_manager.config.taa import (
+    DEFAULT_RATE_SERIES,
+    DEFAULT_TAA_INSTRUMENTS,
+    RateSeries,
+    RateSources,
+    TaaInstrument,
+)
+from portfolio_manager.storage.models import init_db
 
 ECB_CSV = """KEY,FREQ,BENCHMARK_ITEM,DATA_TYPE_EST,TIME_PERIOD,OBS_VALUE,OBS_STATUS
 EST.B.EU000A2X2A25.WT,B,EU000A2X2A25,WT,2026-11-16,2.441,A
@@ -97,13 +105,33 @@ def test_rates_updated_once_a_day_from_8(monkeypatch):
     assert updater.update_rates(day.replace(hour=8) + timedelta(days=1))
 
 
-def test_research_listings_keep_their_whole_history():
+def test_starting_lists_saved_in_a_new_database_and_kept_afterwards(temp_db):
+    assert sql.query_market_instruments() == DEFAULT_MARKET_INSTRUMENTS
+    assert sql.query_taa_instruments() == DEFAULT_TAA_INSTRUMENTS
+    assert sql.query_rate_series() == DEFAULT_RATE_SERIES
+    # saved lists are never replaced by the starting data
+    sql.save_taa_instruments([TaaInstrument('G', 'One', 'ONE')])
+    init_db()
+    assert sql.query_taa_instruments() == [TaaInstrument('G', 'One', 'ONE')]
+
+
+def test_paused_instruments_and_series_not_updated(temp_db, downloads):
+    sql.save_taa_instruments([TaaInstrument('G', 'One', 'ONE'), TaaInstrument('G', 'Two', 'TWO', active=False)])
+    assert [i.ticker for i in sql.query_taa_instruments()] == ['ONE']
+    assert [i.ticker for i in sql.query_taa_instruments(active_only=False)] == ['ONE', 'TWO']
+    sql.save_rate_series([ESTR, SONIA._replace(active=False)])
+    assert rates.update_rates() == {'new': 1}  # only the euro short-term rate
+    assert list(sql.query_interest_rates().columns) == ['EUR_ESTR']
+
+
+def test_research_listings_keep_their_whole_history(temp_db):
     assert history.history_period('XLK') == 'max'
-    assert history.history_period('IWDA.AS') == 'max'
+    sql.save_taa_instruments([TaaInstrument('G', 'Paused', 'XLK', active=False)])
+    assert history.history_period('XLK') == 'max'  # paused: its stored history is still the whole one
     assert history.history_period('SOME.SW') == history.HISTORY_PERIOD  # the catalog: 10 years
 
 
 def test_research_listings_updated_after_the_portfolios(temp_db, monkeypatch):
     monkeypatch.setattr(updates, 'list_accounts', lambda: [])
-    tickers = updates.priority_tickers()
-    assert tickers == [instrument.ticker for instrument in TAA_INSTRUMENTS]
+    sql.save_taa_instruments([TaaInstrument('G', 'One', 'ONE'), TaaInstrument('G', 'Two', 'TWO', active=False)])
+    assert updates.priority_tickers() == ['ONE']  # the paused one is not updated

@@ -10,8 +10,9 @@ from dash import Input, Output, callback, dcc, html
 from plotly.subplots import make_subplots
 
 from portfolio_manager.analytics.markets import market_returns, refresh_market_data
-from portfolio_manager.config.markets import MARKET_INSTRUMENTS
+from portfolio_manager.config.markets import MarketInstrument
 from portfolio_manager.dashboard.common import LAYOUT_TEMPLATE, loading_wrapper
+from portfolio_manager.storage.queries import query_market_instruments
 
 # red for losses, white at 0%, green for gains
 COLOR_SCALE = [[0.0, 'rgb(215, 25, 28)'], [0.5, 'rgb(255, 255, 255)'], [1.0, 'rgb(26, 150, 65)']]
@@ -30,18 +31,18 @@ def percent(value: float) -> str:
     return '' if value is None or not math.isfinite(value) else f'{value:+.1%}'
 
 
-def get_fig_market_returns(returns: pd.DataFrame, totals: pd.Series) -> go.Figure:
+def get_fig_market_returns(returns: pd.DataFrame, totals: pd.Series, instruments: list[MarketInstrument]) -> go.Figure:
     """Two tables side by side, scrolling together: the monthly returns (ticker x month) and their total, each with its
     own color scale (red, white at 0%, green), symmetric around 0 up to its largest absolute return; the instruments
     in groups, each under a title row.
     """
     labels, monthly, total = [], [], []
     columns = list(returns.columns)
-    for group in dict.fromkeys(i.group for i in MARKET_INSTRUMENTS):
+    for group in dict.fromkeys(i.group for i in instruments):
         labels.append(f'<b>{group}</b>')  # a title row, without values
         monthly.append([np.nan] * len(columns))
         total.append([np.nan])
-        for instrument in (i for i in MARKET_INSTRUMENTS if i.group == group):
+        for instrument in (i for i in instruments if i.group == group):
             labels.append(f'{instrument.label} ({instrument.ticker})')
             row = returns.loc[instrument.ticker] if instrument.ticker in returns.index else pd.Series(dtype=float)
             monthly.append([row.get(c, np.nan) for c in columns])
@@ -91,7 +92,7 @@ def get_fig_market_returns(returns: pd.DataFrame, totals: pd.Series) -> go.Figur
 def build_fig_market_returns() -> go.Figure:
     """The tables of the stored market data."""
     returns, totals, _ = market_returns()
-    return get_fig_market_returns(returns, totals)
+    return get_fig_market_returns(returns, totals, query_market_instruments())
 
 
 def last_close_text() -> str:

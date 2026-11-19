@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from portfolio_manager.config.account_settings import Benchmark
 from portfolio_manager.config.account_settings import BenchmarkComponent as Component
 from portfolio_manager.config.allocations import Allocation, AllocationInstrument, Bucket
+from portfolio_manager.config.markets import MarketInstrument
+from portfolio_manager.config.taa import RateSeries, TaaInstrument
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
 from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage.db import SessionLocal, engine
@@ -30,11 +32,14 @@ from portfolio_manager.storage.models import (
     EtfCatalogEntry,
     EtfClass,
     InterestRate,
+    MarketInstrumentEntry,
     Product,
     SaaAllocation,
     SaaBucket,
     SaaClass,
     SaaInstrument,
+    TaaInstrumentEntry,
+    TaaRateSeriesEntry,
     YahooCurrencyFix,
     YahooInstrument,
     YahooPrice,
@@ -471,6 +476,56 @@ def query_last_close_dates(tickers: list[str]) -> pd.Series:
         .group_by(YahooInstrument.ticker)
     )
     return pd.Series({ticker: pd.Timestamp(day) for ticker, day in select_all(stmt)}, dtype='datetime64[ns]')
+
+
+def _replace_list(model: Any, items: list[tuple]):
+    """Replace the saved list of a table (market_instruments, taa_instruments, taa_rate_series) with the given items
+    (named tuples with the columns of the table), in their order.
+    """
+    rows = [dict(item._asdict(), position=n) for n, item in enumerate(items)]
+    with SessionLocal() as session:
+        session.execute(delete(model))
+        if rows:
+            session.execute(insert(model), rows)
+        session.commit()
+
+
+def _query_list(model: Any, item: Any, active_only: bool = False) -> list:
+    """The saved list of a table as named tuples, in its order (only the items in use if active_only)."""
+    stmt = select(*[model.__table__.c[field] for field in item._fields]).order_by(model.position)
+    if active_only:
+        stmt = stmt.where(model.active.is_(True))
+    return [item(*row) for row in select_all(stmt)]
+
+
+def save_market_instruments(instruments: list[MarketInstrument]):
+    """Save the instruments of the Markets page, in their order (replaces the saved ones)."""
+    _replace_list(MarketInstrumentEntry, instruments)
+
+
+def query_market_instruments() -> list[MarketInstrument]:
+    """The instruments of the Markets page, in their order."""
+    return _query_list(MarketInstrumentEntry, MarketInstrument)
+
+
+def save_taa_instruments(instruments: list[TaaInstrument]):
+    """Save the instruments of the Tactical Asset Allocation research, in their order (replaces the saved ones)."""
+    _replace_list(TaaInstrumentEntry, instruments)
+
+
+def query_taa_instruments(active_only: bool = True) -> list[TaaInstrument]:
+    """The instruments of the Tactical Asset Allocation research, in their order (those in use by default)."""
+    return _query_list(TaaInstrumentEntry, TaaInstrument, active_only)
+
+
+def save_rate_series(series: list[RateSeries]):
+    """Save the interest rate series of the research, in their order (replaces the saved ones; values are kept)."""
+    _replace_list(TaaRateSeriesEntry, series)
+
+
+def query_rate_series(active_only: bool = True) -> list[RateSeries]:
+    """The interest rate series of the research, in their order (those in use by default)."""
+    return _query_list(TaaRateSeriesEntry, RateSeries, active_only)
 
 
 def save_interest_rates(series: str, values: pd.Series):

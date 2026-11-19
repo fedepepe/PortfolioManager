@@ -3,7 +3,7 @@ while the dashboard server runs.
 
 At every pass (every CHECK_EVERY), the listings missing the prices of the latest final trading day (see
 market_data.freshness) are updated one by one, in order of priority: the instruments of the saved allocations, of the
-benchmarks and of the portfolios first, then those of the Tactical Asset Allocation research (config.taa), then the
+benchmarks and of the portfolios first, then those in use of the Tactical Asset Allocation research, then the
 catalog from the most traded listing. A listing whose download brought
 nothing new (Yahoo Finance has not published the day yet, or a holiday) is tried again after RETRY_AFTER. After a pass
 that stored new data, the candidates computed today for the allocations are computed again at their next view.
@@ -27,7 +27,6 @@ from portfolio_manager.analytics.instruments import (
 )
 from portfolio_manager.analytics.saa import clear_day_cache
 from portfolio_manager.config.accounts import list_accounts
-from portfolio_manager.config.taa import TAA_INSTRUMENTS
 from portfolio_manager.market_data.freshness import FINAL_HOUR, due_listings, latest_final_day, update_listing
 from portfolio_manager.market_data.rates import update_rates
 from portfolio_manager.market_data.yahoo import is_yahoo_reachable
@@ -37,6 +36,7 @@ from portfolio_manager.storage.queries import (
     query_allocation,
     query_benchmark,
     query_degiro_yahoo_map,
+    query_taa_instruments,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def priority_tickers() -> list[str]:
         benchmark = query_benchmark(account.name)
         first += [c.ticker for c in benchmark.components if c.ticker] if benchmark is not None else []
         first += list(query_degiro_yahoo_map(query_account_product_ids(account.name)).values())
-    first += [instrument.ticker for instrument in TAA_INSTRUMENTS]
+    first += [instrument.ticker for instrument in query_taa_instruments()]
     catalog = sorted(set(query_degiro_yahoo_map(catalog_products()['id'].to_list()).values()))
     averages = average_traded_values(catalog)
     connected = [a for a in accounts if a.currency is not None]

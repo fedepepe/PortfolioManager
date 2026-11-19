@@ -165,13 +165,51 @@ class YahooPrice(Base):
     __table_args__ = {'sqlite_with_rowid': False}  # the key is the table: no separate index
 
 
-# Interest rates of the Tactical Asset Allocation research (config.taa.RATE_SERIES), one row per series and day (the
-# last day of the month for monthly series), as decimals (0.025 for 2.5%)
+# Instruments of the Markets page, in the order of the page (starting data: config.markets)
+class MarketInstrumentEntry(Base):
+    """An instrument of the Markets page."""
+
+    __tablename__ = 'market_instruments'
+    ticker = Column(String, primary_key=True)  # Yahoo Finance listing
+    group = Column(String, nullable=False)  # block of rows of the page
+    label = Column(String, nullable=False)
+    position = Column(Integer, nullable=False)
+
+
+# Instruments of the Tactical Asset Allocation research (starting data: config.taa)
+class TaaInstrumentEntry(Base):
+    """An instrument of the Tactical Asset Allocation research."""
+
+    __tablename__ = 'taa_instruments'
+    ticker = Column(String, primary_key=True)  # Yahoo Finance listing
+    group = Column(String, nullable=False)  # equity indices, sectors, bonds, commodities, currencies, ...
+    label = Column(String, nullable=False)
+    position = Column(Integer, nullable=False)
+    active = Column(Boolean, nullable=False)  # paused: the stored data is kept, no longer updated
+
+
+# Interest rate series of the Tactical Asset Allocation research (starting data: config.taa)
+class TaaRateSeriesEntry(Base):
+    """An interest rate series: where it is downloaded from (source and its code there)."""
+
+    __tablename__ = 'taa_rate_series'
+    key = Column(String, primary_key=True)  # key of its values in interest_rates
+    label = Column(String, nullable=False)
+    currency = Column(String, nullable=False)
+    tenor = Column(String, nullable=False)  # O/N, 3M, 2Y, ...
+    source = Column(String, nullable=False)  # ECB, SNB, BoE, Yahoo (config.taa.RateSources)
+    code = Column(String, nullable=False)
+    position = Column(Integer, nullable=False)
+    active = Column(Boolean, nullable=False)  # paused: the stored values are kept, no longer updated
+
+
+# Interest rates of the Tactical Asset Allocation research (series in taa_rate_series), one row per series and day, as
+# decimals (0.025 for 2.5%)
 class InterestRate(Base):
     """A value of an interest rate series."""
 
     __tablename__ = 'interest_rates'
-    series = Column(String, primary_key=True)  # key of the series (config.taa.RateSeries.key)
+    series = Column(String, primary_key=True)  # key of the series (taa_rate_series)
     date = Column(Date, primary_key=True)
     value = Column(Float, nullable=False)
     __table_args__ = {'sqlite_with_rowid': False}  # the key is the table: no separate index

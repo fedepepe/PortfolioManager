@@ -1,4 +1,6 @@
-"""Monthly returns of the instruments of the Markets page (config.markets), from their stored Yahoo Finance history."""
+"""Monthly returns of the instruments of the Markets page (table market_instruments), from their stored Yahoo Finance
+history.
+"""
 
 import logging
 import time
@@ -7,13 +9,13 @@ from datetime import date
 
 import pandas as pd
 
-from portfolio_manager.config.markets import MARKET_INSTRUMENTS
 from portfolio_manager.market_data.history import (
     listing_currencies,
     load_adjusted_closes,
     refresh_history,
     refresh_info,
 )
+from portfolio_manager.storage.queries import query_market_instruments
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ MONTHS = 12  # months shown, the current one included
 
 def market_tickers() -> list[str]:
     """Tickers of the instruments of the Markets page, in their order."""
-    return [instrument.ticker for instrument in MARKET_INSTRUMENTS]
+    return [instrument.ticker for instrument in query_market_instruments()]
 
 
 def refresh_market_data() -> Counter:

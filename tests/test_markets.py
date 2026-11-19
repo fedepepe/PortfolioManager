@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 
 import portfolio_manager.analytics.markets as markets
-from portfolio_manager.config.markets import MARKET_INSTRUMENTS, MarketInstrument
+import portfolio_manager.storage.queries as sql
+from portfolio_manager.config.markets import DEFAULT_MARKET_INSTRUMENTS, MarketInstrument
 from portfolio_manager.dashboard.markets_page import TOTAL_COLUMN, get_fig_market_returns, scale_limit
 
 TODAY = date(2026, 11, 17)
@@ -48,9 +49,8 @@ def test_month_without_close_has_no_return_and_the_total_ends_at_the_last_close(
     assert totals['AAA'] == pytest.approx(0.21)  # from the end of November 2025 to the last close (February 2026)
 
 
-def test_market_returns_in_the_order_of_the_instruments(monkeypatch):
-    instruments = [MarketInstrument('G', 'One', 'ONE'), MarketInstrument('G', 'Two', 'TWO')]
-    monkeypatch.setattr(markets, 'MARKET_INSTRUMENTS', instruments)
+def test_market_returns_in_the_order_of_the_instruments(temp_db, monkeypatch):
+    sql.save_market_instruments([MarketInstrument('G', 'One', 'ONE'), MarketInstrument('G', 'Two', 'TWO')])
     series = closes_by_month({'2026-10': 100.0, '2026-11': 105.0})
     monkeypatch.setattr(markets, 'load_adjusted_closes', lambda tickers: pd.DataFrame({'TWO': series}))
     returns, totals, last_day = markets.market_returns(today=date(2026, 11, 30))
@@ -59,9 +59,8 @@ def test_market_returns_in_the_order_of_the_instruments(monkeypatch):
     assert last_day == series.index[-1]
 
 
-def test_new_market_instrument_gets_its_information(monkeypatch):
-    instruments = [MarketInstrument('G', 'Old', 'OLD'), MarketInstrument('G', 'New', 'NEW')]
-    monkeypatch.setattr(markets, 'MARKET_INSTRUMENTS', instruments)
+def test_new_market_instrument_gets_its_information(temp_db, monkeypatch):
+    sql.save_market_instruments([MarketInstrument('G', 'Old', 'OLD'), MarketInstrument('G', 'New', 'NEW')])
     monkeypatch.setattr(markets.time, 'sleep', lambda seconds: None)
     monkeypatch.setattr(markets, 'listing_currencies', lambda tickers: {'OLD': 'EUR'})
     monkeypatch.setattr(markets, 'refresh_history', lambda ticker: 'updated' if ticker == 'OLD' else 'new')
@@ -72,17 +71,18 @@ def test_new_market_instrument_gets_its_information(monkeypatch):
 
 
 def test_two_tables_with_symmetric_color_scales():
-    tickers = [i.ticker for i in MARKET_INSTRUMENTS]
+    instruments = DEFAULT_MARKET_INSTRUMENTS
+    tickers = [i.ticker for i in instruments]
     periods = pd.period_range(end=pd.Period(TODAY, 'M'), periods=12, freq='M')
     returns = pd.DataFrame(0.01, index=tickers, columns=periods)
     returns.iloc[0, 0] = -0.08  # the largest monthly return in magnitude
     totals = pd.Series(0.1, index=tickers)
     totals.iloc[1] = 0.35
-    fig = get_fig_market_returns(returns, totals)
+    fig = get_fig_market_returns(returns, totals, instruments)
     monthly, total = fig.data
-    groups = list(dict.fromkeys(i.group for i in MARKET_INSTRUMENTS))
+    groups = list(dict.fromkeys(i.group for i in instruments))
     assert len(monthly.y) == len(tickers) + len(groups)  # a title row per group
-    assert monthly.y[0] == f'<b>{groups[0]}</b>' and monthly.y[1] == f'{MARKET_INSTRUMENTS[0].label} ({tickers[0]})'
+    assert monthly.y[0] == f'<b>{groups[0]}</b>' and monthly.y[1] == f'{instruments[0].label} ({tickers[0]})'
     assert len(monthly.x) == 12 and monthly.x[-1] == 'Nov 26' and list(total.x) == [TOTAL_COLUMN]
     # each scale: symmetric around 0 (white), up to the largest absolute return of its table
     assert (monthly.zmin, monthly.zmax, monthly.zmid) == (-0.08, 0.08, 0.0)

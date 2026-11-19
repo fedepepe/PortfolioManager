@@ -1,5 +1,6 @@
 """Instruments of the Markets page: monthly returns of sectors, world indices, bonds, commodities, currencies and
-crypto, each in its own currency.
+crypto, each in its own currency. The instruments are saved in the database (table market_instruments): the list below
+is only the starting data of a database without any.
 
 Total returns: a total return index where Yahoo Finance has one (S&P 500 TR; the DAX is a total return index),
 otherwise an ETF on the index, accumulating or with its distributions added back (adjusted close). Commodities are
@@ -17,7 +18,7 @@ class MarketInstrument(NamedTuple):
     ticker: str
 
 
-MARKET_INSTRUMENTS = [
+DEFAULT_MARKET_INSTRUMENTS = [
     # MSCI World sectors (Xtrackers, EUR)
     MarketInstrument('Sectors', 'Financials', 'XDWF.DE'),
     MarketInstrument('Sectors', 'Industrials', 'XDWI.DE'),

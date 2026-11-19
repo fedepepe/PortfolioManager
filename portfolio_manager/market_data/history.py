@@ -17,6 +17,7 @@ import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFPricesMissingError, YFTzMissingError
 
+from portfolio_manager.config.taa import TAA_TICKERS
 from portfolio_manager.market_data.yahoo import Exchanges, get_ticker_info, search_ticker
 from portfolio_manager.storage.queries import (
     YAHOO_PRICE_COLUMNS,
@@ -79,11 +80,18 @@ def major_currency(currency: str) -> tuple[str, float]:
     return currency.upper(), 1.0
 
 
-def download_history(ticker: str, start: date | None = None) -> pd.DataFrame:
-    """Daily history of a listing from a day (10 years without a start): YAHOO_PRICE_COLUMNS by date (dates of the
-    exchange), corporate actions only on the days they happen; empty if Yahoo has none.
+def history_period(ticker: str) -> str:
+    """History downloaded for a listing without a stored one: the whole history for the instruments of the Tactical
+    Asset Allocation research (strategies are tested over many years), HISTORY_PERIOD for the others.
     """
-    period = {'start': start} if start is not None else {'period': HISTORY_PERIOD}
+    return 'max' if ticker in TAA_TICKERS else HISTORY_PERIOD
+
+
+def download_history(ticker: str, start: date | None = None) -> pd.DataFrame:
+    """Daily history of a listing from a day (without a start: see history_period): YAHOO_PRICE_COLUMNS by date (dates
+    of the exchange), corporate actions only on the days they happen; empty if Yahoo has none.
+    """
+    period = {'start': start} if start is not None else {'period': history_period(ticker)}
     df = yf.Ticker(ticker).history(interval='1d', auto_adjust=False, actions=True, **period)
     if df.empty:
         return pd.DataFrame(columns=YAHOO_PRICE_COLUMNS, index=pd.DatetimeIndex([]))

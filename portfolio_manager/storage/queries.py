@@ -29,6 +29,7 @@ from portfolio_manager.storage.models import (
     DegiroYahooMap,
     EtfCatalogEntry,
     EtfClass,
+    InterestRate,
     Product,
     SaaAllocation,
     SaaBucket,
@@ -470,6 +471,41 @@ def query_last_close_dates(tickers: list[str]) -> pd.Series:
         .group_by(YahooInstrument.ticker)
     )
     return pd.Series({ticker: pd.Timestamp(day) for ticker, day in select_all(stmt)}, dtype='datetime64[ns]')
+
+
+def save_interest_rates(series: str, values: pd.Series):
+    """Save values of an interest rate series (by date, decimals): the given days overwrite the stored ones."""
+    rows = [
+        {'series': series, 'date': pd.Timestamp(day).date(), 'value': float(value)}
+        for day, value in values.dropna().items()
+    ]
+    if not rows:
+        return
+    stmt = sqlite_insert(InterestRate)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[InterestRate.series, InterestRate.date], set_={'value': stmt.excluded.value}
+    )
+    with SessionLocal() as session:
+        session.execute(stmt, rows)
+        session.commit()
+
+
+def query_interest_rates(series: list[str] | None = None, start: date | None = None) -> pd.DataFrame:
+    """Stored interest rates (every series if none is given), from a day on: date x series, decimals."""
+    stmt = select(InterestRate.series, InterestRate.date, InterestRate.value)
+    if series is not None:
+        stmt = stmt.where(InterestRate.series.in_(series))
+    if start is not None:
+        stmt = stmt.where(InterestRate.date >= start)
+    df = pd.read_sql(stmt, engine)
+    df['date'] = pd.to_datetime(df['date'])
+    return df.pivot(index='date', columns='series', values='value').sort_index()
+
+
+def query_interest_rate_last_dates() -> dict[str, date]:
+    """Last stored day of each interest rate series, by key."""
+    stmt = select(InterestRate.series, func.max(InterestRate.date)).group_by(InterestRate.series)
+    return {series: day for series, day in select_all(stmt)}
 
 
 def select_all(stmt) -> list[tuple]:

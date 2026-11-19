@@ -165,6 +165,18 @@ class YahooPrice(Base):
     __table_args__ = {'sqlite_with_rowid': False}  # the key is the table: no separate index
 
 
+# Interest rates of the Tactical Asset Allocation research (config.taa.RATE_SERIES), one row per series and day (the
+# last day of the month for monthly series), as decimals (0.025 for 2.5%)
+class InterestRate(Base):
+    """A value of an interest rate series."""
+
+    __tablename__ = 'interest_rates'
+    series = Column(String, primary_key=True)  # key of the series (config.taa.RateSeries.key)
+    date = Column(Date, primary_key=True)
+    value = Column(Float, nullable=False)
+    __table_args__ = {'sqlite_with_rowid': False}  # the key is the table: no separate index
+
+
 # ETF catalog of each account: the most traded ETFs and their performance metrics in the account currency
 class EtfCatalogEntry(Base):
     """One ETF of the catalog of an account."""

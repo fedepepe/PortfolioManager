@@ -167,6 +167,36 @@ def refresh_yahoo_history(args: argparse.Namespace):
         logger.info('(%d/%d) %s: %s', n + 1, len(tickers), ticker, refresh_history(ticker, full=args.full))
 
 
+def fetch_taa_data(args: argparse.Namespace):
+    """Bring the data of the Tactical Asset Allocation research up to date: the whole history of its instruments
+    (indices, sectors, bonds, commodities, currencies) and the interest rates (--full: download everything again, e.g.
+    the whole history of a listing stored with fewer years by another page).
+    """
+    import time
+    from collections import Counter
+
+    from portfolio_manager.config.taa import TAA_INSTRUMENTS
+    from portfolio_manager.market_data.history import listing_currencies, refresh_history, refresh_info
+    from portfolio_manager.market_data.rates import update_rates
+
+    tickers = [instrument.ticker for instrument in TAA_INSTRUMENTS]
+    known = listing_currencies(tickers)
+    results = Counter()
+    for n, ticker in enumerate(tickers):
+        try:
+            result = refresh_history(ticker, full=args.full)
+            if ticker not in known:
+                refresh_info(ticker)
+        except Exception as e:  # any download problem: the stored history is kept
+            logger.warning('Yahoo Finance download failed for %s: %s', ticker, e)
+            result = 'failed'
+        results[result] += 1
+        logger.debug('(%d/%d) %s: %s', n + 1, len(tickers), ticker, result)
+        time.sleep(0.2)  # spread the requests to Yahoo Finance
+    logger.info('Instruments downloaded: %s', ', '.join(f'{k} {v}' for k, v in sorted(results.items())))
+    update_rates(full=args.full)
+
+
 def build_etf_catalog(args: argparse.Namespace):
     """Build the ETF catalog of an account from the downloaded data, with its performance metrics."""
     from portfolio_manager.analytics.instruments import build_etf_catalog_data
@@ -344,6 +374,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'build-etf-catalog': (build_etf_catalog, ('account',)),
     'classify-etfs': (classify_etfs, ()),
     'refresh-markets': (refresh_markets, ()),
+    'fetch-taa-data': (fetch_taa_data, ('full',)),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
 }

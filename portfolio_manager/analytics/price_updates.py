@@ -3,9 +3,13 @@ while the dashboard server runs.
 
 At every pass (every CHECK_EVERY), the listings missing the prices of the latest final trading day (see
 market_data.freshness) are updated one by one, in order of priority: the instruments of the saved allocations, of the
-benchmarks and of the portfolios first, then the catalog from the most traded listing. A listing whose download brought
+benchmarks and of the portfolios first, then those of the Tactical Asset Allocation research (config.taa), then the
+catalog from the most traded listing. A listing whose download brought
 nothing new (Yahoo Finance has not published the day yet, or a holiday) is tried again after RETRY_AFTER. After a pass
 that stored new data, the candidates computed today for the allocations are computed again at their next view.
+
+The interest rates of the research (market_data.rates) are updated once a day, from FINAL_HOUR (again after RETRY_AFTER
+when a download failed).
 
 Degiro data is not downloaded here (Update button of the Portfolio page).
 """
@@ -23,7 +27,9 @@ from portfolio_manager.analytics.instruments import (
 )
 from portfolio_manager.analytics.saa import clear_day_cache
 from portfolio_manager.config.accounts import list_accounts
-from portfolio_manager.market_data.freshness import due_listings, latest_final_day, update_listing
+from portfolio_manager.config.taa import TAA_INSTRUMENTS
+from portfolio_manager.market_data.freshness import FINAL_HOUR, due_listings, latest_final_day, update_listing
+from portfolio_manager.market_data.rates import update_rates
 from portfolio_manager.market_data.yahoo import is_yahoo_reachable
 from portfolio_manager.storage.queries import (
     list_allocations,
@@ -57,7 +63,8 @@ class UpdateStatus:
 
 def priority_tickers() -> list[str]:
     """The listings to keep up to date, in order of priority (no duplicates): the instruments of the saved allocations,
-    of the benchmarks and of the portfolios of every account, then the catalog from the most traded listing.
+    of the benchmarks and of the portfolios of every account, then those of the Tactical Asset Allocation research,
+    then the catalog from the most traded listing.
     """
     accounts = list_accounts()
     first = []
@@ -68,6 +75,7 @@ def priority_tickers() -> list[str]:
         benchmark = query_benchmark(account.name)
         first += [c.ticker for c in benchmark.components if c.ticker] if benchmark is not None else []
         first += list(query_degiro_yahoo_map(query_account_product_ids(account.name)).values())
+    first += [instrument.ticker for instrument in TAA_INSTRUMENTS]
     catalog = sorted(set(query_degiro_yahoo_map(catalog_products()['id'].to_list()).values()))
     averages = average_traded_values(catalog)
     connected = [a for a in accounts if a.currency is not None]
@@ -85,6 +93,8 @@ class BackgroundUpdater:
     def __init__(self):
         self.status = UpdateStatus()
         self._attempts: dict[str, datetime] = {}  # last download that brought nothing new, by listing
+        self._rates_checked: datetime | None = None  # last update of the interest rates
+        self._rates_failed = False  # a series of the last update was not downloaded
         self._lock = threading.Lock()  # one pass at a time
         self._thread: threading.Thread | None = None
 
@@ -100,6 +110,10 @@ class BackgroundUpdater:
                 self.run_pass()
             except Exception:  # never stops the loop: the next pass tries again
                 logger.exception('Background update of the prices failed')
+            try:
+                self.update_rates()
+            except Exception:
+                logger.exception('Background update of the interest rates failed')
             time.sleep(CHECK_EVERY)
 
     def run_pass(self, now: datetime | None = None) -> int:
@@ -143,6 +157,22 @@ class BackgroundUpdater:
             if self.status.running:
                 self.status = replace(self.status, running=False)
             self._lock.release()
+
+    def update_rates(self, now: datetime | None = None) -> bool:
+        """Update the interest rates once a day from FINAL_HOUR (again after RETRY_AFTER if a download failed); returns
+        whether they were updated.
+        """
+        now = now or datetime.now()
+        checked = self._rates_checked
+        if now.hour < FINAL_HOUR or (
+            checked is not None
+            and checked.date() == now.date()
+            and (not self._rates_failed or now - checked < RETRY_AFTER)
+        ):
+            return False
+        results = update_rates()
+        self._rates_checked, self._rates_failed = now, bool(results.get('failed'))
+        return True
 
 
 UPDATER = BackgroundUpdater()  # the one of the dashboard server

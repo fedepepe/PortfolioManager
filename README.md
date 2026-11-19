@@ -66,8 +66,9 @@ python main.py
 Then open <http://127.0.0.1:8000/portfolio_manager>. Start-up and the pages only read the data saved by previous
 runs; the Degiro data is downloaded only with the **Update** button (Portfolio page), which turns orange when the
 prices of a newer trading day are available. The Yahoo Finance data of the listings in use (allocations, benchmarks,
-portfolios, then the catalog from the most traded) is brought up to date in the background while the server runs:
-the prices of a trading day count as final from 08:00 of the next day. **Run backtest** (Strategic Asset Allocation
+portfolios, the instruments of the Tactical Asset Allocation research, then the catalog from the most traded) is brought
+up to date in the background while the server runs: the prices of a trading day count as final from 08:00 of the next
+day. The interest rates of the research (ECB, SNB, Bank of England, US Treasury yields) are updated once a day. **Run backtest** (Strategic Asset Allocation
 page) offers to download the new prices of its instruments first.
 
 ### First run
@@ -153,6 +154,7 @@ python tasks.py classify-etfs                      # asset classes of the catalo
 python tasks.py build-etf-catalog                  # catalog of each account
 python tasks.py refresh-yahoo-history --full       # download every stored Yahoo Finance history again
 python tasks.py refresh-markets                    # the data of the Markets page
+python tasks.py fetch-taa-data [--full]            # instruments (whole history) and interest rates of the TAA research
 ```
 
 ## Data

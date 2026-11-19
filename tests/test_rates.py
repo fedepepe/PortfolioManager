@@ -28,16 +28,23 @@ SNB_CSV = (
     '"2026-10-30";"CHF";"2J";""\n'
 )
 BOE_CSV = 'DATE,IUDSOIA\n14 Nov 2026,3.9833\n17 Nov 2026,3.984\n'
+BIS_CSV = 'FREQ,REF_AREA,UNIT_MEASURE,TIME_PERIOD,OBS_VALUE\nD,JP,368,2026-11-16,1.25\nD,JP,368,2026-11-17,1.25\n'
 
 ESTR = RateSeries('EUR_ESTR', '€STR', 'EUR', 'O/N', RateSources.ECB, 'EST/B.EU000A2X2A25.WT')
 CHF_10Y = RateSeries('CHF_GOV_10Y', 'Swiss 10Y', 'CHF', '10Y', RateSources.SNB, 'rendeiduebd/CHF/10J')
 SONIA = RateSeries('GBP_SONIA', 'SONIA', 'GBP', 'O/N', RateSources.BOE, 'IUDSOIA')
+JPY = RateSeries('JPY_POLICY', 'Bank of Japan', 'JPY', 'Policy', RateSources.BIS, 'WS_CBPOL/D.JP')
 
 
 @pytest.fixture
 def downloads(monkeypatch):
     # the answers of the central banks by address, and the requests made
-    answers = {'data-api.ecb.europa.eu': ECB_CSV, 'data.snb.ch': SNB_CSV, 'bankofengland.co.uk': BOE_CSV}
+    answers = {
+        'data-api.ecb.europa.eu': ECB_CSV,
+        'data.snb.ch': SNB_CSV,
+        'bankofengland.co.uk': BOE_CSV,
+        'stats.bis.org': BIS_CSV,
+    }
     requests_made = []
 
     def fake_get(url, params=None):
@@ -57,6 +64,12 @@ def test_central_bank_files_read_as_decimals(downloads):
     sonia = rates.download_rates(SONIA, start=date(2026, 11, 1))
     assert sonia.index.tolist() == [pd.Timestamp('2026-11-14'), pd.Timestamp('2026-11-17')]
     assert downloads[-1][1]['Datefrom'] == '01/Nov/2026'
+    # a central bank policy rate from the BIS
+    policy = rates.download_rates(JPY, start=date(2026, 11, 10))
+    assert policy.tolist() == [pytest.approx(0.0125)] * 2
+    url, params = downloads[-1]
+    assert url == 'https://stats.bis.org/api/v1/data/WS_CBPOL/D.JP'
+    assert params == {'format': 'csv', 'startPeriod': '2026-11-10'}
 
 
 def test_snb_table_downloaded_once_per_update(downloads):

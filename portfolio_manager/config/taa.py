@@ -1,6 +1,6 @@
 """Instruments and interest rates of the Tactical Asset Allocation research: equity indices, sectors, bonds,
 commodities and currencies (Yahoo Finance listings, their whole history), and the interest rates of the main
-currencies (central banks and Yahoo Finance).
+currencies (central banks, the BIS and Yahoo Finance).
 
 Total returns: a total return index where Yahoo Finance has one (S&P 500 TR, SPI), otherwise an ETF on the index,
 accumulating or with its distributions stored (adjusted close). Commodities are investable funds, which include the cost
@@ -103,6 +103,7 @@ class RateSources:
     SNB = 'SNB'  # Swiss National Bank data portal: code = 'cube/item'
     BOE = 'BoE'  # Bank of England database: code = series code
     YAHOO = 'Yahoo'  # Yahoo Finance index of the yield: code = ticker
+    BIS = 'BIS'  # Bank for International Settlements data portal: code = 'dataflow/series key'
 
 
 class RateSeries(NamedTuple):
@@ -145,4 +146,18 @@ DEFAULT_RATE_SERIES = [
     RateSeries('USD_GOV_5Y', 'US Treasuries 5Y', 'USD', '5Y', RateSources.YAHOO, '^FVX'),
     RateSeries('USD_GOV_10Y', 'US Treasuries 10Y', 'USD', '10Y', RateSources.YAHOO, '^TNX'),
     RateSeries('USD_GOV_30Y', 'US Treasuries 30Y', 'USD', '30Y', RateSources.YAHOO, '^TYX'),
+    # other currencies of the currency pairs: central bank policy rates (BIS), the cash rate of the currency
+    *[
+        RateSeries(
+            f'{currency}_POLICY', f'{bank} policy rate', currency, 'Policy', RateSources.BIS, f'WS_CBPOL/D.{area}'
+        )
+        for currency, area, bank in [
+            ('JPY', 'JP', 'Bank of Japan'),
+            ('AUD', 'AU', 'Reserve Bank of Australia'),
+            ('CAD', 'CA', 'Bank of Canada'),
+            ('NZD', 'NZ', 'Reserve Bank of New Zealand'),
+            ('SEK', 'SE', 'Sveriges Riksbank'),
+            ('NOK', 'NO', 'Norges Bank'),
+        ]
+    ],
 ]

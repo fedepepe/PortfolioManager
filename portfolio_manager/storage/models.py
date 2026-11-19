@@ -197,7 +197,7 @@ class TaaRateSeriesEntry(Base):
     label = Column(String, nullable=False)
     currency = Column(String, nullable=False)
     tenor = Column(String, nullable=False)  # O/N, 3M, 2Y, ...
-    source = Column(String, nullable=False)  # ECB, SNB, BoE, Yahoo (config.taa.RateSources)
+    source = Column(String, nullable=False)  # ECB, SNB, BoE, BIS, Yahoo (config.taa.RateSources)
     code = Column(String, nullable=False)
     position = Column(Integer, nullable=False)
     active = Column(Boolean, nullable=False)  # paused: the stored values are kept, no longer updated

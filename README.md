@@ -68,7 +68,7 @@ runs; the Degiro data is downloaded only with the **Update** button (Portfolio p
 prices of a newer trading day are available. The Yahoo Finance data of the listings in use (allocations, benchmarks,
 portfolios, the instruments of the Tactical Asset Allocation research, then the catalog from the most traded) is brought
 up to date in the background while the server runs: the prices of a trading day count as final from 08:00 of the next
-day. The interest rates of the research (ECB, SNB, Bank of England, US Treasury yields) are updated once a day. **Run backtest** (Strategic Asset Allocation
+day. The interest rates of the research (ECB, SNB, Bank of England, BIS, US Treasury yields) are updated once a day. **Run backtest** (Strategic Asset Allocation
 page) offers to download the new prices of its instruments first.
 
 ### First run

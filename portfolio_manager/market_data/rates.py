@@ -1,5 +1,5 @@
 """Interest rates of the Tactical Asset Allocation research (table taa_rate_series), downloaded from the central banks
-(ECB, SNB, Bank of England: public data, no account) and Yahoo Finance (US Treasury yields), stored as decimals.
+(ECB, SNB, Bank of England, BIS: public data, no account) and Yahoo Finance (US Treasury yields), stored as decimals.
 
 A series without stored values is downloaded whole; later downloads fetch the days from a few before the last stored
 one (corrections and late publications overwrite the stored values). The SNB serves whole tables only: each is
@@ -24,6 +24,7 @@ TIMEOUT = 30  # seconds
 HEADERS = {'User-Agent': 'Mozilla/5.0'}  # the SNB and the Bank of England refuse requests without a browser agent
 OVERLAP = timedelta(days=10)  # stored days downloaded again
 ECB_URL = 'https://data-api.ecb.europa.eu/service/data/{code}'
+BIS_URL = 'https://stats.bis.org/api/v1/data/{code}'
 SNB_URL = 'https://data.snb.ch/api/cube/{cube}/data/csv/en'
 BOE_URL = 'https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp'
 BOE_FIRST_DAY = date(1975, 1, 1)
@@ -35,13 +36,13 @@ def _get(url: str, params: dict | None = None) -> str:
     return response.content.decode('utf-8-sig')  # without the byte order mark of the SNB files
 
 
-def ecb_rates(code: str, start: date | None = None) -> pd.Series:
-    """A series of the ECB data portal ('dataflow/series key'), in percent by date, from a day on (all without)."""
-    params = {'format': 'csvdata'}
+def sdmx_rates(url: str, csv_format: str, start: date | None = None) -> pd.Series:
+    """A series of an SDMX data portal (ECB, BIS) as CSV, in percent by date, from a day on (all without)."""
+    params = {'format': csv_format}
     if start is not None:
         params['startPeriod'] = start.isoformat()
     try:
-        text = _get(ECB_URL.format(code=code), params)
+        text = _get(url, params)
     except requests.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:  # no value from that day on
             return pd.Series(dtype=float)
@@ -50,6 +51,16 @@ def ecb_rates(code: str, start: date | None = None) -> pd.Series:
         return pd.Series(dtype=float)
     df = pd.read_csv(io.StringIO(text), usecols=['TIME_PERIOD', 'OBS_VALUE'])
     return pd.Series(df['OBS_VALUE'].to_numpy(float), index=pd.to_datetime(df['TIME_PERIOD']))
+
+
+def ecb_rates(code: str, start: date | None = None) -> pd.Series:
+    """A series of the ECB data portal ('dataflow/series key'), in percent by date, from a day on (all without)."""
+    return sdmx_rates(ECB_URL.format(code=code), 'csvdata', start)
+
+
+def bis_rates(code: str, start: date | None = None) -> pd.Series:
+    """A series of the BIS data portal ('dataflow/series key'), in percent by date, from a day on (all without)."""
+    return sdmx_rates(BIS_URL.format(code=code), 'csv', start)
 
 
 def snb_table(cube: str) -> pd.DataFrame:
@@ -104,6 +115,8 @@ def download_rates(series: RateSeries, start: date | None = None, snb_tables: di
     """
     if series.source == RateSources.ECB:
         percent = ecb_rates(series.code, start)
+    elif series.source == RateSources.BIS:
+        percent = bis_rates(series.code, start)
     elif series.source == RateSources.BOE:
         percent = boe_rates(series.code, start)
     elif series.source == RateSources.YAHOO:

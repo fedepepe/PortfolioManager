@@ -3,7 +3,8 @@ while the dashboard server runs.
 
 At every pass (every CHECK_EVERY), the listings missing the prices of the latest final trading day (see
 market_data.freshness) are updated one by one, in order of priority: the instruments of the saved allocations, of the
-benchmarks and of the portfolios first, then those in use of the Tactical Asset Allocation research, then the
+benchmarks and of the portfolios first, then those in use of the Tactical Asset Allocation research and the stocks
+of its indices, then the
 catalog from the most traded listing. A listing whose download brought
 nothing new (Yahoo Finance has not published the day yet, or a holiday) is tried again after RETRY_AFTER. After a pass
 that stored new data, the candidates computed today for the allocations are computed again at their next view.
@@ -36,6 +37,7 @@ from portfolio_manager.storage.queries import (
     query_allocation,
     query_benchmark,
     query_degiro_yahoo_map,
+    query_index_members,
     query_taa_instruments,
 )
 
@@ -76,6 +78,7 @@ def priority_tickers() -> list[str]:
         first += [c.ticker for c in benchmark.components if c.ticker] if benchmark is not None else []
         first += list(query_degiro_yahoo_map(query_account_product_ids(account.name)).values())
     first += [instrument.ticker for instrument in query_taa_instruments()]
+    first += query_index_members()['ticker'].to_list()
     catalog = sorted(set(query_degiro_yahoo_map(catalog_products()['id'].to_list()).values()))
     averages = average_traded_values(catalog)
     connected = [a for a in accounts if a.currency is not None]

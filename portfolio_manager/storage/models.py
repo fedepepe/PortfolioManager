@@ -188,6 +188,23 @@ class TaaInstrumentEntry(Base):
     active = Column(Boolean, nullable=False)  # paused: the stored data is kept, no longer updated
 
 
+# Members of the stock indices of the Tactical Asset Allocation research, as listed by Wikipedia: today's members, and
+# the former ones seen in an earlier list (current false)
+class IndexMember(Base):
+    """A stock of an index: its Yahoo Finance ticker, name and sector, whether it is a member of the latest list, and
+    when it was first and last seen in a list.
+    """
+
+    __tablename__ = 'index_members'
+    index_name = Column(String, primary_key=True)  # S&P 500, SMI, Euro Stoxx 50
+    ticker = Column(String, primary_key=True)  # Yahoo Finance listing
+    name = Column(String)
+    sector = Column(String)
+    current = Column(Boolean, nullable=False)
+    first_seen = Column(Date, nullable=False)
+    last_seen = Column(Date, nullable=False)
+
+
 # Interest rate series of the Tactical Asset Allocation research (starting data: config.taa)
 class TaaRateSeriesEntry(Base):
     """An interest rate series: where it is downloaded from (source and its code there)."""

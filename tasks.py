@@ -168,18 +168,21 @@ def refresh_yahoo_history(args: argparse.Namespace):
 
 
 def fetch_taa_data(args: argparse.Namespace):
-    """Bring the data of the Tactical Asset Allocation research up to date: the whole history of its instruments in use
-    (indices, sectors, bonds, commodities, currencies) and the interest rates in use (--full: download everything
-    again, e.g. the whole history of a listing stored with fewer years by another page).
+    """Bring the data of the Tactical Asset Allocation research up to date: the members of its stock indices
+    (Wikipedia), the whole history of its instruments in use (indices, sectors, bonds, commodities, currencies) and of
+    the stocks, and the interest rates in use (--full: download everything again, e.g. the whole history of a listing
+    stored with fewer years by another page).
     """
     import time
     from collections import Counter
 
     from portfolio_manager.market_data.history import listing_currencies, refresh_history, refresh_info
+    from portfolio_manager.market_data.index_members import member_tickers, refresh_index_members
     from portfolio_manager.market_data.rates import update_rates
     from portfolio_manager.storage.queries import query_taa_instruments
 
-    tickers = [instrument.ticker for instrument in query_taa_instruments()]
+    refresh_index_members()
+    tickers = list(dict.fromkeys([i.ticker for i in query_taa_instruments()] + member_tickers()))
     known = listing_currencies(tickers)
     results = Counter()
     for n, ticker in enumerate(tickers):
@@ -192,6 +195,8 @@ def fetch_taa_data(args: argparse.Namespace):
             result = 'failed'
         results[result] += 1
         logger.debug('(%d/%d) %s: %s', n + 1, len(tickers), ticker, result)
+        if (n + 1) % 100 == 0:
+            logger.info('%d of %d listings downloaded', n + 1, len(tickers))
         time.sleep(0.2)  # spread the requests to Yahoo Finance
     logger.info('Instruments downloaded: %s', ', '.join(f'{k} {v}' for k, v in sorted(results.items())))
     update_rates(full=args.full)

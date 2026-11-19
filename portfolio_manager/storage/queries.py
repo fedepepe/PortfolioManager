@@ -31,6 +31,7 @@ from portfolio_manager.storage.models import (
     DegiroYahooMap,
     EtfCatalogEntry,
     EtfClass,
+    IndexMember,
     InterestRate,
     MarketInstrumentEntry,
     Product,
@@ -516,6 +517,58 @@ def save_taa_instruments(instruments: list[TaaInstrument]):
 def query_taa_instruments(active_only: bool = True) -> list[TaaInstrument]:
     """The instruments of the Tactical Asset Allocation research, in their order (those in use by default)."""
     return _query_list(TaaInstrumentEntry, TaaInstrument, active_only)
+
+
+INDEX_MEMBER_COLUMNS = ['index_name', 'ticker', 'name', 'sector', 'current', 'first_seen', 'last_seen']
+
+
+def save_index_members(index_name: str, members: pd.DataFrame, day: date):
+    """Save the latest list of the members of an index (columns ticker, name, sector), seen on a day: they are the
+    current members (name and sector updated); the stored members missing from it become former members.
+    """
+    stored = query_index_members(index_name, current_only=False).set_index('ticker')
+    rows = []
+    for row in members.itertuples(index=False):
+        first = stored.loc[row.ticker, 'first_seen'] if row.ticker in stored.index else day
+        rows.append(
+            {
+                'index_name': index_name,
+                'ticker': row.ticker,
+                'name': row.name,
+                'sector': row.sector,
+                'current': True,
+                'first_seen': first,
+                'last_seen': day,
+            }
+        )
+    former = stored.index.difference(members['ticker'])
+    with SessionLocal() as session:
+        if len(former):
+            session.query(IndexMember).filter(
+                IndexMember.index_name == index_name, IndexMember.ticker.in_(list(former))
+            ).update({'current': False}, synchronize_session=False)
+        if rows:
+            stmt = sqlite_insert(IndexMember)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[IndexMember.index_name, IndexMember.ticker],
+                set_={c: stmt.excluded[c] for c in ['name', 'sector', 'current', 'last_seen']},
+            )
+            session.execute(stmt, rows)
+        session.commit()
+
+
+def query_index_members(index_name: str | None = None, current_only: bool = True) -> pd.DataFrame:
+    """Members of an index (of every index if none is given): one row per index and stock (INDEX_MEMBER_COLUMNS),
+    today's members only by default.
+    """
+    stmt = select(*[IndexMember.__table__.c[c] for c in INDEX_MEMBER_COLUMNS])
+    if index_name is not None:
+        stmt = stmt.where(IndexMember.index_name == index_name)
+    if current_only:
+        stmt = stmt.where(IndexMember.current.is_(True))
+    return pd.DataFrame(
+        select_all(stmt.order_by(IndexMember.index_name, IndexMember.ticker)), columns=INDEX_MEMBER_COLUMNS
+    )
 
 
 def save_rate_series(series: list[RateSeries]):

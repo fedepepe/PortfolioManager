@@ -19,11 +19,13 @@ import pandas as pd
 from portfolio_manager.market_data.index_members import STOCK_INDICES
 from portfolio_manager.research import signals
 from portfolio_manager.research.backtest import (
+    COST_RATE,
     BacktestResult,
     budgets,
     cross_section_weights,
     run_backtest,
     signal_days,
+    signal_weighted_weights,
     summary,
     time_series_weights,
 )
@@ -36,6 +38,10 @@ STOCK_UNIVERSES = [stock_group(index.name) for index in STOCK_INDICES]
 SECTOR_NEUTRAL_UNIVERSES = [stock_group('S&P 500')]  # enough stocks in each sector
 STOCK_FRACTION = 0.2  # stocks: the top (and bottom) fifth
 MIN_MEMBER_COVERAGE = 0.5  # share of today's members with prices from which the stocks of an index are studied
+# single-instrument (time-series) strategies with signal-weighted positions: on these universes
+TIME_SERIES_UNIVERSES = ['Equity indices', 'US sectors', 'European sectors', 'Commodities', *STOCK_UNIVERSES]
+COST_SCENARIO = 0.0025  # a cost scenario closer to small orders of single stocks (0.25% per trade)
+NO_TRADE_BAND = 0.1  # strategies checked daily: positions traded only when 10% of their share away (Carver 2015)
 CURRENCIES_UNIVERSE = 'Currencies vs USD'
 HEDGING_PREFIX = 'Hedging '  # + the investor's currency
 INVESTOR_CURRENCIES = ['CHF', 'EUR']  # of the accounts
@@ -85,13 +91,18 @@ class Strategy:
     risk_parity: bool = False
     fraction: float = 1 / 3
     sector_neutral: bool = False
+    signal_weighted: bool = False  # positions proportional to the scaled signal, not to its sign
+    no_trade_band: float = 0.0  # fraction of an instrument's share within which its position is not traded
 
     @property
     def label(self) -> str:
         """Name, construction and side, e.g. 'Momentum 12M (TS, long-only)'."""
         side = 'long/short' if self.long_short else 'long-only'
-        neutral = ', sector-neutral' if self.sector_neutral else ''
-        return f'{self.name} ({self.construction.upper()}{neutral}, {side})'
+        options = (', sector-neutral' if self.sector_neutral else '') + (
+            ', signal-weighted' if self.signal_weighted else ''
+        )
+        daily = ', daily' if self.freq == 'B' else ', weekly' if self.freq.startswith('W') else ''
+        return f'{self.name} ({self.construction.upper()}{options}{daily}, {side})'
 
 
 def term_spreads(data: ResearchData, instruments: pd.DataFrame) -> pd.DataFrame:
@@ -213,6 +224,7 @@ def default_strategies() -> list[Strategy]:
                 family='Carry', name=name, universe=universe, signal=_carry, construction=construction
             )
     strategies += stock_strategies()
+    strategies += time_series_strategies()
     for home in INVESTOR_CURRENCIES:
         u = {'family': 'Currency hedging', 'universe': HEDGING_PREFIX + home}
         strategies += [
@@ -259,6 +271,66 @@ def stock_strategies() -> list[Strategy]:
     return strategies
 
 
+def time_series_strategies() -> list[Strategy]:
+    """Single-instrument strategies on the stocks, the equity indices, the sectors and the commodities, long-only and
+    long/short (see the references of research.signals):
+
+    - time-series momentum (Moskowitz, Ooi and Pedersen 2012) over 3, 6 and 12 months, positions proportional to the
+      risk-adjusted return (Baltas and Kosowski 2013), monthly; on the stocks also by its sign;
+    - time-series reversal: the opposite of the risk-adjusted return over 1 week and 1 month, and the Bollinger z-score
+      over 20 days (Bollinger 2001), weekly; on the stocks also the sign of the 1-month return, monthly;
+    - moving-average crossovers checked daily with a no-trade band (Carver 2015): the 50/200-day golden cross by its
+      sign (Brock, Lakonishok and LeBaron 1992), the 20/100 and 50/200-day gaps and the EWMAC 16/64 and 32/128
+      (Carver 2015) signal-weighted.
+    """
+    strategies = []
+
+    def both_sides(**kwargs):
+        strategies.extend([Strategy(**kwargs), Strategy(**kwargs, long_short=True)])
+
+    for universe in TIME_SERIES_UNIVERSES:
+        stocks = universe in STOCK_UNIVERSES
+        u = {'universe': universe}
+        weighted = {'signal_weighted': True}
+        daily = {'freq': 'B', 'no_trade_band': NO_TRADE_BAND}
+        for months in [3, 6, 12]:
+            days = months * signals.DAYS_PER_MONTH
+            name = f'Momentum {months}M'
+            score = lambda x, d=days: signals.risk_adjusted_return(x.index, x.excess, d)  # noqa: E731
+            both_sides(family='Trend', name=name, signal=score, **weighted, **u)
+            if stocks:
+                both_sides(family='Trend', name=name, signal=lambda x, m=months: signals.momentum(x.index, m), **u)
+        for days, period in [(5, '1W'), (21, '1M')]:
+            score = lambda x, d=days: -signals.risk_adjusted_return(x.index, x.excess, d)  # noqa: E731
+            both_sides(family='Mean reversion', name=f'Reversal {period}', signal=score, freq='W-FRI', **weighted, **u)
+        both_sides(
+            family='Mean reversion',
+            name='Bollinger z-score 20D',
+            signal=lambda x: signals.bollinger_reversal(x.index, 20),
+            freq='W-FRI',
+            **weighted,
+            **u,
+        )
+        if stocks:
+            both_sides(family='Mean reversion', name='Reversal 1M', signal=lambda x: signals.reversal(x.index, 21), **u)
+        both_sides(
+            family='Moving averages',
+            name='Golden cross 50/200',
+            signal=lambda x: signals.ma_crossover(x.index, 50, 200),
+            **daily,
+            **u,
+        )
+        for fast, slow in [(20, 100), (50, 200)]:
+            score = lambda x, f=fast, s=slow: signals.sma_crossover_gap(x.index, x.excess, f, s)  # noqa: E731
+            both_sides(
+                family='Moving averages', name=f'Moving averages {fast}/{slow}', signal=score, **weighted, **daily, **u
+            )
+        for fast, slow in [(16, 64), (32, 128)]:
+            score = lambda x, f=fast, s=slow: signals.ewmac(x.index, x.excess, f, s)  # noqa: E731
+            both_sides(family='Moving averages', name=f'EWMAC {fast}/{slow}', signal=score, **weighted, **daily, **u)
+    return strategies
+
+
 def within_sectors(score: pd.DataFrame, sectors: pd.Series) -> pd.DataFrame:
     """Rank of each score among the stocks of its sector each day, from 0 to 1 (a stock without sector keeps none)."""
     ranks = [
@@ -268,17 +340,35 @@ def within_sectors(score: pd.DataFrame, sectors: pd.Series) -> pd.DataFrame:
     return pd.concat(ranks, axis=1).reindex(columns=score.columns) if ranks else score * np.nan
 
 
-def strategy_weights(strategy: Strategy, universe: Universe) -> pd.DataFrame:
-    """Target weights of a strategy on its signal days."""
+def strategy_positions(strategy: Strategy, universe: Universe) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Target weights of a strategy on its signal days, and the no-trade band of each position."""
     days = signal_days(universe.excess.index, strategy.freq)
-    score = strategy.signal(universe).reindex(days)
+    daily_score = strategy.signal(universe)
+    if strategy.signal_weighted:  # scaled with the data up to each day, before sampling the signal days
+        daily_score = signals.scale_forecast(daily_score)
+    score = daily_score.reindex(days)
     if strategy.sector_neutral and universe.sectors is not None:
         score = within_sectors(score, universe.sectors)
     eligible = universe.index.reindex(days).notna() & score.notna()
     budget = budgets(eligible, universe.vol.reindex(days) if strategy.risk_parity else None)
     if strategy.construction == 'xs':
-        return cross_section_weights(score, budget, fraction=strategy.fraction, long_short=strategy.long_short)
-    return time_series_weights(score, budget, long_short=strategy.long_short, threshold=strategy.threshold)
+        weights = cross_section_weights(score, budget, fraction=strategy.fraction, long_short=strategy.long_short)
+    elif strategy.signal_weighted:
+        weights = signal_weighted_weights(score, budget, signals.FORECAST_CAP, long_short=strategy.long_short)
+    else:
+        weights = time_series_weights(score, budget, long_short=strategy.long_short, threshold=strategy.threshold)
+    return weights, budget * strategy.no_trade_band
+
+
+def strategy_weights(strategy: Strategy, universe: Universe) -> pd.DataFrame:
+    """Target weights of a strategy on its signal days."""
+    return strategy_positions(strategy, universe)[0]
+
+
+def backtest_strategy(strategy: Strategy, universe: Universe) -> BacktestResult:
+    """Backtest of a strategy on its universe."""
+    weights, bands = strategy_positions(strategy, universe)
+    return run_backtest(weights, universe.excess, bands=bands if strategy.no_trade_band else None)
 
 
 def benchmark_weights(universe: Universe, freq: str = 'M') -> pd.DataFrame:
@@ -296,8 +386,9 @@ class StrategyResults:
     benchmarks: dict[str, BacktestResult]
 
     def table(self) -> pd.DataFrame:
-        """One row per strategy: its summary, and the excess return and Sharpe ratio of its benchmark over the same
-        days (cash for long/short strategies: 0).
+        """One row per strategy: its summary, its excess return with trades costing COST_SCENARIO instead (about: the
+        extra cost times the turnover), and the excess return and Sharpe ratio of its benchmark over the same days
+        (cash for long/short strategies: 0).
         """
         rows = []
         for strategy, result in self.backtests.items():
@@ -308,6 +399,8 @@ class StrategyResults:
                 'start': result.returns.index[0] if len(result.returns) else pd.NaT,
                 **summary(result),
             }
+            if 'excess_return' in row:
+                row['excess_return_high_costs'] = row['excess_return'] - (COST_SCENARIO - COST_RATE) * row['turnover']
             if strategy.long_short:
                 row['benchmark_return'], row['benchmark_sharpe'] = 0.0, np.nan
             else:
@@ -325,9 +418,7 @@ def run_strategies(strategies: list[Strategy] | None = None, data: ResearchData 
     data = data or load_research_data()
     universes = build_universes(data)
     strategies = [s for s in strategies or default_strategies() if s.universe in universes]
-    backtests = {
-        s: run_backtest(strategy_weights(s, universes[s.universe]), universes[s.universe].excess) for s in strategies
-    }
+    backtests = {s: backtest_strategy(s, universes[s.universe]) for s in strategies}
     benchmarks = {
         name: run_backtest(benchmark_weights(universes[name]), universes[name].excess)
         for name in {s.universe for s in strategies}

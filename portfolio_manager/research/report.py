@@ -23,6 +23,7 @@ REPORT_FILE = os.path.join(RESULTS_DIR, 'taa_research.xlsx')
 DERIVED_KIND, DERIVED_NAME = 'taa_research', 'latest'
 PERCENT_COLUMNS = {
     'excess_return',
+    'excess_return_high_costs',
     'volatility',
     'max_drawdown',
     'benchmark_return',
@@ -46,6 +47,23 @@ NOTES = [
         'TS / XS',
         'Time series: each instrument on its own (held while its signal is positive, in cash otherwise). '
         'Cross section: the top third of the universe by signal (short the bottom third for long/short).',
+    ),
+    (
+        'signal-weighted',
+        'Positions proportional to the signal scaled to an average size of 1 and capped at 2 (Baltas and Kosowski '
+        '2013; Carver 2015), the whole share of the instrument at the cap. Risk-adjusted momentum and reversal: the '
+        'return divided by its expected volatility (Moskowitz, Ooi and Pedersen 2012). EWMAC: exponential moving-'
+        'average crossover over the price volatility (Carver 2015). Golden cross: 50/200-day averages (Brock, '
+        'Lakonishok and LeBaron 1992). Bollinger z-score: distance from the 20-day average (Bollinger 2001).',
+    ),
+    (
+        'daily / weekly',
+        'Signals checked every day (moving averages) or week (reversal); daily strategies trade a position only when '
+        'it is 10% of its share away from the target (no-trade band, Carver 2015).',
+    ),
+    (
+        'excess_return_high_costs',
+        'Excess return with trades costing 0.25% instead of 0.10% (about: 0.15% times the turnover per year).',
     ),
     (
         'Stocks',

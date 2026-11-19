@@ -102,6 +102,22 @@ def time_series_regressions(
     )
 
 
+def pooled_regression(signal: pd.DataFrame, forward: pd.DataFrame) -> Regression:
+    """The pooled regression of time_series_regressions only (fast on hundreds of stocks)."""
+    pair = pd.concat([signal.stack(), forward.stack()], axis=1, keys=['x', 'y']).dropna()
+    if pair.empty:
+        return Regression.empty()
+    by_ticker = pair.groupby(level=1)
+    counts, stds = by_ticker['x'].transform('size'), by_ticker.transform('std')
+    usable = (counts >= MIN_OBSERVATIONS) & (stds['x'] > 0) & (stds['y'] > 0)
+    pair, stds = pair[usable], stds[usable]
+    if pair.empty:
+        return Regression.empty()
+    scaled = (pair - pair.groupby(level=1).transform('mean')) / stds
+    groups = pd.factorize(scaled.index.get_level_values(0))[0]
+    return _ols(scaled['y'].to_numpy(), scaled['x'].to_numpy(), cov_type='cluster', cov_kwds={'groups': groups})
+
+
 def fama_macbeth(signal: pd.DataFrame, forward: pd.DataFrame, min_count: int = 3) -> Regression:
     """Average slope of the period-by-period regressions of the forward returns on the signal standardized across the
     instruments, its Newey-West t-statistic, and the number of periods.
@@ -123,10 +139,11 @@ def signal_test(strategy: Strategy, universe: Universe) -> Regression:
     score = strategy.signal(universe)
     if strategy.sector_neutral and universe.sectors is not None:
         score = within_sectors(score, universe.sectors)
-    signal, forward = signal_and_forward_returns(score, universe.index, strategy.freq)
+    freq = 'M' if strategy.freq == 'B' else strategy.freq  # daily signals: tested on the next month
+    signal, forward = signal_and_forward_returns(score, universe.index, freq)
     if strategy.construction == 'xs':
         return fama_macbeth(signal, forward)
-    return time_series_regressions(signal, forward)[1]
+    return pooled_regression(signal, forward)
 
 
 def monthly_returns(daily: pd.Series) -> pd.Series:

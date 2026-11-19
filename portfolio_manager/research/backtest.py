@@ -44,6 +44,16 @@ def time_series_weights(
     return budget * long
 
 
+def signal_weighted_weights(
+    forecast: pd.DataFrame, budget: pd.DataFrame, cap: float, long_short: bool = False
+) -> pd.DataFrame:
+    """Positions proportional to a scaled forecast (Baltas and Kosowski 2013; Carver 2015): each instrument holds its
+    share times forecast / cap, the whole share at the cap; long-only: no position for a negative forecast (cash).
+    """
+    lower = -1.0 if long_short else 0.0
+    return budget * (forecast / cap).clip(lower, 1.0).fillna(0.0)
+
+
 def cross_section_weights(
     score: pd.DataFrame, budget: pd.DataFrame, fraction: float = 1 / 3, long_short: bool = False, min_count: int = 3
 ) -> pd.DataFrame:
@@ -98,26 +108,35 @@ def stop_at_ruin(returns: np.ndarray) -> np.ndarray:
 
 
 def run_backtest(
-    weights: pd.DataFrame, excess_returns: pd.DataFrame, cost_rate: float = COST_RATE, lag: int = TRADE_LAG
+    weights: pd.DataFrame,
+    excess_returns: pd.DataFrame,
+    cost_rate: float = COST_RATE,
+    lag: int = TRADE_LAG,
+    bands: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """Backtest target weights (signal day x ticker) on daily excess returns (see the module), from the first signal
-    day with a position.
+    day with a position. bands (same shape as weights): a position is traded only if it differs from its target by
+    more than its band (a no-trade band, Carver 2015's "buffering", against trading on every small change).
     """
     invested = weights.fillna(0.0).abs().sum(axis=1) > 0
     weights = weights.loc[invested.idxmax() :] if invested.any() else weights.iloc[:0]
     excess = excess_returns.reindex(columns=weights.columns)
     days = excess.index
+    no_trade = bands.reindex_like(weights).fillna(0.0).to_numpy() if bands is not None else None
     x = excess.fillna(0.0).to_numpy()
     targets = weights.fillna(0.0).to_numpy()
     trade_pos = days.get_indexer(weights.index) + lag
     keep = (trade_pos >= lag) & (trade_pos < len(days))
     trade_pos, targets = trade_pos[keep], targets[keep]
+    no_trade = no_trade[keep] if no_trade is not None else None
     returns = np.zeros(len(days))
     turnover = np.zeros(len(trade_pos))
     held = np.zeros(x.shape[1])  # weights after the drift since the last trade
     for n, start in enumerate(trade_pos):
         end = trade_pos[n + 1] if n + 1 < len(trade_pos) else len(days) - 1
         target = targets[n]
+        if no_trade is not None:
+            target = np.where(np.abs(target - held) <= no_trade[n], held, target)
         turnover[n] = np.abs(target - held).sum()
         returns[start] = (1.0 + returns[start]) * (1.0 - cost_rate * turnover[n]) - 1.0
         if end > start:

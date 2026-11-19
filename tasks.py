@@ -197,6 +197,15 @@ def fetch_taa_data(args: argparse.Namespace):
     update_rates(full=args.full)
 
 
+def taa_research(args: argparse.Namespace):
+    """Backtest and test the Tactical Asset Allocation strategies on the stored data: writes results/taa_research.xlsx
+    (and saves its tables for the dashboard).
+    """
+    from portfolio_manager.research.report import run_research
+
+    run_research()
+
+
 def build_etf_catalog(args: argparse.Namespace):
     """Build the ETF catalog of an account from the downloaded data, with its performance metrics."""
     from portfolio_manager.analytics.instruments import build_etf_catalog_data
@@ -375,6 +384,7 @@ COMMANDS: dict[str, tuple[Callable[[argparse.Namespace], None], tuple[str, ...]]
     'classify-etfs': (classify_etfs, ()),
     'refresh-markets': (refresh_markets, ()),
     'fetch-taa-data': (fetch_taa_data, ('full',)),
+    'taa-research': (taa_research, ()),
     'convert-results': (convert_results, ('account',)),
     'import-degiro-excel': (import_degiro_excel, ('account',)),
 }

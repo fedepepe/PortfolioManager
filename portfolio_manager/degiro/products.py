@@ -7,6 +7,7 @@ from portfolio_manager.config.accounts import Account
 from portfolio_manager.config.settings import DATA_DIR
 from portfolio_manager.degiro.connection import get_degiro_connection
 from portfolio_manager.degiro.definitions import ProductTypes
+from portfolio_manager.degiro.models import get_products_info
 from portfolio_manager.storage.files import save_df_to_excel
 from portfolio_manager.storage.models import Product
 from portfolio_manager.storage.queries import (
@@ -27,11 +28,8 @@ def fetch_full_product_catalog(degiro_conn: API | None = None):
         n_start = 0
     n = n_start
     while True:
-        product_info = degiro_conn.get_products_info(
-            product_list=[i for i in range(n, n + 1000)],
-            raw=False,
-        )
-        if hasattr(product_info, 'data'):
+        product_info = get_products_info(degiro_conn, list(range(n, n + 1000)))
+        if product_info is not None:
             for prod_id in product_info.data:
                 if (
                     product_info.data[prod_id].product_type
@@ -52,10 +50,9 @@ def fetch_product_info(degiro_conn: API | None = None, product_ids: int | list[i
     if isinstance(product_ids, int):
         product_ids = [product_ids]
     # FETCH PRODUCT INFO
-    product_info = degiro_conn.get_products_info(
-        product_list=product_ids,
-        raw=False,
-    )
+    product_info = get_products_info(degiro_conn, product_ids)
+    if product_info is None:
+        raise RuntimeError('Degiro did not return the information of the products (see the log)')
     # return as dataframe
     product_info_df = pd.DataFrame.from_dict({k: v.__dict__ for k, v in product_info.data.items()}, orient='index')
     return product_info_df

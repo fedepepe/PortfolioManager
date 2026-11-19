@@ -29,7 +29,7 @@ class Product(Base):
     category = Column(String)
     close_price = Column(Float)
     close_price_date = Column(Date)
-    contract_size = Column(Integer)
+    contract_size = Column(Float)  # fractional for bonds (e.g. 0.01); declared INTEGER in older databases
     currency = Column(String)
     exchange_id = Column(Integer)
     feed_quality = Column(String)

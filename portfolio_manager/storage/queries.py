@@ -6,7 +6,6 @@ from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
-from degiro_connector.trading.models.product import ProductItem
 from sqlalchemy import Boolean, Date, DateTime, Float, Integer, delete, func, insert, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -18,6 +17,7 @@ from portfolio_manager.config.allocations import Allocation, AllocationInstrumen
 from portfolio_manager.config.markets import MarketInstrument
 from portfolio_manager.config.taa import RateSeries, TaaInstrument
 from portfolio_manager.degiro.definitions import Exchanges, ProductTypes
+from portfolio_manager.degiro.models import DegiroProductItem
 from portfolio_manager.optimization.settings import OptimizationSettings
 from portfolio_manager.storage.db import SessionLocal, engine
 from portfolio_manager.storage.models import (
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 DEGIRO_HIST_COLS = ['open', 'high', 'low', 'close', 'price', 'volume']
 
 
-def insert_product(product: ProductItem):
+def insert_product(product: DegiroProductItem):
     """Insert a Degiro product (skipped if already stored)."""
     data = Product(
         active=product.active,

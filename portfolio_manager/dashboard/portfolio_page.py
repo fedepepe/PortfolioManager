@@ -12,6 +12,7 @@ from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.instruments import prices_to_base_curr
 from portfolio_manager.analytics.metrics import CUM_TWR_LABEL, PerfDataTabs
+from portfolio_manager.analytics.price_updates import user_download
 from portfolio_manager.backtest.portfolio import PortfolioBacktestData
 from portfolio_manager.config.accounts import Account, get_account, list_accounts
 from portfolio_manager.dashboard.common import (
@@ -349,7 +350,8 @@ def run_update(n_clicks, account_name: str) -> tuple:
     if not n_clicks:
         raise PreventUpdate
     try:
-        update_account(get_account(account_name))
+        with user_download():
+            update_account(get_account(account_name))
     except Exception as e:  # any download or computation problem: shown next to the button, details in the log
         logger.exception('Update of %s failed', account_name)
         return no_update, html.Span(f'Not updated: {hide_secrets(str(e))}', className='text-danger')
@@ -405,7 +407,8 @@ def update_instr_adj_close_fig(ticker: str | None, account_name: str) -> go.Figu
     # bring the stored history of the selected listing up to date (the whole history the first time)
     if is_yahoo_reachable():
         try:
-            refresh_history(ticker)
+            with user_download():
+                refresh_history(ticker)
         except Exception as e:  # any download problem: the stored history is shown
             logger.warning('Yahoo Finance download failed for %s: %s', ticker, e)
     df = load_adjusted_closes([ticker])

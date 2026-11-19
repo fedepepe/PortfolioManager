@@ -9,6 +9,7 @@ import dash_bootstrap_components as dbc
 from dash import MATCH, Input, Output, State, callback, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
+from portfolio_manager.analytics.price_updates import user_download
 from portfolio_manager.config.accounts import Account, Brokers, add_account, get_account, has_credentials, list_accounts
 from portfolio_manager.degiro.connection import connect_account
 from portfolio_manager.storage.queries import query_benchmark
@@ -150,7 +151,8 @@ def run_connect(n_clicks) -> list:
         message = f'credentials/{account.credentials_file} not found: save the credentials of the account there first'
         return account_row(account, dbc.Alert(message, color='danger'))
     try:
-        account = connect_account(account)
+        with user_download():
+            account = connect_account(account)
     except Exception as e:  # any login or download problem: shown below the account, details in the log
         logger.exception('Connection of %s failed', account.name)
         return account_row(account, dbc.Alert(f'Not connected: {hide_secrets(str(e))}', color='danger'))

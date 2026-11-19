@@ -85,6 +85,29 @@ def test_background_pass_updates_the_due_listings_and_retries_later(fake_listing
     assert fake_listings['downloads'] == ['A', 'B', 'B']  # tried again after 3 hours
 
 
+def test_background_pass_waits_for_the_downloads_started_from_the_dashboard(fake_listings):
+    import threading
+
+    updater = updates.BackgroundUpdater()
+    with updater.user_download():  # e.g. the Update button of the Portfolio page
+        thread = threading.Thread(target=updater.run_pass, args=(datetime(2026, 11, 18, 9, 0),))
+        thread.start()
+        thread.join(timeout=0.5)
+        assert thread.is_alive() and fake_listings['downloads'] == []  # waiting before its first listing
+        assert updater.status.paused and 'paused while your download runs' in updates.status_text(updater.status)
+    thread.join(timeout=5)
+    assert not thread.is_alive() and fake_listings['downloads'] == ['A', 'B']  # went on once it ended
+    assert not updater.status.paused
+
+
+def test_dashboard_downloads_can_overlap(fake_listings):
+    updater = updates.BackgroundUpdater()
+    with updater.user_download(), updater.user_download():
+        assert updater._user_downloads == 2
+    assert updater._user_downloads == 0
+    assert updater.run_pass(datetime(2026, 11, 18, 9, 0)) == 1  # not waiting any more
+
+
 def test_no_pass_without_connection(fake_listings, monkeypatch):
     monkeypatch.setattr(updates, 'is_yahoo_reachable', lambda: False)
     assert updates.BackgroundUpdater().run_pass(datetime(2026, 11, 18, 9, 0)) == 0

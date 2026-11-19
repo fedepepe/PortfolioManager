@@ -10,6 +10,7 @@ from dash import Input, Output, callback, dcc, html
 from plotly.subplots import make_subplots
 
 from portfolio_manager.analytics.markets import market_returns, refresh_market_data
+from portfolio_manager.analytics.price_updates import user_download
 from portfolio_manager.config.markets import MarketInstrument
 from portfolio_manager.dashboard.common import LAYOUT_TEMPLATE, loading_wrapper
 from portfolio_manager.storage.queries import query_market_instruments
@@ -148,6 +149,7 @@ def build_content_markets() -> html.Div:
 )
 def update_markets(n_clicks) -> tuple[go.Figure, str]:
     """Download the new days of the market data, then redraw the tables."""
-    results = refresh_market_data()
+    with user_download():
+        results = refresh_market_data()
     failed = f' ({results["failed"]} failed)' if results.get('failed') else ''
     return build_fig_market_returns(), last_close_text() + failed

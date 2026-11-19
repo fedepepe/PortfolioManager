@@ -13,11 +13,16 @@ The interest rates of the research (market_data.rates) are updated once a day, f
 when a download failed).
 
 Degiro data is not downloaded here (Update button of the Portfolio page).
+
+The downloads started from the dashboard come first: while one runs (inside user_download), the background update waits
+before its next listing (the one being downloaded finishes) and goes on once they are all done.
 """
 
 import logging
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
@@ -61,6 +66,7 @@ class UpdateStatus:
     updated: int = 0
     missing: int = 0
     final_day: object = None  # the latest final trading day of the last pass
+    paused: bool = False  # waiting for downloads started from the dashboard
 
 
 def priority_tickers() -> list[str]:
@@ -100,6 +106,28 @@ class BackgroundUpdater:
         self._rates_failed = False  # a series of the last update was not downloaded
         self._lock = threading.Lock()  # one pass at a time
         self._thread: threading.Thread | None = None
+        self._user_downloads = 0  # downloads started from the dashboard, running now
+        self._user_done = threading.Condition()
+
+    @contextmanager
+    def user_download(self) -> Iterator[None]:
+        """Run a download started from the dashboard first: the background update waits until it ends."""
+        with self._user_done:
+            self._user_downloads += 1
+        try:
+            yield
+        finally:
+            with self._user_done:
+                self._user_downloads -= 1
+                self._user_done.notify_all()
+
+    def _wait_for_user_downloads(self):
+        with self._user_done:
+            if self._user_downloads:
+                self.status = replace(self.status, paused=True)
+                logger.info('Background update of the prices paused: a download started from the dashboard runs')
+                self._user_done.wait_for(lambda: self._user_downloads == 0)
+                self.status = replace(self.status, paused=False)
 
     def start(self):
         """Start the passes in the background (once per process)."""
@@ -135,6 +163,7 @@ class BackgroundUpdater:
             todo = [t for t in tickers if t in due and now - self._attempts.get(t, datetime.min) >= RETRY_AFTER]
             self.status = replace(self.status, running=True, done=0, total=len(todo))
             for n, ticker in enumerate(todo):
+                self._wait_for_user_downloads()
                 try:
                     update_listing(ticker)
                 except Exception as e:  # any download problem: tried again later
@@ -173,6 +202,7 @@ class BackgroundUpdater:
             and (not self._rates_failed or now - checked < RETRY_AFTER)
         ):
             return False
+        self._wait_for_user_downloads()
         results = update_rates()
         self._rates_checked, self._rates_failed = now, bool(results.get('failed'))
         return True
@@ -186,8 +216,15 @@ def start_background_updates():
     UPDATER.start()
 
 
+def user_download():
+    """Context of a download started from the dashboard: the background update of the server waits until it ends."""
+    return UPDATER.user_download()
+
+
 def status_text(status: UpdateStatus) -> str:
     """The state of the background update, for the dashboard."""
+    if status.paused:
+        return f'Background update of the prices paused while your download runs ({status.done:,} / {status.total:,})'
     if status.running:
         return f'Updating prices in the background: {status.done:,} / {status.total:,} listings'
     if status.finished_at is None:

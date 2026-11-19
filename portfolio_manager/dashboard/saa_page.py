@@ -18,7 +18,7 @@ from dash import ALL, MATCH, Input, Output, State, callback, ctx, dcc, html, no_
 from dash.exceptions import PreventUpdate
 
 from portfolio_manager.analytics.metrics import Metrics
-from portfolio_manager.analytics.price_updates import UPDATER, status_text
+from portfolio_manager.analytics.price_updates import UPDATER, status_text, user_download
 from portfolio_manager.analytics.saa import split_values
 from portfolio_manager.backtest.saa import BENCHMARK_LABEL, PORTFOLIO_LABEL, backtest_allocation
 from portfolio_manager.backtest.workflows import account_benchmark, refresh_benchmark
@@ -1170,7 +1170,8 @@ def set_benchmark(submitted, data: dict, account_name: str) -> tuple:
     except ValueError as e:
         return html.Span(f'Benchmark not set: {e}', className='text-danger'), no_update
     try:
-        refresh_benchmark(account)
+        with user_download():
+            refresh_benchmark(account)
     except FileNotFoundError:  # the account has no saved backtest yet: computed at its first Update
         return f'Benchmark set {time.strftime("%H:%M")} (computed at the next Update)', time.time()
     except Exception as e:  # e.g. no connection to Yahoo Finance: the new benchmark is saved anyway
@@ -1243,7 +1244,8 @@ def run_backtest(request, submitted, cancelled, data: dict, account_name: str) -
     note = ''
     if ctx.triggered_id == 'saa-update-confirm' and ctx.triggered[0]['prop_id'].endswith('submit_n_clicks'):
         due = list(due_listings(backtest_tickers(account, allocation)))
-        update_listings(due)
+        with user_download():
+            update_listings(due)
         still = list(due_listings(due))
         note = f', prices of {len(due) - len(still)} of {len(due)} instruments updated'
         if still:

@@ -1280,9 +1280,17 @@ def draw_backtest(active_tab: str, version, loaded, data: dict | None, account_n
         message = dbc.Alert('No backtest of this allocation yet: press "Run backtest".', color='info')
         return get_fig_empty(), get_fig_empty(), None, message
     computed = f'{datetime.fromtimestamp(backtest.saved_at):%Y-%m-%d %H:%M}' if backtest.saved_at else 'unknown'
+    start, end = backtest.weights.index[0], backtest.navs.index[-1]
+    compared = backtest.navs.index[0]
+    comparison = (
+        f' Compared with the benchmark and the portfolio from {compared:%Y-%m-%d}, the first day all three have data'
+        ' (each at 100 that day).'
+        if compared > start
+        else ''
+    )
     info = html.Div(
-        f'Backtest computed on {computed}, from {backtest.navs.index[0]:%Y-%m-%d} to {backtest.navs.index[-1]:%Y-%m-%d}'
-        f' (in the account currency, 0.10% transaction costs). {start_text(backtest)}'
+        f'Backtest computed on {computed}, from {start:%Y-%m-%d} to {end:%Y-%m-%d}'
+        f' (in the account currency, 0.10% transaction costs). {start_text(backtest)}{comparison}'
         ' Run it again after changing the allocation.',
         className='small text-muted',
     )

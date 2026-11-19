@@ -45,6 +45,7 @@ SPLIT_OPTIONS = {
 ALLOCATION_LABEL = 'Allocation'
 MIN_METRICS_DAYS = 60  # shorter series get no metrics
 COMPARISONS = 'saa_comparisons'  # kind of derived result: the comparison of a saved backtest
+COMPARISON_VERSION = 2  # saved comparisons of an older version are computed again (2: from a common start)
 CASH_LABEL = 'Cash'  # column of the cash in the weights of a backtest
 # a backtest starting this much after the first prices of its last instrument waited for the optimizer's history
 OPTIMIZER_HISTORY_GAP_DAYS = 20
@@ -295,8 +296,9 @@ def summary_rows(allocation: Allocation) -> list[tuple[int, str, str]]:
 # SAVED BACKTEST
 @dataclass
 class SavedBacktest:
-    """The saved backtest of an allocation with the series it is compared with (each starting at 100), the effective
-    weights by date, the risk metrics of each series (over its own dates) and when it was computed.
+    """The saved backtest of an allocation with the series it is compared with (all starting at 100 on the first day
+    they all have), the effective weights by date (from the start of the backtest), the risk metrics of each series
+    (over the same dates) and when it was computed.
     """
 
     navs: pd.DataFrame
@@ -327,28 +329,46 @@ def _saved_backtest(account: Account, name: str, saved_at: float | None, benchma
 def _comparison(
     account: Account, name: str, saved_at: float | None, benchmark: str, nav: pd.Series
 ) -> tuple[pd.DataFrame, dict]:
-    """The allocation, the benchmark and the portfolio over the dates of a backtest (each starting at 100) and their
-    risk metrics: saved with the backtest (COMPARISONS), computed and saved the first time, and again after a change
-    of the benchmark (benchmark_key).
+    """The allocation, the benchmark and the portfolio over the common dates of a backtest (see common_period) and
+    their risk metrics over these dates: saved with the backtest (COMPARISONS), computed and saved the first time, and
+    again after a change of the benchmark (benchmark_key).
     """
     folder = derived_folder(COMPARISONS, name)
     saved = load_attributes(folder) if has_tables(folder) else {}
-    if saved.get('backtest_saved_at') == saved_at and saved.get('benchmark') == benchmark:
+    if (
+        saved.get('backtest_saved_at') == saved_at
+        and saved.get('benchmark') == benchmark
+        and saved.get('version') == COMPARISON_VERSION
+    ):
         tables = load_tables(folder)
         metrics_df = tables['metrics']
         return tables['navs'], {label: metrics_df[label].rename(label) for label in metrics_df.columns}
-    navs = pd.concat(
-        [(100.0 * nav / nav.iloc[0]).rename(ALLOCATION_LABEL), comparison_navs(account, nav.index)], axis=1
-    )
+    navs = common_period(pd.concat([nav.rename(ALLOCATION_LABEL), comparison_navs(account, nav.index)], axis=1))
     metrics = {}
     for label in navs.columns:
         series = navs[label].dropna()
         if len(series) >= MIN_METRICS_DAYS:
             perf = compute_portfolio_metrics(nav=series, compute_hist_metrics=False, print_results=False)
             metrics[label] = perf[PerfDataTabs.RISK_METRICS].rename(label)
-    attributes = {'backtest_saved_at': saved_at, 'benchmark': benchmark}
+    attributes = {'backtest_saved_at': saved_at, 'benchmark': benchmark, 'version': COMPARISON_VERSION}
     save_tables(folder, {'navs': navs, 'metrics': pd.DataFrame(metrics)}, attributes=attributes)
     return navs, metrics
+
+
+def common_period(navs: pd.DataFrame, min_days: int = MIN_METRICS_DAYS) -> pd.DataFrame:
+    """The series (the allocation first) from the first day they all have a value, each at 100 that day, so that they
+    are compared over the same dates (e.g. a portfolio younger than the backtest); a series that would leave fewer
+    than min_days in common is left out instead.
+    """
+    firsts = navs.apply(pd.Series.first_valid_index)
+    kept = [
+        c
+        for c in navs.columns
+        if c == ALLOCATION_LABEL or (pd.notna(firsts[c]) and len(navs.loc[firsts[c] :]) >= min_days)
+    ]
+    start = firsts[kept].max()
+    common = navs.loc[start:, kept].ffill()
+    return common.div(common.iloc[0]).mul(100.0)
 
 
 def start_limit(backtest: SavedBacktest) -> tuple[list[str], pd.Timestamp] | None:
@@ -370,7 +390,7 @@ def start_text(backtest: SavedBacktest) -> str:
     if limit is None:
         return ''
     tickers, first_day = limit
-    start = backtest.navs.index[0]
+    start = backtest.weights.index[0]
     names = ' and '.join(tickers)
     text = f'It starts on {start:%Y-%m-%d} because {names} {"has" if len(tickers) == 1 else "have"} prices only from '
     text += f'{first_day:%Y-%m-%d}'

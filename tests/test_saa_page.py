@@ -160,6 +160,37 @@ def test_comparison_saved_with_the_backtest_and_read_back(tmp_path, monkeypatch)
     assert computed == [300, 300, 300]
 
 
+def test_allocation_benchmark_and_portfolio_compared_from_a_common_start(tmp_path, monkeypatch):
+    import numpy as np
+
+    import portfolio_manager.storage.tables as tables
+
+    monkeypatch.setattr(tables, 'DERIVED_DIR', str(tmp_path))
+    days = pd.bdate_range('2022-01-03', periods=400)
+    nav = pd.Series(np.linspace(1000, 1400, len(days)), index=days)
+    portfolio_start = days[150]  # the account started trading later than the backtest
+
+    def fake_comparison(account, index):
+        portfolio = pd.Series(np.linspace(100, 130, len(index)), index=index).where(index >= portfolio_start)
+        return pd.DataFrame({'Benchmark': np.linspace(100, 120, len(index)), 'Portfolio': portfolio}, index=index)
+
+    monkeypatch.setattr(data, 'comparison_navs', fake_comparison)
+    navs, metrics = data._comparison(CHF, 'Portfolio EUR SAA Test', 1.0, 'benchmark A', nav)
+    assert navs.index[0] == portfolio_start and navs.iloc[0].tolist() == [100.0, 100.0, 100.0]
+    assert navs.notna().all().all()
+    # the metrics of the three over the same dates
+    assert metrics['Allocation']['Total Return'] == pytest.approx(nav.iloc[-1] / nav.loc[portfolio_start] - 1)
+
+
+def test_series_starting_too_late_left_out_of_the_comparison():
+    days = pd.bdate_range('2024-01-01', periods=200)
+    navs = pd.DataFrame({'Allocation': 1.0, 'Benchmark': 2.0, 'Portfolio': 3.0}, index=days)
+    navs.loc[: days[-30], 'Portfolio'] = None  # only the last 30 days: fewer than the metrics need
+    common = data.common_period(navs)
+    assert list(common.columns) == ['Allocation', 'Benchmark'] and common.index[0] == days[0]
+    assert (common == 100.0).all().all()
+
+
 def test_only_a_complete_allocation_with_manual_weights_can_be_the_benchmark():
     allocation = balanced()  # 60% equity: Switzerland 25%, Global 75%; 40% bonds; rebalanced quarterly
     assert data.can_be_benchmark(allocation)
@@ -200,8 +231,9 @@ def test_start_explained_by_the_instruments_with_the_shortest_history(monkeypatc
     assert data.start_text(backtest) == 'It starts on 2021-05-20 because V3GX.SW has prices only from 2021-05-20.'
     assert asked[-1] == ['CHSPI.SW', 'V3GX.SW', 'IGLC.SW']  # not the cash
     firsts['IGLC.SW'] = '2021-05-20'  # two instruments start on the same day
+    later_days = days + pd.Timedelta(days=92)  # the backtest starts 3 months after the prices
     later = data.SavedBacktest(
-        navs=navs.set_axis(days + pd.Timedelta(days=92)), weights=weights, metrics={}, saved_at=None
+        navs=navs.set_axis(later_days), weights=weights.set_axis(later_days), metrics={}, saved_at=None
     )
     assert data.start_text(later) == (
         'It starts on 2021-08-20 because IGLC.SW and V3GX.SW have prices only from 2021-05-20, '

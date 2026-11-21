@@ -87,6 +87,18 @@ def available_update(account: Account, now: datetime | None = None) -> str | Non
     return f'The prices of {final_day:%a %d %b} are final since {final_since(final_day):%a %d %b %H:%M}: press Update'
 
 
+def last_update_text(account: Account, now: datetime | None = None) -> str:
+    """When the data of an account was last updated (its saved backtest), with the day unless it is today; empty
+    without an update.
+    """
+    updated_at = tables_version(derived_folder(BACKTESTS, account.name))
+    if not updated_at:
+        return ''
+    when = datetime.fromtimestamp(updated_at)
+    today = (now or datetime.now()).date()
+    return f'Updated today at {when:%H:%M}' if when.date() == today else f'Updated on {when:%a %d %b} at {when:%H:%M}'
+
+
 def missing_data(account: Account | None, update_hint: str) -> str | None:
     """Why the pages of an account cannot be drawn yet (None if they can): no account, account not connected, or no
     saved data (the hint says how to get it).

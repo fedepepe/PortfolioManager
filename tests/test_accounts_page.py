@@ -157,7 +157,26 @@ def test_failed_update_is_shown_next_to_the_button(client, monkeypatch):
     monkeypatch.setattr(portfolio_page, 'update_account', failing)
     add_account('Portfolio CHF', Brokers.DEGIRO, currency='CHF')
     response = call(
-        client, 'update-status.children', {'button-update.n_clicks': 1}, {'dropdown-portfolio.value': 'Portfolio CHF'}
+        client, 'store-data-version.data', {'button-update.n_clicks': 1}, {'dropdown-portfolio.value': 'Portfolio CHF'}
     )
     assert 'Not updated: credentials/portfolio_chf.json' in json.dumps(response['update-status'])
     assert 'store-data-version' not in response  # the figures are not redrawn
+
+
+def test_update_time_of_the_selected_account(client, monkeypatch):
+    import datetime as dt
+
+    import portfolio_manager.dashboard.data_service as service
+
+    account = add_account('Portfolio CHF', Brokers.DEGIRO, currency='CHF')
+    now = dt.datetime(2026, 11, 21, 18, 0)
+    monkeypatch.setattr(service, 'tables_version', lambda folder: 0.0)
+    assert service.last_update_text(account, now) == ''  # never updated
+    monkeypatch.setattr(service, 'tables_version', lambda folder: dt.datetime(2026, 11, 21, 9, 5).timestamp())
+    assert service.last_update_text(account, now) == 'Updated today at 09:05'
+    monkeypatch.setattr(service, 'tables_version', lambda folder: dt.datetime(2026, 11, 20, 18, 42).timestamp())
+    assert service.last_update_text(account, now) == 'Updated on Fri 20 Nov at 18:42'
+    # an account without data shows none (not the time of the account shown before)
+    monkeypatch.setattr(service, 'tables_version', lambda folder: 0.0)
+    page = render(client, 'fig_navs.figure', 'dropdown-portfolio', 'Portfolio CHF')
+    assert page['update-status']['children'] == ''

@@ -27,6 +27,7 @@ from portfolio_manager.dashboard.data_service import (
     available_update,
     get_benchmark_data,
     get_portfolio_data,
+    last_update_text,
     missing_data,
     update_account,
 )
@@ -298,13 +299,14 @@ def select_account(account_name: str) -> str:
     Output('button-update', 'disabled'),
     Output('button-update', 'color'),
     Output('button-update', 'title'),
+    Output('update-status', 'children'),
     Input('dropdown-portfolio', 'value'),
     Input('store-data-version', 'data'),
 )
 def render_portfolio(account_name: str, data_version) -> tuple:
     """Draw the figures of the Portfolio page from the saved data of the account; without data, a message instead
     (Update is disabled until the account is connected). Update is orange when the prices of a trading day became
-    final after the last update.
+    final after the last update; next to it, when the selected account was last updated.
     """
     account = get_account(account_name)
     missing = missing_data(account, NO_DATA_HINT)
@@ -318,6 +320,7 @@ def render_portfolio(account_name: str, data_version) -> tuple:
             not_connected,
             UPDATE_COLOR,
             None,
+            '',
         )
     pf_data = get_portfolio_data(account)
     bm_data = get_benchmark_data(account)
@@ -332,19 +335,21 @@ def render_portfolio(account_name: str, data_version) -> tuple:
     hint = available_update(account)
     color = UPDATE_AVAILABLE_COLOR if hint else UPDATE_COLOR
     figs = (with_ui_revision(fig, account_name) for fig in figs)
-    return *figs, get_table_perf(pf_data), None, {}, False, color, hint or 'Up to date'
+    return *figs, get_table_perf(pf_data), None, {}, False, color, hint or 'Up to date', last_update_text(account)
 
 
 # update the data of the selected account; the new data version triggers the redraw of the figures
 @callback(
     Output('store-data-version', 'data'),
-    Output('update-status', 'children'),
+    Output('update-status', 'children', allow_duplicate=True),
     Input('button-update', 'n_clicks'),
     State('dropdown-portfolio', 'value'),
     prevent_initial_call=True,
 )
 def run_update(n_clicks, account_name: str) -> tuple:
-    """Update the data of the account (Update button); the new data version redraws the figures."""
+    """Update the data of the account (Update button); the new data version redraws the figures and the time of the
+    update. A failure is shown next to the button instead (until the page is redrawn).
+    """
     # Dash also calls this when the page is built (prevent_initial_call does not apply, since
     # store-data-version is outside the page): update only on an actual click
     if not n_clicks:
@@ -355,7 +360,7 @@ def run_update(n_clicks, account_name: str) -> tuple:
     except Exception as e:  # any download or computation problem: shown next to the button, details in the log
         logger.exception('Update of %s failed', account_name)
         return no_update, html.Span(f'Not updated: {hide_secrets(str(e))}', className='text-danger')
-    return time.time(), f'Updated {time.strftime("%H:%M")}'
+    return time.time(), no_update
 
 
 # list the instruments matching the typed text as "{ticker} - {name}" (database only, no download)
